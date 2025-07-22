@@ -46,8 +46,8 @@ if __name__ == '__main__':
     e_img_embed_dir = os.path.join(DATA_DIR, 'embeddings_img_extracted')
     metadata_dir = os.path.join(DATA_DIR, 'metadata')
     index_directory = os.path.join(DATA_DIR, 'index')
-    index_img_directory = os.path.join(DATA_DIR, 'index_img_dir')
-    index_keyword_directory = os.path.join(DATA_DIR, 'index_keyword_dir')
+    index_img_directory = os.path.join(DATA_DIR, 'index_img')
+    index_keyword_directory = os.path.join(DATA_DIR, 'index_keyword')
 
     text_model = gs.TextEmbeddingModel()
     devices = []
