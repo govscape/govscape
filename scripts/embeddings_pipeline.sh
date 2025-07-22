@@ -6,6 +6,7 @@ rm -rf data/prod
 
 # Download the indices
 s5cmd sync 's3://bcgl-public-bucket/prod-serving/index/*' data/prod/index
+s5cmd sync 's3://bcgl-public-bucket/prod-serving/index_img/*' data/prod/index_img
 s5cmd sync 's3://bcgl-public-bucket/prod-serving/index_keyword/*' data/prod/index_keyword
 
 # Run the embeddings pipeline

@@ -129,6 +129,12 @@ if __name__ == '__main__':
         print("finished uploading embed img extracted")
         upload_directory_to_s3(metadata_dir, data_dir_s3)
         print("finished uploading metadata")
+        upload_directory_to_s3(index_directory, data_dir_s3)
+        print("finished uploading embedding index")
+        upload_directory_to_s3(index_img_directory, data_dir_s3)
+        print("finished uploading image embedding index")
+        upload_directory_to_s3(index_keyword_directory, data_dir_s3)
+        print("finished uploading keyword index")
         upload_directory_to_s3(pdf_directory, data_dir_s3)
         print("finished uploading PDFs")
 
