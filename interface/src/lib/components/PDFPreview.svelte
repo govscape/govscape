@@ -65,6 +65,29 @@
     currentPageIndex--;
   }
 
+  async function downloadPDF() {
+    if (!pdfData?.id) return;
+    // Construct the S3 URL
+    const s3Url = `https://bcgl-public-bucket.s3.amazonaws.com/prod-serving/PDFs/${pdfData.id}`;
+    try {
+      const response = await fetch(s3Url);
+      if (!response.ok) throw new Error('Failed to download PDF');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+
+      // Create a temporary link to trigger download
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = pdfData.id.split('/').pop() || 'document.pdf';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Error downloading PDF: ' + e.message);
+    }
+  }
+
   onDestroy(() => {
     if (typeof window !== 'undefined') {
       document.body.style.overflow = '';
@@ -103,6 +126,9 @@
             <div class="preview-details">
               <div><b>Subdomain:</b> {pdfData?.subdomain || 'epa.gov'}</div>
               <div><b>Publish Date:</b> {pdfData?.publish_date || '2022-01-01'}</div>
+              <button class="btn btn-primary" on:click={downloadPDF}>
+                <div> Download PDF </div>
+              </button>
             </div>
             <div class="preview-thumbnail-panel">
               <h6 class="preview-thumbnail-panel-title">All Pages</h6>
