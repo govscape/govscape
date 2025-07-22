@@ -8,6 +8,10 @@ import pickle as pkl
 from abc import ABC, abstractmethod
 import contextlib
 import sys
+from whoosh.index import create_in, open_dir
+from whoosh.fields import *
+from whoosh.qparser import QueryParser
+
 # Avoid annoying output from faiss during import
 @contextlib.contextmanager
 def suppress_output():
@@ -179,3 +183,101 @@ class FAISSIndex(AbstractVectorIndex):
 
     def total_embeddings(self):
         return self.faiss_index.ntotal
+
+
+class AbstractKeywordIndex(ABC):
+
+    @abstractmethod
+    def __init__(self, index_keyword_directory):
+        self.index_keyword_directory = index_keyword_directory
+        pass
+
+    @abstractmethod
+    def build_index(self):
+        pass
+
+    @abstractmethod
+    def add_batch(self, texts, pdf_names, pages):
+        pass
+
+    @abstractmethod
+    def load_index(self):
+        pass
+
+    @abstractmethod
+    def save_index(self):
+        pass
+
+    @abstractmethod
+    def search(self, query_vector, k):
+        """
+        Search for the k closest PDFs to the query vector.
+        :param query_vector: The vector to search for.
+        :param k: The number of closest arrays to return.
+        :return: A tuple of distances, pdf_names, and pages.
+        """
+        pass
+
+    @abstractmethod
+    def total_texts(self):
+        """
+        Returns the total number of embeddings in the index.
+        :return: Total number of embeddings.
+        """
+        pass
+
+class WhooshIndex(AbstractKeywordIndex):
+    def __init__(self, index_keyword_directory):
+        self.index_keyword_directory = index_keyword_directory
+        self.index = None
+        pass
+
+    def build_index(self):
+        # Define schema: text (content), pdf_name, page
+        schema = Schema(text=TEXT(stored=True), pdf_name=ID(stored=True), page=NUMERIC(stored=True))
+        if not os.path.exists(self.index_keyword_directory):
+            os.makedirs(self.index_keyword_directory)
+        self.index = create_in(self.index_keyword_directory, schema)
+
+    # If the index does not exist, call build_index to create it
+    # Then, add the documents to the index
+    def add_batch(self, texts, pdf_names, pages):
+        # If index doesn't exist, build it
+        if self.index is None:
+            self.build_index()
+        writer = self.index.writer()
+        for text, pdf_name, page in zip(texts, pdf_names, pages):
+            writer.add_document(text=text, pdf_name=pdf_name, page=page)
+        writer.commit()
+
+    def save_index(self):
+        # Whoosh index is saved automatically on commit
+        pass
+
+    def load_index(self):
+        if os.path.exists(self.index_keyword_directory):
+            self.index = open_dir(self.index_keyword_directory)
+        else:
+            raise FileNotFoundError(f"Index directory {self.index_keyword_directory} does not exist.")
+
+    def search(self, query, k):
+        if self.index is None:
+            self.load_index()
+        with self.index.searcher() as searcher:
+            parser = QueryParser("text", self.index.schema)
+            q = parser.parse(query)
+            results = searcher.search(q, limit=k)
+            pdf_names = [r['pdf_name'] for r in results]
+            pages = [r['page'] for r in results]
+            scores = [r.score for r in results]
+        return scores, pdf_names, pages
+
+    def total_texts(self):
+        if self.index is None:
+            self.load_index()
+        with self.index.searcher() as searcher:
+            return searcher.doc_count()
+
+    def total_pages(self):
+        # Alias for total_texts (since each doc is a page)
+        return self.total_texts()

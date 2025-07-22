@@ -19,6 +19,7 @@ import shutil
 import multiprocessing as mp
 import pypdfium2
 from .pdf_to_embed_multigpu import TextEmbeddingModel, compute_text_embeddings
+from .indexing import WhooshIndex
 
 
 # OVERALL NOTE FOR THIS VERSION: ********************************************************************************************
@@ -253,6 +254,7 @@ class PDFsToEmbeddings:
         self.embeddings_path = data_dir + "/embeddings"
         self.embeddings_img_path = data_dir + "/embeddings_img_pg"
         self.embeddings_img_e_path = data_dir + "/embeddings_img_extracted"
+        self.index_keyword_directory = data_dir + "/index_keyword"
         self.metadata_dir = data_dir + "/metadata"
         self.text_model = text_model  # TextEmbeddingModel
         self.model_pool = model_pool  # for multi-gpu use, this is the model_pool
@@ -430,10 +432,42 @@ class PDFsToEmbeddings:
                 json.dump(json_data, json_file, indent=4)
 
     # *******************************************************************************************************************
+    # keyword indexing
+    # *******************************************************************************************************************
+
+    def add_texts_to_whoosh_index(self, pdf_files):
+        """Add text from the current batch of pdf_files to the WhooshIndex object."""
+        whoosh_index = WhooshIndex(self.index_keyword_directory)
+        texts = []
+        pdf_names = []
+        pages = []
+        for pdf_file in pdf_files:
+            pdf_txt_subdir = os.path.join(self.txts_path, os.path.splitext(pdf_file)[0])
+            if not os.path.exists(pdf_txt_subdir):
+                continue
+            for txt_file in os.listdir(pdf_txt_subdir):
+                txt_path = os.path.join(pdf_txt_subdir, txt_file)
+                try:
+                    with open(txt_path, 'r', encoding='utf-8') as f:
+                        text = f.read()
+                    if text.strip():
+                        texts.append(text)
+                        pdf_names.append(os.path.splitext(pdf_file)[0].rpartition('_')[0])
+                        # Extract page number from filename (assumes format: <pdfname>_<page>.txt)
+                        page_num = int(os.path.splitext(txt_file)[0].split('_')[-1])
+                        pages.append(page_num)
+                except Exception as e:
+                    print(f"Error reading {txt_path}: {e}")
+        if texts:
+            whoosh_index.add_batch(texts, pdf_names, pages)
+            print(f"Added {len(texts)} pages to Whoosh keyword index.")
+        else:
+            print("No text pages found to add to Whoosh keyword index.")
+
+    # *******************************************************************************************************************
     # overall pipeline
     # *******************************************************************************************************************
 
-    # given list of pdf_files. TODO: update code to handle case where pdf_files is None
     def pdfs_to_embeddings(self, pdf_files=None):
         pdf_files = pdf_files or os.listdir(self.pdfs_path)
         time1 = time.time()
@@ -445,7 +479,6 @@ class PDFsToEmbeddings:
         print("Converting txts to embeddings")
         compute_text_embeddings(self.text_model, self.model_pool, self.txts_path, self.embeddings_path)
         time3 = time.time()
-        time4 = time.time()
         
         img_paths = []
         embedding_paths = []
@@ -464,34 +497,29 @@ class PDFsToEmbeddings:
 
         print("Embeddings computed. Shape:", emb.shape)
         self.convert_img_embedding_to_files(emb, embedding_paths)
-        time5 = time.time()
-
-        print("Converting pdfs to extracted imgs and embds")
-#        self.convert_pdfs_to_extracted_imgs(pdf_files)  # extract images and save
-#        extract_img_paths, extract_all_embed_file_paths = self.convert_imgs_to_embeddings(self.embeddings_img_e_path, self.extracted_img_path)
-#        emb_e = img_model.encode_images(extract_img_paths)
-#        self.convert_img_embedding_to_files(emb_e, extract_all_embed_file_paths)
-        time6 = time.time()
+        time4 = time.time()
 
         print("Creating metadata jsons for each pdf")
         self.create_metadata_jsons(pdf_files)  # extract images and save
-        time7 = time.time()
+        time5 = time.time()
 
-        first = time2 - time1
-        sec = time3 - time2
-        third = time4 - time3
-        fourth = time5 - time4
-        fifth = time6 - time5
-        sixth = time7 - time6
+        print("Creating Keyword Index")
+        self.add_texts_to_whoosh_index(pdf_files)
+        time6 = time.time()
 
-        print("pdf -> txt time: ", first)
-        print("txt -> embed time: ", sec)
-        print("pdf -> img per page time: ", third)
-        print("img per page -> embed time: ", fourth)
-        print("extracted img -> embed time: ", fifth)
-        print("pdf -> json time: ", sixth)
+        pdf_to_txt_img = time2 - time1
+        text_embed_time = time3 - time2
+        img_embed_time = time4 - time3
+        metadata_time = time5 - time4
+        keyword_indexing_time = time6 - time5
 
-        return first, sec, third, fourth, fifth, sixth
+        print("pdf -> txt and img time: ", pdf_to_txt_img)
+        print("txt -> embed time: ", text_embed_time)
+        print("img per page -> embed time: ", img_embed_time)
+        print("pdf -> json time: ", metadata_time)
+        print("keyword indexing time: ", keyword_indexing_time)
+
+        return pdf_to_txt_img, text_embed_time, img_embed_time, metadata_time, keyword_indexing_time
 
     # *******************************************************************************************************************
     # helper functions

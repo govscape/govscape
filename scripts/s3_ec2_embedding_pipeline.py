@@ -57,9 +57,8 @@ if __name__ == '__main__':
     progress_path = 'progress.json'  # when downloading files, keeps track of which page you last downloaded so you can resume later. haven't used this yet
 
     # ****************************************************************************************************
-
     # for analyzing: 
-    pipeline_times = {'list' : 0, 'download' : 0, 'first': 0, 'second': 0, 'third': 0, 'fourth': 0, 'fifth' : 0, 'sixth': 0}  # to keep track of the time it takes for each step in the pipeline
+    pipeline_times = {'list' : 0, 'download' : 0, 'pdf_to_txt_img': 0, 'text_embed_time': 0, 'img_embed_time': 0, 'metadata_time': 0, 'keyword_indexing_time' : 0, 'upload' : 0}  # to keep track of the time it takes for each step in the pipeline
 
     # gets pdfs from s3
     def list_pdfs(num_pages=1):
@@ -94,19 +93,18 @@ if __name__ == '__main__':
     # uploads dir of files to s3
     def upload_directory_to_s3(ec2_dir, s3_dir):
         subprocess.run(f"s5cmd --log error cp {ec2_dir} s3://{bucket_name}/{s3_dir}".split())
-        
+
     # processing the pdfs: running through embedding pipeline and uploading to s3
     def process_pdfs(pdf_files, processor):
         start_time = time.time()
 
         # PROCESS PDFS HERE 
-        one, two, three, four, five, six = processor.pdfs_to_embeddings(pdf_files=pdf_files)
-        pipeline_times['first'] += one
-        pipeline_times['second'] += two
-        pipeline_times['third'] += three 
-        pipeline_times['fourth'] += four
-        pipeline_times['fifth'] += five
-        pipeline_times['sixth'] += six
+        pdf_to_txt_img, text_embed_time, img_embed_time, metadata_time, keyword_indexing_time = processor.pdfs_to_embeddings(pdf_files=pdf_files)
+        pipeline_times['pdf_to_txt_img'] += pdf_to_txt_img
+        pipeline_times['text_embed_time'] += text_embed_time
+        pipeline_times['img_embed_time'] += img_embed_time 
+        pipeline_times['metadata_time'] += metadata_time
+        pipeline_times['keyword_indexing_time'] += keyword_indexing_time
 
         end_time = time.time()
         duration = end_time - start_time
@@ -136,7 +134,7 @@ if __name__ == '__main__':
 
         time2 = time.time()
 
-        pipeline_times['sixth'] += time2-time1
+        pipeline_times['upload'] += time2-time1
         print("finished uploading current batch")
         print("pipeline times: ", pipeline_times)
 
@@ -193,16 +191,15 @@ if __name__ == '__main__':
                 os.makedirs(pdf_directory, exist_ok=True)
         
         overall_end_time = time.time()
-
         print("TOTAL TIME TO LOAD IS ", (overall_end_time - overall_start_time))
         print("TOTAL TIME list pdfs:",  pipeline_times['list'])
         print("TOTAL TIME download pdfs:",  pipeline_times['download'])
-        print("TOTAL TIME pdf -> txt time:",  pipeline_times['first'])
-        print("TOTAL TIME txt -> embed time:", pipeline_times['second'])
-        print("TOTAL TIME pdf -> img per page time:", pipeline_times['third'])
-        print("TOTAL TIME img per page -> embed time:", pipeline_times['fourth'])
-        print("TOTAL TIME img extracted -> embed time :", pipeline_times['fifth'])
-        print("TOTAL TIME uploading data:", pipeline_times['sixth'])
+        print("TOTAL TIME pdf -> txt and img time:",  pipeline_times['pdf_to_txt_img'])
+        print("TOTAL TIME txt -> embed time:", pipeline_times['text_embed_time'])
+        print("TOTAL TIME img -> embed time:", pipeline_times['img_embed_time'])
+        print("TOTAL TIME metadata time:", pipeline_times['metadata_time'])
+        print("TOTAL TIME keyword indexing time :", pipeline_times['keyword_indexing_time'])
+        print("TOTAL TIME uploading data:", pipeline_times['upload'])
 
     def main():
         batched_file_download(BATCH_SIZE, processor) 
