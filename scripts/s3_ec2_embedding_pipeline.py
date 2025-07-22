@@ -45,6 +45,9 @@ if __name__ == '__main__':
     img_embeddings_dir = os.path.join(DATA_DIR, 'embeddings_img_pg')
     e_img_embed_dir = os.path.join(DATA_DIR, 'embeddings_img_extracted')
     metadata_dir = os.path.join(DATA_DIR, 'metadata')
+    index_directory = os.path.join(DATA_DIR, 'index')
+    index_img_directory = os.path.join(DATA_DIR, 'index_img_dir')
+    index_keyword_directory = os.path.join(DATA_DIR, 'index_keyword_dir')
 
     text_model = gs.TextEmbeddingModel()
     devices = []
@@ -191,10 +194,8 @@ if __name__ == '__main__':
             if os.path.exists(DATA_DIR):
                 shutil.rmtree(DATA_DIR + "/embeddings")
                 shutil.rmtree(DATA_DIR + "/embeddings_img_pg")
-                shutil.rmtree(DATA_DIR + "/embeddings_img_extracted")
                 shutil.rmtree(DATA_DIR + "/txt")
                 shutil.rmtree(DATA_DIR + "/img")
-                shutil.rmtree(DATA_DIR + "/img_extracted")
                 shutil.rmtree(DATA_DIR + "/metadata")
                 os.makedirs(DATA_DIR, exist_ok=True)
 
