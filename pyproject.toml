@@ -10,6 +10,9 @@ package-mode = false
 python = ">=3.10,<3.12"
 govscape = { path = "govscape", develop = true }
 boto3 = "^1.39.4"
+warcio = "^1.7.5"
+pandas = "^2.3.1"
+pyarrow = "^21.0.0"
 
 
 [build-system]
