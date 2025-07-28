@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { apiFetch, getImageBaseUrl } from '../utils/fetch';
+import { userTracker } from '../utils/userTracking.js';
 
 export const searchStore = writable({
   query: '',
@@ -99,6 +100,10 @@ export const searchActions = {
         results: results,
         loading: false
       }));
+
+      if (userTracker.hasConsent()) {
+        userTracker.logSearch(query, search_type, filters);
+      }
     } catch (err) {
       console.error('Search error in store:', err);
       searchStore.update(store => ({

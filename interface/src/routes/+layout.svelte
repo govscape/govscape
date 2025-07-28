@@ -1,3 +1,22 @@
+<script>
+  import { onMount } from 'svelte';
+  import CookieConsent from '$lib/components/CookieConsent.svelte';
+  import { userTracker } from '$lib/utils/userTracking.js';
+
+  let showCookieConsent = false;
+
+  function handleCookieConsent(event) {
+    const { accepted } = event.detail;
+
+    userTracker.updateConsent(accepted);
+    showCookieConsent = false;
+  }
+
+  onMount(() => {
+    showCookieConsent = userTracker.needsConsent();
+  });
+</script>
+
 <div class="app">
   <header>
     <a href="/" class="logo">
@@ -8,8 +27,11 @@
       <a href="/faq">FAQ</a>
     </nav>
   </header>
-
   <slot />
+  <CookieConsent 
+    show={showCookieConsent}
+    on:consent={handleCookieConsent}
+  />
 </div>
 
 <style>
