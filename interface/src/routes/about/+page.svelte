@@ -1,8 +1,3 @@
-<script>
-  import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
-</script>
-
 <main class="about-page">
   <div class="about-container">
     <div class="about-header">
