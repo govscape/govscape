@@ -1,9 +1,9 @@
 <script>
+  import { onMount, onDestroy } from 'svelte';
   import SearchBox from '$lib/components/SearchBox.svelte';
   import ResultsGrid from '$lib/components/ResultsGrid.svelte';
   import PDFPreview from '$lib/components/PDFPreview.svelte';
   import TypingEffect from '$lib/components/TypingEffect.svelte';
-  import { onMount, onDestroy } from 'svelte';
 
   const govDomains = [
     'riversideca.gov',
@@ -34,10 +34,10 @@
     }
     checkScreenSize();
     window.addEventListener('resize', checkScreenSize);
+  });
 
-    return () => {
-      window.removeEventListener('resize', checkScreenSize);
-    };
+  onDestroy(() => {
+    window.removeEventListener('resize', checkScreenSize);
   });
 </script>
 
