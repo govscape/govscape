@@ -51,7 +51,7 @@
             />
           </div>
           <div class="result-info">
-            <div class="info-name">{result.pdf.split('/').pop()}</div>
+            <div class="info-name">{result.crawl_url.split('/').pop().replaceAll("\%20", " ")}</div>
             <div class="info-subdomain">{result.sub_domain || 'Not Available'}</div>
           </div>
         </div>

@@ -72,10 +72,6 @@
             {/each}
           </datalist>
         </div>
-        <div class="filter-item">
-          <label for="pageCount">Page Count</label>
-          <input type="text" id="pageCount" placeholder="Enter range (X-Y)" bind:value={pageCount} on:change={applyFilters} />
-        </div>
       </div>
     </div>
   </div>

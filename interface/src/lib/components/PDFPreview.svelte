@@ -99,7 +99,7 @@
   <div class="modal-backdrop" on:click={closeModal}>
     <div class="modal-content" on:click|stopPropagation>
       <div class="modal-header">
-        <h5 class="modal-title">{pdfData?.id?.split('/').pop() || ''}</h5>
+        <h5 class="modal-title">{pdfData?.crawl_url?.split('/').pop().replaceAll("\%20", " ") || ''}</h5>
         <button class="btn-close" on:click={closeModal}>
           <i class="bi bi-x"></i>
         </button>
@@ -126,7 +126,7 @@
             <div class="preview-details">
               <div><b>Sub-Domain:</b> {pdfData?.sub_domain || 'Not Available'}</div>
               <div><b>Crawl Date:</b> {pdfData?.crawl_date || 'Not Available'}</div>
-              <div><b>Crawl URL:</b> {pdfData?.crawl_url || 'Not Available'}</div>
+              <div><b>Crawl URL:</b> <a href={pdfData?.crawl_url || 'Not Available'}>{pdfData?.crawl_url || 'Not Available'}</a></div>
               <button class="btn btn-primary" on:click={downloadPDF}>
                 <div> Download PDF </div>
               </button>

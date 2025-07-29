@@ -110,7 +110,7 @@ class Server:
         current_k = self.k
         search_results = []
         while len(search_results) < self.k:
-            if current_k > min(100000, index.total_embeddings()): 
+            if current_k > min(100000, index.total_entries()): 
                 break # TODO: If we have to expand beyond 100k, we should do the filter first
             if current_k > self.k:
                 print("doubling k to " + str(current_k) + " to find more results")
@@ -168,7 +168,7 @@ class Server:
         # keep this function to maintain compatibility with scripts/start_server.py
         print("Welcome to End-Of-Term PDF Search Server")
 
-        print("Searching against " + str(self.index.total_embeddings()) + " embeddings\n")
+        print("Searching against " + str(self.index.total_entries()) + " embeddings\n")
         try:
             while True:
                 query = input("Search: ")

@@ -60,7 +60,7 @@ class AbstractVectorIndex(ABC):
         pass
 
     @abstractmethod
-    def total_embeddings(self):
+    def total_entries(self):
         """
         Returns the total number of embeddings in the index.
         :return: Total number of embeddings.
@@ -114,7 +114,7 @@ class DiskANNIndex(AbstractVectorIndex):
         )
         return distances, internal_indices
 
-    def total_embeddings(self):
+    def total_entries(self):
         return 0 # TODO: Implement this method to return the total number of embeddings in the index.
 
 class FAISSIndex(AbstractVectorIndex):
@@ -182,7 +182,7 @@ class FAISSIndex(AbstractVectorIndex):
             page_results.append(pdf_page)
         return D, name_results, page_results
 
-    def total_embeddings(self):
+    def total_entries(self):
         return self.faiss_index.ntotal
 
 
@@ -220,7 +220,7 @@ class AbstractKeywordIndex(ABC):
         pass
 
     @abstractmethod
-    def total_texts(self):
+    def total_entries(self):
         """
         Returns the total number of embeddings in the index.
         :return: Total number of embeddings.
@@ -273,7 +273,7 @@ class WhooshIndex(AbstractKeywordIndex):
             scores = [r.score for r in results]
         return scores, pdf_names, pages
 
-    def total_texts(self):
+    def total_entries(self):
         if self.index is None:
             self.load_index()
         with self.index.searcher() as searcher:
@@ -330,7 +330,7 @@ class AbstractMetadataIndex(ABC):
         pass
 
     @abstractmethod
-    def total_docs(self):
+    def total_entries(self):
         """
         Returns the total number of documents in the index.
         :return: Total number of embeddings.
