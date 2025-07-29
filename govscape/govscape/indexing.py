@@ -356,7 +356,10 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
                 crawl_date TEXT,
                 pdf_name TEXT,
                 sub_domain TEXT
-            )
+            );
+            CREATE INDEX IF NOT EXISTS idx_pdf_name ON metadata (pdf_name);
+            CREATE INDEX IF NOT EXISTS idx_crawl_date ON metadata (crawl_date);
+            CREATE INDEX IF NOT EXISTS idx_sub_domain ON metadata (sub_domain);                
         """)
         self.conn.commit()
 
@@ -387,8 +390,14 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         query = f"SELECT url, crawl_date, pdf_name, sub_domain FROM metadata WHERE pdf_name IN ({placeholders})"
         if filter:
             for key, value in filter.items():
-                if key == 'subdomain' and value != None:
+                if key == 'subDomain' and value != None:
                     query += f" AND sub_domain='{value}'"
+                elif key == 'crawledAfter' and value != None:
+                    date = value.replace("-", "") 
+                    query += f" AND crawl_date>='{date}'"
+                elif key == 'crawledBefore' and value != None:
+                    date = value.replace("-", "") + "999999" # Pad out time to capture all times on that date
+                    query += f" AND crawl_date<='{date}'"
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute(query)
@@ -398,7 +407,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             pdf_name = row[2]
             row_dict = {
                     "url": row[0],
-                    "crawl_date": row[1],
+                    "crawl_date": f"{row[1][0:4]}-{row[1][4:6]}-{row[1][6:8]}",
                     "pdf_name": row[2],
                     "sub_domain": row[3]
                 }

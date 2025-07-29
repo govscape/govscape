@@ -124,8 +124,9 @@
           </div>
           <aside class="preview-sidebar">
             <div class="preview-details">
-              <div><b>Subdomain:</b> {pdfData?.subdomain || 'epa.gov'}</div>
-              <div><b>Publish Date:</b> {pdfData?.publish_date || '2022-01-01'}</div>
+              <div><b>Sub-Domain:</b> {pdfData?.sub_domain || 'Not Available'}</div>
+              <div><b>Crawl Date:</b> {pdfData?.crawl_date || 'Not Available'}</div>
+              <div><b>Crawl URL:</b> {pdfData?.crawl_url || 'Not Available'}</div>
               <button class="btn btn-primary" on:click={downloadPDF}>
                 <div> Download PDF </div>
               </button>

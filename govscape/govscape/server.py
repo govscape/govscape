@@ -125,6 +125,7 @@ class Server:
                     "jpeg": jpeg_file,
                     "crawl_url" : metadata.get("url", ""),
                     "crawl_date": metadata.get("crawl_date", ""),
+                    "sub_domain": metadata.get("sub_domain", ""),
                 })
         
         return {"results": search_results}
@@ -173,4 +174,4 @@ class Server:
 
     def run(self, host="localhost", port=8080, debug=False):
         """Run the Flask server."""
-        self.app.run(host=host, port=port, debug=debug)
+        self.app.run(host=host, port=port, debug=debug, threaded=True)
