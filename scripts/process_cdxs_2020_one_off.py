@@ -24,7 +24,7 @@ def main():
                 'warc_filename': cdx_line[10].replace('/', '_'),
             })
     entries = pd.DataFrame(entries)
-    entries.to_parquet('/home/ubuntu/govscape/data/cdx_dir/pdf_metadata_test.parquet', index=False)
+    entries.to_parquet('/home/ubuntu/govscape/data/cdx_dir/pdf_metadata.parquet', index=False)
     cdx_f.close()
 
 main()

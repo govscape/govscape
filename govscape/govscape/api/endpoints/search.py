@@ -15,7 +15,9 @@ search_result = ns.model('SearchResult', {
     'pdf': fields.String(description='PDF file path'),
     'page': fields.String(description='Page number'),
     'distance': fields.Float(description='Distance score'),
-    'jpeg': fields.String(description='JPEG image path')
+    'jpeg': fields.String(description='JPEG image path'),
+    'crawl_date': fields.String(description='JPEG image path'),
+    'crawl_url': fields.String(description='JPEG image path')
 })
 
 search_response = ns.model('SearchResponse', {

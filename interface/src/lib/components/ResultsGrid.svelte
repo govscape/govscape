@@ -10,10 +10,10 @@
 
   $: results = $searchStore.results;
 
-  function handlePDFSelect(pdf, page) {
+  function handlePDFSelect(pdf, page, crawl_date, crawl_url, sub_domain) {
     const pdfId = pdf.split('/').pop();
 
-    dispatch('pdfSelect', { pdf, page, id: pdfId });
+    dispatch('pdfSelect', { pdf, page, id: pdfId, crawl_date, crawl_url, sub_domain});  
   }
 
   onMount(() => {
@@ -42,7 +42,7 @@
     {#if results.length > 0}
       {#each results as result}
       <div class="grid-item">
-        <div class="result-card" on:click={() => handlePDFSelect(result.pdf, result.page)}>
+        <div class="result-card" on:click={() => handlePDFSelect(result.pdf, result.page, result.crawl_date, result.crawl_url, result.sub_domain)}>
           <div class="image-container">
             <img 
               src={result.jpeg} 
@@ -51,8 +51,8 @@
             />
           </div>
           <div class="result-info">
-            <div class="info-name">{result.pdf.split('/').pop()}</div>
-            <div class="info-subdomain">{result.subdomain || 'subdomain.gov'}</div>
+            <div class="info-name">{result.crawl_url.split('/').pop().replaceAll("\%20", " ")}</div>
+            <div class="info-subdomain">{result.sub_domain || 'Not Available'}</div>
           </div>
         </div>
       </div>

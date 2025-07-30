@@ -68,7 +68,7 @@
   async function downloadPDF() {
     if (!pdfData?.id) return;
     // Construct the S3 URL
-    const s3Url = `https://bcgl-public-bucket.s3.amazonaws.com/prod-serving/PDFs/${pdfData.id}.pdf`;
+    const s3Url = `https://bcgl-public-bucket.s3.amazonaws.com/archive/2020/PDFs/${pdfData.id}.pdf`;
     try {
       const response = await fetch(s3Url);
       if (!response.ok) throw new Error('Failed to download PDF');
@@ -99,7 +99,7 @@
   <div class="modal-backdrop" on:click={closeModal}>
     <div class="modal-content" on:click|stopPropagation>
       <div class="modal-header">
-        <h5 class="modal-title">{pdfData?.id?.split('/').pop() || ''}</h5>
+        <h5 class="modal-title">{pdfData?.crawl_url?.split('/').pop().replaceAll("\%20", " ") || ''}</h5>
         <button class="btn-close" on:click={closeModal}>
           <i class="bi bi-x"></i>
         </button>
@@ -124,8 +124,9 @@
           </div>
           <aside class="preview-sidebar">
             <div class="preview-details">
-              <div><b>Subdomain:</b> {pdfData?.subdomain || 'epa.gov'}</div>
-              <div><b>Publish Date:</b> {pdfData?.publish_date || '2022-01-01'}</div>
+              <div><b>Sub-Domain:</b> {pdfData?.sub_domain || 'Not Available'}</div>
+              <div><b>Crawl Date:</b> {pdfData?.crawl_date || 'Not Available'}</div>
+              <div><b>Crawl URL:</b> <a href={pdfData?.crawl_url || 'Not Available'}>{pdfData?.crawl_url || 'Not Available'}</a></div>
               <button class="btn btn-primary" on:click={downloadPDF}>
                 <div> Download PDF </div>
               </button>

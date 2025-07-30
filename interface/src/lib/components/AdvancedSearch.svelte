@@ -3,8 +3,9 @@
   import { searchStore, searchActions } from '$lib/stores/search';
   export let show = false;
 
-  let crawlDate = '2024';
-  let subdomain = '';
+  let crawledAfter = '';
+  let crawledBefore = ''
+  let subDomain = '';
   let pageCount = '';
 
   const crawlDateOptions = [
@@ -40,8 +41,9 @@
     }
 
     searchActions.updateFilters({
-      crawlDate: crawlDate || null,
-      subdomain: subdomain || null,
+      crawledAfter: crawledAfter || null,
+      crawledBefore: crawledBefore || null,
+      subDomain: subDomain || null,
       minPages: minPages,
       maxPages: maxPages,
     });
@@ -55,23 +57,20 @@
       <div class="filters-grid">
         <div class="filter-item">
           <label for="crawlDate">Crawl Date</label>
-          <select id="crawlDate" bind:value={crawlDate} on:change={applyFilters}>
-            {#each crawlDateOptions as option}
-              <option value={option.value}>{option.label}</option>
-            {/each}
-          </select>
+          <div class="date-range-row">
+            <input type="text" id="crawlDateAfter" placeholder="YYYY-MM-DD" bind:value={crawledAfter} on:change={applyFilters}/>
+            <span class="em-dash">&mdash;</span>
+            <input type="text" id="crawlDateBefore" placeholder="YYYY-MM-DD" bind:value={crawledBefore} on:change={applyFilters}/>
+          </div>
         </div>
         <div class="filter-item">
           <label for="subdomain">Subdomain</label>
-          <select id="subdomain" bind:value={subdomain} on:change={applyFilters}>
+          <input type="text" id="subdomain" placeholder="Enter subdomain" bind:value={subDomain} list="subdomain-options" on:change={applyFilters} />
+          <datalist id="subdomain-options">
             {#each subdomainOptions as option}
               <option value={option.value}>{option.label}</option>
             {/each}
-          </select>
-        </div>
-        <div class="filter-item">
-          <label for="pageCount">Page Count</label>
-          <input type="text" id="pageCount" placeholder="Enter range" bind:value={pageCount} on:change={applyFilters} />
+          </datalist>
         </div>
       </div>
     </div>
@@ -125,5 +124,16 @@
   }
   .filter-item input::placeholder {
     color: var(--text-color-secondary);
+  }
+
+  .date-range-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .em-dash {
+    margin: 0 4px;
+    font-size: 1.2em;
+    color: var(--text-color-secondary, #888);
   }
 </style>

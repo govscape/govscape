@@ -499,6 +499,7 @@ class PDFsToEmbeddings:
         self.convert_img_embedding_to_files(emb, embedding_paths)
         time4 = time.time()
 
+        # TODO: Remove metadata jsons in favor of SQLite Database
         print("Creating metadata jsons for each pdf")
         self.create_metadata_jsons(pdf_files)  # extract images and save
         time5 = time.time()

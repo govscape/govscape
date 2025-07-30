@@ -23,15 +23,18 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="S3 EC2 Embedding Pipeline")
     parser.add_argument('--num_pages_to_process', type=int, default=100, help='Number of pages to process from S3')
     parser.add_argument('--batch_size', type=int, default=1000, help='Number of pdfs to process at a time')
+    parser.add_argument('--bucket_name', type=str, help='S3 Bucket Name')
+    parser.add_argument('--pdf_dir', type=str, help='S3 Directory containing PDFs')
+    parser.add_argument('--data_dir', type=str, help='S3 Directory for output data')
     args = parser.parse_args()
 
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process
     BATCH_SIZE = args.batch_size
 
     # s3://bcgl-public-bucket/2008_EOT_PDFs/PDFs/
-    bucket_name = 'bcgl-public-bucket'
-    pdfs_dir = '2008_EOT_PDFs/PDFs/'# INPUT DATA DIR IN S3 HERE 
-    data_dir_s3 = 'prod-serving/' # OUTPUT OVERALL DATA DIR IN S3 HERE 
+    bucket_name = args.bucket_name # 'bcgl-public-bucket'
+    pdfs_dir = args.pdf_dir # 'archive/2020/PDFs/'# INPUT DATA DIR IN S3 HERE 
+    data_dir_s3 = args.data_dir # 'prod-serving/' # OUTPUT OVERALL DATA DIR IN S3 HERE 
 
     # ****************************************************************************************************
     PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))
