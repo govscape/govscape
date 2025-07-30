@@ -418,7 +418,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         # Return as a dict with lists of dicts representing every time the pdf was crawled
         return metadata
 
-    def total_docs(self):
+    def total_entries(self):
         if self.conn is None:
             self.load_index()
         self.cursor.execute("SELECT COUNT(*) FROM metadata")
