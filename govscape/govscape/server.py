@@ -120,7 +120,7 @@ class Server:
             raise ValueError(f"Unsupported search type: {search_type}")
         
         current_k = self.k * 2
-        results_needed_for_page = page * self.k
+        results_needed_for_page = page * self.k + 1 # we need one extra result to check if there is a next page
         search_results = []
         while len(search_results) < results_needed_for_page:
             # Search for the k closest arrays
