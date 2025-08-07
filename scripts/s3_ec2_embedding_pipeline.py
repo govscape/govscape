@@ -26,7 +26,7 @@ if __name__ == '__main__':
     parser.add_argument('--bucket_name', type=str, help='S3 Bucket Name')
     parser.add_argument('--pdf_dir', type=str, help='S3 Directory containing PDFs')
     parser.add_argument('--data_dir', type=str, help='S3 Directory for output data')
-    parser.add_argument('--model_type', type=bool, help='The model type to use for embedding', default='ST')
+    parser.add_argument('--model_type', type=str, help='The model type to use for embedding', default='ST')
     parser.add_argument('--run_type', type=bool, help='Whether to run the embedding or indexing pipeline')
     args = parser.parse_args()
 

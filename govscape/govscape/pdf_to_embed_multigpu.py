@@ -63,6 +63,8 @@ class BGE_TextEmbeddingModel(EmbeddingModel):
         self.d = self.model.get_sentence_embedding_dimension()
     
     def encode_text(self, text, is_query=False):
+        if is_query:
+            text = "Represent this sentence for searching relevant passages:" + text
         with torch.no_grad():
             embedding = self.model.encode(text, batch_size=GPU_BATCH_SIZE, device=self.device) # hopefully in batches
         return embedding
