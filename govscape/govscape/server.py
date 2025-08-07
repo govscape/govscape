@@ -50,9 +50,9 @@ class Server:
             self.visual_index.load_index()
         elif self.index_type == 'Memory':
             self.text_index = FAISSIndex(self.embedding_directory, self.index_directory)
-            self.text_index.build_index()
+            self.text_index.load_index()
             self.visual_index = FAISSIndex(self.embedding_img_pg_directory, self.index_img_pg_directory)
-            self.visual_index.build_index()
+            self.visual_index.load_index()
         else:
             raise ValueError(f"Unsupported index type: {self.index_type}")
 

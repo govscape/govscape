@@ -8,8 +8,6 @@ s3_prefix="s3://bcgl-public-bucket"
 data_dir="dev-serving"
 
 # Download the indices
-s5cmd sync $s3_prefix/$data_dir/index/* data/prod/index
-s5cmd sync $s3_prefix/$data_dir/index_img/* data/prod/index_img
 s5cmd sync $s3_prefix/$data_dir/index_keyword/* data/prod/index_keyword
 
 # Run the embeddings pipeline

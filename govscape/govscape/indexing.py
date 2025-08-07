@@ -42,6 +42,10 @@ class AbstractVectorIndex(ABC):
         pass
 
     @abstractmethod
+    def add_batch(self, embeddings):
+        pass
+
+    @abstractmethod
     def load_index(self):
         pass
 
@@ -118,44 +122,40 @@ class DiskANNIndex(AbstractVectorIndex):
         return 0 # TODO: Implement this method to return the total number of embeddings in the index.
 
 class FAISSIndex(AbstractVectorIndex):
-    def __init__(self, embedding_directory, index_directory):
-        self.embedding_directory = embedding_directory
+    def __init__(self, index_directory):
         self.index_directory = index_directory
         self.faiss_index = None
+        self.d = None
         self.pdf_names = []
         self.pdf_pages = []
         pass
 
+    def add_batch(self, embeddings, pdf_names, pdf_pages):
+        embeddings = np.asarray(embeddings)
+        if self.faiss_index is None:
+            self.d = embeddings.shape[1]
+            self.faiss_index = faiss.IndexFlatL2(self.d)
+        # embeddings: list or array of shape (n, d)
+        if embeddings.ndim == 1:
+            embeddings = embeddings[np.newaxis, :]
+        if embeddings.shape[1] != self.d:
+            raise ValueError(f"Embedding dimension mismatch: expected {self.d}, got {embeddings.shape[1]}")
+        self.faiss_index.add(embeddings)
+        self.pdf_names.extend(pdf_names)
+        self.pdf_pages.extend(pdf_pages)
+
     def build_index(self):
-        # Train model on test vectors
-        self.pdf_names = []
-        self.pdf_pages = []
-        npy_files = []
-        for root, _, files in os.walk(self.embedding_directory):
-            for file in files:
-                if file.endswith(".npy"):
-                    npy_files.append(os.path.join(root, file))
-                    file = os.path.splitext(file)[0]  # remove .npy extension
-                    self.pdf_names.append(file.rpartition('_')[0])
-                    self.pdf_pages.append(file.rpartition('_')[2])
-
-        # Load each .npy file into an array
-        stacked_array = np.vstack([np.load(file) for file in npy_files])
-        self.d = stacked_array.shape[1]
-
-        # construct faiss index index
-        self.faiss_index = faiss.IndexFlatL2(self.d)
-        self.faiss_index.add(stacked_array)
-        if not os.path.exists(self.index_directory):
-            os.makedirs(self.index_directory)
-        
+        return
 
     def save_index(self):
+        os.makedirs(self.index_directory, exist_ok=True)
         pkl.dump(self, open(self.index_directory + '/faiss_index.pkl', 'wb'))
         print(f"Index saved to {self.index_directory}/faiss_index.pkl")
         return
 
     def load_index(self):
+        if not os.path.exists(self.index_directory + '/faiss_index.pkl'):
+            return
         index = pkl.load(open(self.index_directory + '/faiss_index.pkl', 'rb'))
         self.faiss_index = index.faiss_index
         self.pdf_names = index.pdf_names
