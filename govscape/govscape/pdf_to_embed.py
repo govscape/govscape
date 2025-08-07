@@ -438,23 +438,17 @@ class PDFsToEmbeddings:
         self.create_metadata_jsons(pdf_files)  # extract images and save
         time5 = time.time()
 
-        print("Creating Keyword Index")
-        self.add_texts_to_whoosh_index(pdf_files)
-        time6 = time.time()
-
         pdf_to_txt_img = time2 - time1
         text_embed_time = time3 - time2
         img_embed_time = time4 - time3
         metadata_time = time5 - time4
-        keyword_indexing_time = time6 - time5
 
         print("pdf -> txt and img time: ", pdf_to_txt_img)
         print("txt -> embed time: ", text_embed_time)
         print("img per page -> embed time: ", img_embed_time)
         print("pdf -> json time: ", metadata_time)
-        print("keyword indexing time: ", keyword_indexing_time)
 
-        return pdf_to_txt_img, text_embed_time, img_embed_time, metadata_time, keyword_indexing_time
+        return pdf_to_txt_img, text_embed_time, img_embed_time, metadata_time
 
     # *******************************************************************************************************************
     # helper functions

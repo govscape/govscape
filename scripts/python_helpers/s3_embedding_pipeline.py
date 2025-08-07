@@ -27,7 +27,6 @@ if __name__ == '__main__':
     parser.add_argument('--pdf_dir', type=str, help='S3 Directory containing PDFs')
     parser.add_argument('--data_dir', type=str, help='S3 Directory for output data')
     parser.add_argument('--model_type', type=str, help='The model type to use for embedding', default='ST')
-    parser.add_argument('--run_type', type=bool, help='Whether to run the embedding or indexing pipeline')
     args = parser.parse_args()
 
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process
@@ -39,7 +38,7 @@ if __name__ == '__main__':
     data_dir_s3 = args.data_dir # 'prod-serving/' # OUTPUT OVERALL DATA DIR IN S3 HERE 
 
     # ****************************************************************************************************
-    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
     DATA_DIR = os.path.join(PROJECT_ROOT, 'data', 'prod')
 
     pdf_directory = os.path.join(DATA_DIR, 'PDFs')
@@ -52,7 +51,6 @@ if __name__ == '__main__':
     metadata_dir = os.path.join(DATA_DIR, 'metadata')
     index_directory = os.path.join(DATA_DIR, 'index')
     index_img_directory = os.path.join(DATA_DIR, 'index_img')
-    index_keyword_directory = os.path.join(DATA_DIR, 'index_keyword')
 
     if args.model_type == "ST":
         text_model = gs.ST_TextEmbeddingModel()
@@ -72,7 +70,7 @@ if __name__ == '__main__':
 
     # ****************************************************************************************************
     # for analyzing: 
-    pipeline_times = {'list' : 0, 'download' : 0, 'pdf_to_txt_img': 0, 'text_embed_time': 0, 'img_embed_time': 0, 'metadata_time': 0, 'keyword_indexing_time' : 0, 'upload' : 0}  # to keep track of the time it takes for each step in the pipeline
+    pipeline_times = {'list' : 0, 'download' : 0, 'pdf_to_txt_img': 0, 'text_embed_time': 0, 'img_embed_time': 0, 'metadata_time': 0, 'upload' : 0}  # to keep track of the time it takes for each step in the pipeline
 
     # gets pdfs from s3
     def list_pdfs(num_pages=1):
@@ -113,12 +111,11 @@ if __name__ == '__main__':
         start_time = time.time()
 
         # PROCESS PDFS HERE 
-        pdf_to_txt_img, text_embed_time, img_embed_time, metadata_time, keyword_indexing_time = processor.pdfs_to_embeddings(pdf_files=pdf_files)
+        pdf_to_txt_img, text_embed_time, img_embed_time, metadata_time = processor.pdfs_to_embeddings(pdf_files=pdf_files)
         pipeline_times['pdf_to_txt_img'] += pdf_to_txt_img
         pipeline_times['text_embed_time'] += text_embed_time
         pipeline_times['img_embed_time'] += img_embed_time 
         pipeline_times['metadata_time'] += metadata_time
-        pipeline_times['keyword_indexing_time'] += keyword_indexing_time
 
         end_time = time.time()
         duration = end_time - start_time
@@ -147,10 +144,6 @@ if __name__ == '__main__':
         print("finished uploading embedding index")
         upload_directory_to_s3(index_img_directory, data_dir_s3)
         print("finished uploading image embedding index")
-        upload_directory_to_s3(index_keyword_directory, data_dir_s3)
-        print("finished uploading keyword index")
-        upload_directory_to_s3(pdf_directory, data_dir_s3)
-        print("finished uploading PDFs")
 
         time2 = time.time()
 
@@ -226,7 +219,6 @@ if __name__ == '__main__':
         print("TOTAL TIME txt -> embed time:", pipeline_times['text_embed_time'])
         print("TOTAL TIME img -> embed time:", pipeline_times['img_embed_time'])
         print("TOTAL TIME metadata time:", pipeline_times['metadata_time'])
-        print("TOTAL TIME keyword indexing time :", pipeline_times['keyword_indexing_time'])
         print("TOTAL TIME uploading data:", pipeline_times['upload'])
 
     def main():
