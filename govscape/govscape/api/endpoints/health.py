@@ -20,5 +20,5 @@ class HealthCheck(Resource):
         
         return {
             "status": "healthy", 
-            "embeddings_count": server.faiss_index.ntotal
+            "embeddings_count": server.text_index.total_entries()
         }

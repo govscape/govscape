@@ -168,8 +168,10 @@ if __name__ == '__main__':
 
         
         # After all batches are processed, clean up the directories
-        shutil.rmtree(embedding_directory)
-        shutil.rmtree(index_directory)
+        if os.path.exists(embedding_directory):
+            shutil.rmtree(embedding_directory)
+        if os.path.exists(index_directory):
+            shutil.rmtree(index_directory)
 
         overall_end_time = time.time()
         print("TOTAL TIME TO LOAD IS ", (overall_end_time - overall_start_time))
