@@ -14,4 +14,6 @@ WORKDIR /home/govscape
 COPY . .
 RUN poetry install
 
-CMD ["poetry", "run", "python", "scripts/start_api_server.py"]
+EXPOSE 8080
+
+CMD ["poetry", "run", "gunicorn", "-c", "gunicorn.conf.py", "scripts.python_helpers.start_api_server:create_app()"]

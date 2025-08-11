@@ -16,7 +16,31 @@ To run the initial version, you first build the embeddings, indices, etc. with:
 poetry run python3 scripts/run_embedding_pipeline.py -p "data/test_data/TechnicalReport234PDFs" -d "data/test_data"
 ```
 
-Then, you run the RESTful API server with:
+Then, you run the RESTful API server with Gunicorn (for production, default worker_class=sync):
+```bash
+GUNICORN_WORKERS=2 \
+poetry run gunicorn -c gunicorn.conf.py scripts.python_helpers.start_api_server:create_app()
+```
+
+Or use the wrapper to pass your usual CLI app arguments along with Gunicorn:
+```bash
+poetry run python scripts/python_helpers/run_gunicorn.py \
+  -p data/test_data/TechnicalReport234PDFs \
+  -d data/test_data \
+  -tm ST -vm CLIP -k 20 -i Memory -- \
+  gunicorn -c gunicorn.conf.py scripts.python_helpers.start_api_server:create_app()
+```
+
+Tuning knobs (Gunicorn env vars supported by `gunicorn.conf.py`):
+- `GUNICORN_WORKERS`
+- `GUNICORN_THREADS` (only applies to gthread workers)
+- `GUNICORN_WORKER_CLASS`
+- `GUNICORN_TIMEOUT`
+- `GUNICORN_MAX_REQUESTS`
+- `GUNICORN_MAX_REQUESTS_JITTER`
+- `GUNICORN_PRELOAD_APP`
+
+For development, you can still use the simple runner:
 ```bash
 poetry run python3 scripts/start_api_server.py -p "data/test_data/TechnicalReport234PDFs" -d "data/test_data"
 ```

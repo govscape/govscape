@@ -27,6 +27,7 @@ reportlab = "^4.4.1"
 pytest = "^8.4.0"
 pypdfium2 = "^4.30"
 whoosh = "^2.7.4"
+gunicorn = "^23.0.0"
 
 
 [build-system]

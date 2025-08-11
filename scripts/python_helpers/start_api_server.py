@@ -1,7 +1,9 @@
+import os
+import shlex
 import govscape as gs
 import argparse
 
-def main():
+def _get_arg_parser():
     parser = argparse.ArgumentParser(description='Start the GovScape API server')
     parser.add_argument('-p', '--pdf-directory', default='data/test_data/TechnicalReport234PDFs', help='Directory containing PDF files')
     parser.add_argument('-d', '--data-directory', default='data/test_data', help='Directory containing data files')
@@ -13,9 +15,9 @@ def main():
     parser.add_argument('--host', default='0.0.0.0', help='Host to run the server on')
     parser.add_argument('--port', type=int, default=8080, help='Port to run the server on')
     parser.add_argument('--debug', action='store_true', help='Run the server in debug mode')
-    
-    args = parser.parse_args()
-    
+    return parser
+
+def _build_app_from_args(args):
     pdf_directory = args.pdf_directory
     if args.text_model == 'ST':
         text_model = gs.ST_TextEmbeddingModel()
@@ -30,18 +32,29 @@ def main():
         raise ValueError(f"Unsupported visual model: {args.visual_model}")
 
     index_config = gs.IndexConfig(pdf_directory, args.data_directory, args.index_type)
-    
-    if args.index_type == 'Disk':
-        i.load_index()
-    
+
     server_config = gs.ServerConfig(
         index_config, 
         text_model,
         visual_model,
         k=args.top_k
     )
-    
     server = gs.Server(server_config)
+    return server
+
+def create_app():
+    parser = _get_arg_parser()
+    app_args = os.getenv('APP_ARGS', '')
+    if app_args:
+        args = parser.parse_args(shlex.split(app_args))
+    else:
+        args = parser.parse_args([])
+    return _build_app_from_args(args).app
+
+def main():
+    parser = _get_arg_parser()
+    args = parser.parse_args()
+    server = _build_app_from_args(args)
     server.run(host=args.host, port=args.port, debug=args.debug)
 
 if __name__ == '__main__':
