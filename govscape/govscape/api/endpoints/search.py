@@ -8,7 +8,8 @@ ns = Namespace('search', description='Search operations')
 search_input = ns.model('SearchInput', {
     'query': fields.String(required=True, description='Search query text'),
     'search_type': fields.String(required=True, description='Search query text'),
-    'filters': fields.Raw(description='Filters to apply to the search')
+    'filters': fields.Raw(description='Filters to apply to the search'),
+    'page': fields.Integer(description='Page number for pagination', default=1)
 })
 
 search_result = ns.model('SearchResult', {
@@ -16,12 +17,20 @@ search_result = ns.model('SearchResult', {
     'page': fields.String(description='Page number'),
     'distance': fields.Float(description='Distance score'),
     'jpeg': fields.String(description='JPEG image path'),
-    'crawl_date': fields.String(description='JPEG image path'),
-    'crawl_url': fields.String(description='JPEG image path')
+    'crawl_date': fields.String(description='Crawl date'),
+    'crawl_url': fields.String(description='Crawl URL'),
+    'sub_domain': fields.String(description='Subdomain')
+})
+
+pagination_model = ns.model('Pagination', {
+    'page': fields.Integer(description='Current page number'),
+    'page_size': fields.Integer(description='Number of results per page'),
+    'has_next_page': fields.Boolean(description='Indicates if there is a next page')
 })
 
 search_response = ns.model('SearchResponse', {
-    'results': fields.List(fields.Nested(search_result))
+    'results': fields.List(fields.Nested(search_result)),
+    'pagination': fields.Nested(pagination_model)
 })
 
 @ns.route('/')
@@ -48,7 +57,8 @@ class Search(Resource):
             return {"status": "error", "message": "search_type cannot be empty"}, 400
         
         filters = data.get('filters')
+        page = data.get('page', 1)
         
         server = current_app.server
         
-        return server.search(query, search_type, filters=filters)
+        return server.search(query, search_type, filters=filters, page=page)

@@ -1,74 +1,130 @@
 <script>
-  import { createEventDispatcher, onMount, afterUpdate } from 'svelte';
+  import { createEventDispatcher, onMount, afterUpdate, onDestroy } from 'svelte';
   import Masonry from 'masonry-layout';
-  import { searchStore } from '$lib/stores/search';
+  import { searchStore, searchActions } from '$lib/stores/search';
 
   const dispatch = createEventDispatcher();
 
   let gridElement;
   let masonry;
+  let previousPage;
 
   $: results = $searchStore.results;
+  $: loading = $searchStore.loading;
+  $: hasMore = $searchStore.hasMore;
+  $: page = $searchStore.page;
+
+  onMount(() => {
+    if (!gridElement) return;
+
+    masonry = new Masonry(gridElement, {
+      itemSelector: '.grid-item',
+      columnWidth: 280,
+      gutter: 20,
+      fitWidth: true
+    });
+  });
+
+  afterUpdate(() => {
+    if (masonry) {
+      masonry.reloadItems();
+      masonry.layout();
+    }
+  });
+
+  onDestroy(() => {
+    if (masonry) {
+      masonry.destroy();
+    }
+  });
+  
+  $: onPageChange = (() => {
+    if (typeof window === 'undefined') return;
+    
+    if (previousPage !== undefined && page !== previousPage && gridElement) {
+      const rect = gridElement.getBoundingClientRect();
+      const offsetTop = window.scrollY + rect.top;
+
+      window.scrollTo({
+        top: offsetTop - 100,
+        behavior: 'smooth'
+      });
+    }
+
+    previousPage = page;
+  })();
 
   function handlePDFSelect(pdf, page, crawl_date, crawl_url, sub_domain) {
     const pdfId = pdf.split('/').pop();
 
-    dispatch('pdfSelect', { pdf, page, id: pdfId, crawl_date, crawl_url, sub_domain});  
+    dispatch('pdfSelect', { pdf, page, id: pdfId, crawl_date, crawl_url, sub_domain});
   }
 
-  onMount(() => {
-    if (typeof window !== 'undefined' && gridElement) {
-      masonry = new Masonry(gridElement, {
-        itemSelector: '.grid-item',
-        columnWidth: 280,
-        gutter: 20,
-        fitWidth: true
-      });
+  function nextPage() {
+    if (!loading && hasMore) {
+      searchActions.goToPage(page + 1);
     }
-  });
+  }
 
-  afterUpdate(() => {
-    if (masonry && results.length > 0) {
-      setTimeout(() => {
-        masonry.reloadItems();
-        masonry.layout();
-      }, 0);
+  function prevPage() {
+    if (!loading && page > 1) {
+      searchActions.goToPage(page - 1);
     }
-  });
+  }
 </script>
 
+{#if loading}
+  <div class="spinner-container" aria-label="Loading results">
+    <div class="loader"></div>
+  </div>
+{/if}
+
 <div class="grid-container">
-  <div bind:this={gridElement}>
-    {#if results.length > 0}
-      {#each results as result}
-      <div class="grid-item">
-        <div class="result-card" on:click={() => handlePDFSelect(result.pdf, result.page, result.crawl_date, result.crawl_url, result.sub_domain)}>
-          <div class="image-container">
-            <img 
-              src={result.jpeg} 
-              alt={`PDF Page ${result.page}`}
-              loading="lazy"
-            />
-          </div>
-          <div class="result-info">
-            <div class="info-name">{result.crawl_url.split('/').pop().replaceAll("\%20", " ")}</div>
-            <div class="info-subdomain">{result.sub_domain || 'Not Available'}</div>
-          </div>
+  <div class="masonry-wrapper" bind:this={gridElement}>
+    {#each results as result (result.pdf + result.page)}
+    <div class="grid-item">
+      <div class="result-card" on:click={() => handlePDFSelect(result.pdf, result.page, result.crawl_date, result.crawl_url, result.sub_domain)}>
+        <div class="image-container">
+          <img 
+            src={result.jpeg} 
+            alt={`PDF Page ${result.page}`}
+            loading="lazy"
+          />
+        </div>
+        <div class="result-info">
+          <div class="info-name">{result.crawl_url.split('/').pop().replaceAll("\%20", " ")}</div>
+          <div class="info-subdomain">{result.sub_domain || 'Not Available'}</div>
         </div>
       </div>
-      {/each}
-    {/if}
+    </div>
+    {/each}
   </div>
+
+  {#if results.length > 0}
+  <div class="pagination-container">
+    <button on:click={prevPage} disabled={loading || page <= 1} aria-label="Previous Page">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="15 18 9 12 15 6"></polyline>
+      </svg>
+    </button>
+    <span class="page-number">Page {page}</span>
+    <button on:click={nextPage} disabled={loading || !hasMore} aria-label="Next Page">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="9 18 15 12 9 6"></polyline>
+      </svg>
+    </button>
+  </div>
+  {/if}
 </div>
 
 <style>
   .grid-container {
     width: 90%;
     max-width: 1400px;
+    padding: 50px 0 20px 0;
+  }
+  .masonry-wrapper {
     margin: 0 auto;
-    display: flex;
-    justify-content: center;
-    padding: 50px 0 100px 0;
   }
 
   .grid-item {
@@ -82,10 +138,11 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     cursor: pointer;
     overflow: hidden;
+    transition: transform 0.2s;
   }
 
   .result-card:hover {
-    transform: translateY(-2px);
+    transform: translateY(-3px);
   }
 
   .image-container {
@@ -100,7 +157,6 @@
   }
 
   .result-info {
-    max-width: 270px;
     padding: 12px;
     color: var(--text-color-primary);
   }
@@ -115,5 +171,69 @@
   .info-subdomain {
     font-size: 0.8rem;
     color: var(--text-color-secondary);
+  }
+
+  .pagination-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px 0 100px 0;
+    gap: 25px;
+  }
+
+  .pagination-container button {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--color-primary);
+    border: none;
+    box-shadow: 0 1px 6px rgba(32, 33, 36, 0.08);
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.15s, box-shadow 0.15s;
+  }
+
+  .pagination-container button:hover:not(:disabled) {
+    box-shadow: 0 2px 8px rgba(32, 33, 36, 0.25);
+  }
+  
+  .pagination-container button:active:not(:disabled) {
+    background: var(--color-secondary);
+    box-shadow: 0 0 2px rgba(32, 33, 36, 0.3);
+  }
+
+  .pagination-container button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .page-number {
+    font-size: 0.85rem;
+    color: var(--text-color-primary);
+  }
+
+  .spinner-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 40px 0;
+  }
+
+  .loader {
+    width: 44px;
+    height: 44px;
+    border: 4px solid rgba(0, 0, 0, 0.1);
+    border-top: 4px solid var(--color-primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
   }
 </style>

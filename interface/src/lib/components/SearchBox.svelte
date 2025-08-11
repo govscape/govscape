@@ -30,11 +30,7 @@
   }
 
   function handleSearch() {
-    if (!query.trim()) {
-      searchActions.clearResults();
-      return;
-    }
-    searchActions.performSearch(currentSearchMode.id);
+    searchActions.performSearch();
     if (searchInputElement) searchInputElement.blur();
   }
 
@@ -45,7 +41,7 @@
   async function applySuggestion(suggestion) {
     query = suggestion;
     await tick();
-    searchActions.performSearch(currentSearchMode.id);
+    searchActions.performSearch();
     showSuggestionsDropdown = false;
   }
 

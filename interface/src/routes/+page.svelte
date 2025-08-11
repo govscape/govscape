@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { searchActions } from '$lib/stores/search';
   import SearchBox from '$lib/components/SearchBox.svelte';
   import ResultsGrid from '$lib/components/ResultsGrid.svelte';
   import PDFPreview from '$lib/components/PDFPreview.svelte';
@@ -28,16 +29,18 @@
     selectedPDF = null;
   }
 
+  function checkScreenSize() {
+    isSmallScreen = window.innerWidth < 768;
+  }
+
   onMount(() => {
-    function checkScreenSize() {
-      isSmallScreen = window.innerWidth < 768;
-    }
     checkScreenSize();
     window.addEventListener('resize', checkScreenSize);
   });
 
   onDestroy(() => {
     window.removeEventListener('resize', checkScreenSize);
+    searchActions.reset();
   });
 </script>
 

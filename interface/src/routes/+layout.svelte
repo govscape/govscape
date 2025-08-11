@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { page } from '$app/stores';
   import CookieConsent from '$lib/components/CookieConsent.svelte';
   import { userTracker } from '$lib/utils/userTracking.js';
 
@@ -27,7 +28,9 @@
       <a href="/faq">FAQ</a>
     </nav>
   </header>
-  <slot />
+  {#key $page.url.pathname}
+    <slot />
+  {/key}
   <CookieConsent 
     show={showCookieConsent}
     on:consent={handleCookieConsent}

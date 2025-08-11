@@ -9,7 +9,9 @@ export const searchStore = writable({
   currentSearchMode: 'textual',
   showFilters: false,
   loading: false,
-  error: null
+  error: null,
+  page: 1,
+  hasMore: false,
 });
 
 export const searchActions = {
@@ -26,6 +28,8 @@ export const searchActions = {
       currentSearchMode: mode,
       results: [],
       error: null,
+      page: 1,
+      hasMore: false,
     }));
   },
   
@@ -42,15 +46,7 @@ export const searchActions = {
       filters: {
         ...store.filters,
         ...newFilters
-      }
-    }));
-  },
-  
-  clearResults: () => {
-    searchStore.update(store => ({
-      ...store,
-      results: [],
-      error: null
+      },
     }));
   },
   
@@ -62,47 +58,59 @@ export const searchActions = {
       currentSearchMode: 'textual',
       loading: false,
       error: null,
-      showFilters: false
+      showFilters: false,
+      page: 1,
+      hasMore: false,
     });
   },
   
-  performSearch: async (searchMode) => {
+  performSearch: async () => {
+    await searchActions.goToPage(1, { isNewSearch: true });
+  },
+
+  goToPage: async (pageNumber, options = {}) => {
+    const { isNewSearch = false } = options;
     const currentStore = get(searchStore);
-    const search_type = currentStore.currentSearchMode;
 
-    const { query, filters } = currentStore;
+    if (currentStore.loading) return;
+    if (!currentStore.query.trim()) {
+      searchStore.update(store => ({ ...store, results: [], hasMore: false }));
+      return;
+    }
 
-    searchStore.update(store => ({ 
-      ...store, 
-      loading: true, 
-      error: null
+    searchStore.update(store => ({
+      ...store,
+      results: [],
+      loading: true,
+      error: null,
+      page: pageNumber
     }));
 
     try {
-      const responseData = await apiFetch('/search/', { 
+      const { query, filters, currentSearchMode } = get(searchStore)
+      const responseData = await apiFetch('/search/', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ query, filters, search_type }) 
-      }, search_type); 
-      
-      const imageBase = getImageBaseUrl(search_type);
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, filters, search_type: currentSearchMode, page: pageNumber })
+      });
+
+      const imageBase = getImageBaseUrl(currentSearchMode);
       const results = (responseData.results || []).map(result => ({
         ...result,
-        jpeg: result.jpeg && typeof result.jpeg === 'string' 
-              ? `${imageBase}/${result.jpeg.split('/').slice(-2).join('/')}` 
+        jpeg: result.jpeg && typeof result.jpeg === 'string'
+              ? `${imageBase}/${result.jpeg.split('/').slice(-2).join('/')}`
               : null
       }));
 
       searchStore.update(store => ({
         ...store,
-        results: results,
+        results,
+        hasMore: responseData.pagination.has_next_page,
         loading: false
       }));
 
-      if (userTracker.hasConsent()) {
-        userTracker.logSearch(query, search_type, filters);
+      if (isNewSearch && userTracker.hasConsent()) {
+        userTracker.logSearch(query, currentSearchMode, filters);
       }
     } catch (err) {
       console.error('Search error in store:', err);
@@ -110,7 +118,8 @@ export const searchActions = {
         ...store,
         error: err.message || 'Search failed',
         loading: false,
-        results: []
+        results: [],
+        hasMore: false
       }));
     }
   }

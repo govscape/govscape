@@ -9,7 +9,7 @@ import json
 from .api import init_api
 from .filter import Filter
 from .indexing import DiskANNIndex, FAISSIndex, WhooshIndex, SQLiteMetadataIndex
-0
+
 # basic pipeline developed:
 # 1. accept a query until EOF detected
 # 2. run an embedding model on the query
@@ -30,7 +30,6 @@ class Server:
         self.index_metadata_directory = config.index_metadata_directory
         self.image_directory = config.image_directory
         self.index_type = config.index_type
-        self.k = config.k
         self.k = config.k
 
         # Index configuration
@@ -107,8 +106,7 @@ class Server:
                 unique_pages.append(page)
         return unique_distances, unique_names, unique_pages
 
-    def search(self, query, search_type='textual', filters=None):
-
+    def search(self, query, search_type='textual', filters=None, page=1):
         if search_type == 'textual':
             query_embedding = self.text_model.encode_text(query, is_query=True)
             index = self.text_index
@@ -122,13 +120,9 @@ class Server:
             raise ValueError(f"Unsupported search type: {search_type}")
         
         current_k = self.k * 2
+        results_needed_for_page = page * self.k + 1 # we need one extra result to check if there is a next page
         search_results = []
-        while len(search_results) < self.k:
-            if current_k > min(100000, index.total_entries()): 
-                break # TODO: If we have to expand beyond 100k, we should do the filter first
-            if current_k > self.k:
-                print("doubling k to " + str(current_k) + " to find more results")
-
+        while len(search_results) < results_needed_for_page:
             # Search for the k closest arrays
             D, pdf_names, pdf_pages = index.search(query_embedding, current_k)
 
@@ -137,14 +131,14 @@ class Server:
             pdf_metadata = self.metadata_index.search(pdf_names, filters)
                 
             search_results = []
-            for distance, name, page in zip(D, pdf_names, pdf_pages):
+            for distance, name, page_num in zip(D, pdf_names, pdf_pages):
                 metadata = pdf_metadata.get(name, None)
                 if metadata:
                     metadata = metadata[0]  # TODO: Handle multiple crawl dates
-                    jpeg_file = self.image_directory + "/" + name + "/" + name + "_" + page + '.jpeg'
+                    jpeg_file = self.image_directory + "/" + name + "/" + name + "_" + page_num + '.jpeg'
                     search_results.append({
                         "pdf": name, 
-                        "page": page, 
+                        "page": page_num,
                         "distance": float(distance), 
                         "jpeg": jpeg_file,
                         "crawl_url" : metadata.get("url", ""),
@@ -155,9 +149,22 @@ class Server:
             if current_k > min(100000, index.total_entries()): 
                 break # TODO: If we have to expand beyond 100k, we should simply do the filtering first
 
+            if len(search_results) >= results_needed_for_page:
+                break # If we have enough results for our target page, we can stop.
+            
             current_k *= 2  # Double the k until we have enough results
 
-        return {"results": search_results[0:min(self.k, len(search_results))]}
+        start_index = (page - 1) * self.k
+        end_index = start_index + self.k
+
+        return {
+            "results": search_results[start_index:end_index],
+            "pagination": {
+                "page": page,
+                "page_size": self.k,
+                "has_next_page": len(search_results) > end_index,
+            },
+        }
 
     def pdf_pages(self, pdf_id):
         """Get all page images for a PDF by pdf_id. Returns dict with 'images' key or error message."""
