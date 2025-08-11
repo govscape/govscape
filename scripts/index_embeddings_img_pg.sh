@@ -6,8 +6,8 @@ rm -rf data/prod
 
 s3_prefix="s3://bcgl-public-bucket"
 data_dir="dev-serving"
-embedding_type="/embeddings/"
-index_dir="index"
+embedding_type="/embeddings_img_pg/"
+index_dir="index_img_pg"
 
 # Download the indices
 s5cmd sync $s3_prefix/$data_dir/$index_dir/* data/prod/$index_dir

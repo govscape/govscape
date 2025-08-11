@@ -48,8 +48,8 @@ if __name__ == '__main__':
     image_directory = os.path.join(DATA_DIR, 'img')
     img_extracted_dir = os.path.join(DATA_DIR, 'img_extracted')
     embeddings_directory = os.path.join(DATA_DIR, 'embeddings')
-    img_embeddings_dir = os.path.join(DATA_DIR, 'embeddings_img_pg')
-    e_img_embed_dir = os.path.join(DATA_DIR, 'embeddings_img_extracted')
+    embeddings_img_pg_directory = os.path.join(DATA_DIR, 'embeddings_img_pg')
+    embeddings_img_extracted_directory = os.path.join(DATA_DIR, 'embeddings_img_extracted')
     metadata_dir = os.path.join(DATA_DIR, 'metadata')
     index_directory = os.path.join(DATA_DIR, 'index')
     index_img_directory = os.path.join(DATA_DIR, 'index_img')
@@ -136,9 +136,9 @@ if __name__ == '__main__':
         print("finished uploading img extracted")
         upload_directory_to_s3(embeddings_directory, data_dir_s3)
         print("finished uploading embed")
-        upload_directory_to_s3(img_embeddings_dir, data_dir_s3)
+        upload_directory_to_s3(embeddings_img_pg_directory, data_dir_s3)
         print("finished uploading embed img pg")
-        upload_directory_to_s3(e_img_embed_dir, data_dir_s3)
+        upload_directory_to_s3(embeddings_img_extracted_directory, data_dir_s3)
         print("finished uploading embed img extracted")
         upload_directory_to_s3(metadata_dir, data_dir_s3)
         print("finished uploading metadata")
@@ -150,6 +150,16 @@ if __name__ == '__main__':
         time2 = time.time()
 
         pipeline_times['upload'] += time2-time1
+
+        # Write pipeline_times to a JSON file
+        perf_filename = f"performance_{args.server_id}.json"
+        perf_path = os.path.join(DATA_DIR, perf_filename)
+        with open(perf_path, "w") as f:
+            json.dump(pipeline_times, f, indent=2)
+
+        # Upload the performance JSON to S3
+        s3.upload_file(perf_path, bucket_name, os.path.join(data_dir_s3, perf_filename))
+        
         print("finished uploading current batch")
         print("pipeline times: ", pipeline_times)
 

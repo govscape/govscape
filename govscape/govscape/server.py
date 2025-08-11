@@ -49,9 +49,9 @@ class Server:
             self.visual_index = DiskANNIndex(self.embedding_directory, self.index_img_pg_directory)
             self.visual_index.load_index()
         elif self.index_type == 'Memory':
-            self.text_index = FAISSIndex(self.embedding_directory, self.index_directory)
+            self.text_index = FAISSIndex(self.index_directory)
             self.text_index.load_index()
-            self.visual_index = FAISSIndex(self.embedding_img_pg_directory, self.index_img_pg_directory)
+            self.visual_index = FAISSIndex(self.index_img_pg_directory)
             self.visual_index.load_index()
         else:
             raise ValueError(f"Unsupported index type: {self.index_type}")
@@ -135,6 +135,7 @@ class Server:
             D, pdf_names, pdf_pages = self.deduplicate_responses(D, pdf_names, pdf_pages)
             
             pdf_metadata = self.metadata_index.search(pdf_names, filters)
+            print(f"After filtering {len(pdf_metadata)} results for k={current_k}")
                 
             search_results = []
             for distance, name, page in zip(D, pdf_names, pdf_pages):

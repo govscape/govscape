@@ -28,7 +28,8 @@ if __name__ == '__main__':
     parser.add_argument('--in_data_dir', type=str, help='S3 Directory for input data')
     parser.add_argument('--embedding_prefix', type=str, help='S3 Prefix for embedding files')
     parser.add_argument('--out_data_dir', type=str, help='S3 Directory for output data')
-    parser.add_argument('--index_type', type=str, help='Type of index to create (e.g., "keyword", "embedding")')
+    parser.add_argument('--out_index_prefix', type=str, help='S3 Prefix for index data')
+    parser.add_argument('--index_type', type=str, help='Type of index to create (e.g., "DiskANN", "FAISS")')
     args = parser.parse_args()
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process
     BATCH_SIZE = args.batch_size
@@ -36,17 +37,17 @@ if __name__ == '__main__':
     bucket_name = args.bucket_name # 'bcgl-public-bucket'
     in_data_dir = args.in_data_dir + args.embedding_prefix # 'prod-serving/'# INPUT DATA DIR IN S3 HERE
     out_data_dir = args.out_data_dir # 'prod-serving/' # OUTPUT OVERALL DATA DIR IN S3 HERE
-    index_type = args.index_type # 'embedding' # TYPE OF INDEX TO CREATE
+    out_index_prefix = args.out_index_prefix # 'prod-serving/' # OUTPUT INDEX PREFIX IN S3 HERE
+    index_type = args.index_type # 'FAISS' # TYPE OF INDEX TO CREATE
 
     # ****************************************************************************************************
     PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
     DATA_DIR = os.path.join(PROJECT_ROOT, 'data', 'prod')
 
-    embedding_directory = os.path.join(DATA_DIR, 'embedding')
-    index_directory = os.path.join(DATA_DIR, 'index')
+    embedding_directory = os.path.join(DATA_DIR, args.embedding_prefix.replace('/', ''))
+    index_directory = os.path.join(DATA_DIR, out_index_prefix)
 
-    progress_path = 'embedding_index_progress.json'  # Token to track of which pages have already been processed
-
+    progress_path = os.path.join(PROJECT_ROOT, out_index_prefix + '_progress.json')  # Token to track of which pages have already been processed
     # ****************************************************************************************************
     # for analyzing: 
     pipeline_times = {'list' : 0, 'download' : 0, 'embedding_indexing_time' : 0, 'upload' : 0}  # to keep track of the time it takes for each step in the pipeline
@@ -59,15 +60,15 @@ if __name__ == '__main__':
             with open(progress_path, 'r') as f:
                 progress = json.load(f)
                 continuation_token = progress.get('continuation_token', None)
+        
         pages_retrieved = 0
         while True:
             if continuation_token:
                 result = s3.list_objects_v2(Bucket=bucket_name, Prefix=in_data_dir, ContinuationToken=continuation_token)
             else:
                 result = s3.list_objects_v2(Bucket=bucket_name, Prefix=in_data_dir)
-            print(in_data_dir + "/embedding")
-            print(f"Retrieved {len(result.get('Contents', []))} files from S3")
-            
+            print(f"Retrieved {len(result.get('Contents', []))} files from S3 Bucket: {bucket_name} Prefix: {in_data_dir}")
+
             contents = result.get('Contents', [])
             embedding_keys = [obj['Key'] for obj in contents if obj['Key'].endswith('.npy')]
 
@@ -80,7 +81,6 @@ if __name__ == '__main__':
             
             if pages_retrieved >= num_pages or not result.get('IsTruncated'):
                 break
-
         return embedding_files
 
     # uploads dir of files to s3
@@ -100,8 +100,8 @@ if __name__ == '__main__':
             if not os.path.exists(embedding_file_path):
                 print(f"File {embedding_file_path} does not exist. Skipping.")
                 continue
-            names.append(embedding_file_path.rpartition('/')[-2])
-            pages.append(embedding_file_path.replace(".npy", "").rpartition('_')[-1])
+            names.append(embedding_file_path.rpartition('/')[0].rpartition('/')[2])
+            pages.append(embedding_file_path.replace(".npy", "").rpartition('_')[2])
             embeddings.append(np.load(embedding_file_path))
         index.add_batch(embeddings, names, pages)
         index.save_index()
@@ -163,14 +163,13 @@ if __name__ == '__main__':
 
             # delete the directories except for the indices which will continue to be updated
             if os.path.exists(DATA_DIR):
-                shutil.rmtree(DATA_DIR + "/embedding")
+                shutil.rmtree(embedding_directory)
                 os.makedirs(DATA_DIR, exist_ok=True)
 
         
         # After all batches are processed, clean up the directories
-        if os.path.exists(DATA_DIR):
-            shutil.rmtree(DATA_DIR)
-            os.makedirs(DATA_DIR, exist_ok=True)
+        shutil.rmtree(embedding_directory)
+        shutil.rmtree(index_directory)
 
         overall_end_time = time.time()
         print("TOTAL TIME TO LOAD IS ", (overall_end_time - overall_start_time))

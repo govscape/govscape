@@ -62,7 +62,6 @@ if __name__ == '__main__':
                 result = s3.list_objects_v2(Bucket=bucket_name, Prefix=in_data_dir + "/txt", ContinuationToken=continuation_token)
             else:
                 result = s3.list_objects_v2(Bucket=bucket_name, Prefix=in_data_dir + "/txt")
-            print(in_data_dir + "/txt")
             print(f"Retrieved {len(result.get('Contents', []))} files from S3")
             
             contents = result.get('Contents', [])
@@ -99,8 +98,8 @@ if __name__ == '__main__':
             if not os.path.exists(txt_file_path):
                 print(f"File {txt_file_path} does not exist. Skipping.")
                 continue
-            names.append(txt_file_path.rpartition('/')[-2])
-            pages.append(txt_file_path.replace(".txt", "").rpartition('_')[-1])
+            names.append(txt_file_path.rpartition('/')[0])
+            pages.append(txt_file_path.replace(".txt", "").rpartition('_')[2])
             txt = None 
             with open(txt_file_path) as f:
                 txt = f.read()

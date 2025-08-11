@@ -414,9 +414,9 @@ class PDFsToEmbeddings:
         compute_text_embeddings(self.text_model, self.model_pool, self.txts_path, self.embeddings_path)
         time3 = time.time()
         
+        os.makedirs(self.embeddings_img_path, exist_ok=True)
         img_paths = []
         embedding_paths = []
-        os.makedirs(self.embeddings_img_path, exist_ok=True)
         for img_subdir in os.scandir(self.img_path):
             if img_subdir.is_dir():
                 os.makedirs(os.path.join(self.embeddings_img_path, img_subdir.name), exist_ok=True)

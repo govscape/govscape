@@ -159,13 +159,13 @@ class TxtsToEmbeddings:
 
         start = 0
         for i in range(len(chunks)):
-            end = chunks[i].shape[0]
+            end = start + chunks[i].shape[0]
             chunk_embed_file_paths.append(embed_file_paths[start: start + end])
-            start = start + end 
+            start = end 
         
         if len(chunks) != len(chunk_embed_file_paths):
             raise Exception("chunks and chunk_embed_file_paths should be the same length.")
-
+        
         ctx = get_context('spawn')
         with ctx.Pool(processes=(2)) as pool:
             pool.map(self.convert_embedding_to_files_batch, zip(chunks, chunk_embed_file_paths)) # for batch

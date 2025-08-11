@@ -131,6 +131,11 @@ class FAISSIndex(AbstractVectorIndex):
         pass
 
     def add_batch(self, embeddings, pdf_names, pdf_pages):
+        shape = embeddings[0].shape
+        for embedding in embeddings:
+            if embedding.shape != shape:
+                raise ValueError(f"Embedding dimension mismatch: expected {shape}, got {embedding.shape}")
+
         embeddings = np.asarray(embeddings)
         if self.faiss_index is None:
             self.d = embeddings.shape[1]
@@ -180,6 +185,7 @@ class FAISSIndex(AbstractVectorIndex):
             pdf_page = self.pdf_pages[I[i]]
             name_results.append(pdf_name)
             page_results.append(pdf_page)
+        print(f"Found {name_results} results for k={k}")
         return D, name_results, page_results
 
     def total_entries(self):
@@ -234,16 +240,12 @@ class WhooshIndex(AbstractKeywordIndex):
         pass
 
     def build_index(self):
-        # Define schema: text (content), pdf_name, page
         schema = Schema(text=TEXT(stored=True), pdf_name=ID(stored=True), page=NUMERIC(stored=True))
         if not os.path.exists(self.index_keyword_directory):
             os.makedirs(self.index_keyword_directory)
         self.index = create_in(self.index_keyword_directory, schema)
 
-    # If the index does not exist, call build_index to create it
-    # Then, add the documents to the index
     def add_batch(self, texts, pdf_names, pages):
-        # If index doesn't exist, build it
         if self.index is None:
             self.build_index()
         writer = self.index.writer(procs=8, limitmb=512)
@@ -259,8 +261,8 @@ class WhooshIndex(AbstractKeywordIndex):
         if os.path.exists(self.index_keyword_directory):
             self.index = open_dir(self.index_keyword_directory)
         else:
-            raise FileNotFoundError(f"Index directory {self.index_keyword_directory} does not exist.")
-
+            self.build_index()
+    
     def search(self, query, k):
         if self.index is None:
             self.load_index()
@@ -280,9 +282,8 @@ class WhooshIndex(AbstractKeywordIndex):
             return searcher.doc_count()
 
     def total_pages(self):
-        # Alias for total_texts (since each doc is a page)
-        return self.total_texts()
-    
+        return self.total_entries()
+
 
 class AbstractMetadataIndex(ABC):
 
