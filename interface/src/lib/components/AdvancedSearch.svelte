@@ -48,6 +48,14 @@
       maxPages: maxPages,
     });
   }
+
+  function handleFacetKeydown(event) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      applyFilters();
+      searchActions.performSearch();
+    }
+  }
 </script>
 
 {#if show}
@@ -58,14 +66,14 @@
         <div class="filter-item">
           <label for="crawlDate">Crawl Date</label>
           <div class="date-range-row">
-            <input type="text" id="crawlDateAfter" placeholder="YYYY-MM-DD" bind:value={crawledAfter} on:change={applyFilters}/>
+            <input type="text" id="crawlDateAfter" placeholder="YYYY-MM-DD" bind:value={crawledAfter} on:change={applyFilters} on:keydown={handleFacetKeydown}/>
             <span class="em-dash">&mdash;</span>
-            <input type="text" id="crawlDateBefore" placeholder="YYYY-MM-DD" bind:value={crawledBefore} on:change={applyFilters}/>
+            <input type="text" id="crawlDateBefore" placeholder="YYYY-MM-DD" bind:value={crawledBefore} on:change={applyFilters} on:keydown={handleFacetKeydown}/>
           </div>
         </div>
         <div class="filter-item">
           <label for="subdomain">Subdomain</label>
-          <input type="text" id="subdomain" placeholder="Enter subdomain" bind:value={subDomain} list="subdomain-options" on:change={applyFilters} />
+          <input type="text" id="subdomain" placeholder="Enter subdomain" bind:value={subDomain} list="subdomain-options" on:change={applyFilters} on:keydown={handleFacetKeydown} />
           <datalist id="subdomain-options">
             {#each subdomainOptions as option}
               <option value={option.value}>{option.label}</option>
