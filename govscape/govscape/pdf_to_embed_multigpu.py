@@ -45,31 +45,35 @@ def get_least_used_cuda():
 class ST_TextEmbeddingModel(EmbeddingModel):
     def __init__(self):
         self.device = get_least_used_cuda() if torch.cuda.is_available() else "cpu"
-        self.model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2', device=self.device) 
+        self.model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2') 
         self.d = self.model.get_sentence_embedding_dimension()
     
     def encode_text(self, text, is_query=False):
+        if self.model.device != self.device:
+            self.model.to(self.device)
         with torch.no_grad():
-            embedding = self.model.encode(text, batch_size=GPU_BATCH_SIZE, device=self.device) # hopefully in batches
+            embedding = self.model.encode(text, batch_size=GPU_BATCH_SIZE, device=self.device)
         return embedding
     
-    def encode_image(self, jpg_path): # not in use i don't think
+    def encode_image(self, jpg_path):
         raise NotImplementedError("TextEmbeddingModel does not support image encoding.")
     
 class BGE_TextEmbeddingModel(EmbeddingModel):
     def __init__(self):
         self.device = get_least_used_cuda() if torch.cuda.is_available() else "cpu"
-        self.model = SentenceTransformer('BAAI/bge-base-en-v1.5', device=self.device) 
+        self.model = SentenceTransformer('BAAI/bge-base-en-v1.5') 
         self.d = self.model.get_sentence_embedding_dimension()
     
     def encode_text(self, text, is_query=False):
+        if self.model.device != self.device:
+            self.model.to(self.device)
         if is_query:
             text = "Represent this sentence for searching relevant passages:" + text
         with torch.no_grad():
-            embedding = self.model.encode(text, batch_size=GPU_BATCH_SIZE, device=self.device) # hopefully in batches
+            embedding = self.model.encode(text, batch_size=GPU_BATCH_SIZE, device=self.device)
         return embedding
     
-    def encode_image(self, jpg_path): # not in use i don't think
+    def encode_image(self, jpg_path):
         raise NotImplementedError("TextEmbeddingModel does not support image encoding.")
     
 # for sorting file names with page numbers to ensure consistency when batching between txt and npy files (OS could 

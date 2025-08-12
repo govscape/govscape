@@ -91,96 +91,63 @@ class CLIPEmbeddingModel(EmbeddingModel):
 
         return image_embedding[0].to("cpu").numpy()
     
-    # single gpu case 
-    # def encode_images(self, jpg_paths):
-        # batch_size = 32
-        # images = []
-        # for jpg_path in jpg_paths:
-        #     img = Image.open(jpg_path)
-        #     images.append(img)
-        
-        # inputs = self.processor(images=images, return_tensors="pt")
-        # inputs = {k: v.to(self.device) for k, v in inputs.items()}
     
-        # with torch.no_grad():
-        #     if isinstance(self.model, torch.nn.DataParallel):  #multi-gpu case
-        #         embeddings = self.model.module.get_image_features(**inputs)
-        #     else:
-        #         embeddings = self.model.get_image_features(**inputs)
-        #     embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
-        
-        # return embeddings.cpu().numpy()
-    
-    # for multi-gpus: 
-    def encode_images_per_gpu(self, input_batches, gpu_id, results):
-        device = torch.device(f"cuda:{gpu_id}")
-        model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)  # online
-        model.eval()
-        all_embeddings = []
-
-        for batch in input_batches:
-            try:
-                batch = {k : v.to(device) for k, v in batch.items()}  # move to gpu
-                with torch.no_grad():
-                    embeddings = model.get_image_features(**batch)
-                    embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
-                all_embeddings.append(embeddings.cpu())
-
-            except Exception as e:
-                print(f"Error processing batch: {e}")
-                continue
-
-        if len(all_embeddings) > 0:
-            results[gpu_id] = torch.cat(all_embeddings, dim=0).numpy()
-        else:
-            results[gpu_id] = np.empty((0, self.d), dtype=np.float32)
-
+    # single GPU version using self.model (created in __init__)
     @staticmethod
-    def preprocess_image_batch(jpg_paths, processor):
-        images = []
-        for jpg_path in jpg_paths:
+    def _load_and_process_image(image_paths, processor):
+        tensors = []
+        for path in image_paths:
             try:
-                img = Image.open(jpg_path)
-                images.append(img)
+                with Image.open(path) as img:
+                    img = img.convert("RGB")
+                pv = processor(images=img, return_tensors="pt")['pixel_values']  # shape [1,3,H,W]
+                tensors.append(pv)
             except Exception as e:
-                print(e)
-        input_batch = processor(images=images, return_tensors="pt", input_data_format="channels_last")
-        return input_batch
+                print(f"Failed to load/process {path}: {e}")
+        if not tensors:
+            return None
+        return torch.cat(tensors, dim=0)  # shape [N,3,H,W]
 
-    def encode_images(self, jpg_paths, max_batch_size=256):
-        gpu_count = torch.cuda.device_count()
+    def encode_images(self, jpg_paths):
+        """
+        Load and preprocess images in parallel (CPU workers) then run batched single-GPU forward passes.
+        """
+        if not jpg_paths:
+            return np.empty((0, self.d), dtype=np.float32)
 
-        image_processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-base-patch32", use_fast=True)  # online
-        tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")  # online
-        processor = CLIPProcessor(image_processor=image_processor, tokenizer=tokenizer)
+        cpu_batch_size = 256
+        print("Processing Images")
+        path_batches = [jpg_paths[i:i + cpu_batch_size] for i in range(0, len(jpg_paths), cpu_batch_size)]
 
-        jpg_paths_batches = np.array_split(jpg_paths, math.ceil(len(jpg_paths) / max_batch_size))
-        inputs = []
-        ctx = get_context('spawn')
-        with ctx.Pool(processes=os.cpu_count()) as pool:
-            input_batches = pool.starmap(self.preprocess_image_batch, zip(jpg_paths_batches, [processor] * len(jpg_paths_batches)))
-            inputs.extend(input_batches)
-        
-        manager = mp.Manager()
-        outputs = manager.dict()
-        processes = []
-        ctx = get_context('spawn')
-        print("starting processes for each gpu")
-        for i in range(gpu_count):
-            p = ctx.Process(target=self.encode_images_per_gpu, args=(inputs[math.ceil(i*len(inputs)/gpu_count):math.ceil((i+1)*len(inputs)/gpu_count)], i, outputs))
-            p.start()
-            processes.append(p)
-        
-        print("started processes for each gpu")
-        for p in processes:
-            p.join()
-        
+        # Use spawn to avoid CUDA + fork deadlocks
+        ctx = mp.get_context("spawn")
+        with ctx.Pool(processes=min(int(math.floor(os.cpu_count()/2)), len(path_batches))) as pool:
+            batch_tensors = pool.starmap(self._load_and_process_image, [(p, self.processor) for p in path_batches])
+
+        # Flatten and drop empty batches
+        image_tensors = []
+        for i, bt in enumerate(batch_tensors):
+            if bt is not None:
+                image_tensors.append(bt)
+            else:
+                image_tensors.append(np.zeros(len(path_batches[i]), self.d, dtype=np.float32))
+
+        all_pixels = torch.cat(image_tensors, dim=0)
+        print(f"Total images preprocessed: {all_pixels.size(0)}")
+
         all_embeddings = []
-        for i in range(gpu_count):
-            embeddings = outputs[i]
-            all_embeddings.append(embeddings)
+        gpu_batch = 64  # GPU forward batch size
+        print("Embedding Images")
+        for i in range(0, all_pixels.size(0), gpu_batch):
+            pixel_batch = all_pixels[i:i + gpu_batch].to(self.device)
+            with torch.no_grad():
+                embeddings = self.model.get_image_features(pixel_values=pixel_batch)
+                embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
+            all_embeddings.append(embeddings.cpu())
+            del pixel_batch, embeddings
+            torch.cuda.empty_cache()
 
-        return np.concatenate(all_embeddings, axis=0)
+        return torch.cat(all_embeddings, dim=0).numpy()
 
 def natural_key(s):
     return [int(text) if text.isdigit() else text.lower()
