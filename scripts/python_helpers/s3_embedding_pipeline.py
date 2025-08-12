@@ -95,16 +95,6 @@ if __name__ == '__main__':
             pdf_keys = [obj['Key'] for obj in contents if obj['Key'].endswith('.pdf')]
             pdf_keys = [key for key in pdf_keys if (hash(key) % args.num_servers) == args.server_id]
 
-            def metadata_exists(key):
-                try:
-                    pdf_digest = key.split('/')[-1].replace('.pdf', '')
-                    response = s3.head_object(Bucket=bucket_name, Key=data_dir_s3 + "metadata/" + pdf_digest + "/metadata.json")
-                    print(f"Metadata exists for {key}: {response['ResponseMetadata']['HTTPStatusCode'] == 200}")
-                    return response.get('ResponseMetadata', {}).get('HTTPStatusCode') == 200
-                except ClientError as e:
-                    return False
-
-            pdf_keys =  [key for key in pdf_keys if not metadata_exists(key)]
             pdf_files.extend(pdf_keys)
             pages_retrieved += 1
             if result.get('IsTruncated'):
@@ -119,7 +109,7 @@ if __name__ == '__main__':
 
     # uploads dir of files to s3
     def upload_directory_to_s3(ec2_dir, s3_dir):
-        subprocess.run(f"/home/ubuntu/.local/bin/s5cmd --log error cp {ec2_dir} s3://{bucket_name}/{s3_dir}".split())
+        subprocess.run(f"s5cmd --log error cp {ec2_dir} s3://{bucket_name}/{s3_dir}".split())
 
     # processing the pdfs: running through embedding pipeline and uploading to s3
     def process_pdfs(pdf_files, processor):
