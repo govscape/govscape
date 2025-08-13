@@ -63,7 +63,7 @@ if __name__ == '__main__':
     progress_path = os.path.join(PROJECT_ROOT, out_index_prefix + '_progress.json')  # Token to track of which pages have already been processed
     # ****************************************************************************************************
     # for analyzing: 
-    pipeline_times = {'list' : 0, 'download' : 0, 'embedding_indexing_time' : 0, 'upload' : 0}  # to keep track of the time it takes for each step in the pipeline
+    pipeline_times = {'list' : 0, 'download' : 0, 'embedding_indexing_time' : 0, 'upload' : 0, 'pdfs_processed' : 0}  # to keep track of the time it takes for each step in the pipeline
 
     # gets txt files from s3
     def list_embedding_files(num_pages=1):
@@ -128,6 +128,16 @@ if __name__ == '__main__':
         time2 = time.time()
 
         pipeline_times['upload'] += time2-time1
+        pipeline_times['pdfs_processed'] += len(embedding_files)
+        
+        # Write pipeline_times to a JSON file
+        perf_filename = f"{out_index_prefix}_performance_{args.server_id}.json"
+        perf_path = os.path.join(DATA_DIR, perf_filename)
+        with open(perf_path, "w") as f:
+            json.dump(pipeline_times, f, indent=2)
+
+        # Upload the performance JSON to S3
+        s3.upload_file(perf_path, bucket_name, os.path.join(out_data_dir, perf_filename))
         print("finished uploading current batch")
         print("pipeline times: ", pipeline_times)
 
