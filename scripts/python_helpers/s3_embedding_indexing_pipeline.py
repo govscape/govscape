@@ -131,7 +131,7 @@ if __name__ == '__main__':
         pipeline_times['pdfs_processed'] += len(embedding_files)
         
         # Write pipeline_times to a JSON file
-        perf_filename = f"{out_index_prefix}_performance_{args.server_id}.json"
+        perf_filename = f"{out_index_prefix}_performance.json"
         perf_path = os.path.join(DATA_DIR, perf_filename)
         with open(perf_path, "w") as f:
             json.dump(pipeline_times, f, indent=2)

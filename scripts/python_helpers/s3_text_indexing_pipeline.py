@@ -139,7 +139,7 @@ if __name__ == '__main__':
         pipeline_times['pdfs_processed'] += len(txt_files)
         
         # Write pipeline_times to a JSON file
-        perf_filename = f"text_indexing_performance_{args.server_id}.json"
+        perf_filename = f"text_indexing_performance.json"
         perf_path = os.path.join(DATA_DIR, perf_filename)
         with open(perf_path, "w") as f:
             json.dump(pipeline_times, f, indent=2)
