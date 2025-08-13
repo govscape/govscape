@@ -7,13 +7,27 @@ import torch
 import shutil
 import json
 import subprocess
+import numpy as np
 from botocore.config import Config
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import Pool, cpu_count, get_context
 
 # ****************************************************************************************************
 # to run this file: poetry run python s3_ec2_embedding_pipeline.py 
 # ****************************************************************************************************
+
+def download_texts(text_directory, text_files):
+    config = Config(max_pool_connections=50)
+    s3 = boto3.client("s3", config=config)
+    local_files = []
+    for text_file in text_files:
+        file_name = text_file.split('/')[-1]
+        pdf_name = text_file.split('/')[-2]
+        local_path = os.path.join(text_directory, pdf_name, file_name)
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        s3.download_file(bucket_name, text_file, local_path)
+        local_files.append(os.path.join(pdf_name, file_name))
+    return local_files
 
 if __name__ == '__main__':
     config = Config(max_pool_connections=50)
@@ -22,7 +36,7 @@ if __name__ == '__main__':
     # FIELDS TO SET **************************************************************************************
     parser = argparse.ArgumentParser(description="S3 EC2 Embedding Pipeline")
     parser.add_argument('--num_pages_to_process', type=int, default=100, help='Number of pages to process from S3')
-    parser.add_argument('--batch_size', type=int, default=10000, help='Number of pages to process at a time')
+    parser.add_argument('--batch_size', type=int, default=1000000, help='Number of pages to process at a time')
     parser.add_argument('--bucket_name', type=str, help='S3 Bucket Name')
     parser.add_argument('--in_data_dir', type=str, help='S3 Directory for input data')
     parser.add_argument('--out_data_dir', type=str, help='S3 Directory for output data')
@@ -146,22 +160,16 @@ if __name__ == '__main__':
             print("WE ARE ON BATCH: ", i)
             print('*****************************************************************************************************')
             batch = txt_files[i:i + BATCH_SIZE] 
+            worker_batches = np.array_split(batch, 64)  # Split the batch into 64 smaller batches for parallel downloading
             local_batch = []
             time_download = time.time()
-            def download_txt(txt_file):
-                file_name = txt_file.split('/')[-1]
-                pdf_name = txt_file.split('/')[-2]
-                local_path = os.path.join(txt_directory, pdf_name, file_name)
-                os.makedirs(os.path.dirname(local_path), exist_ok=True)
-                s3.download_file(bucket_name, txt_file, local_path)
-                return os.path.join(pdf_name, file_name)
-
-            with ThreadPoolExecutor(max_workers=16) as executor:
-                futures = {executor.submit(download_txt, pdf): pdf for pdf in batch}
+            
+            with ProcessPoolExecutor(max_workers=64) as executor:
+                futures = [executor.submit(download_texts, txt_directory, worker_batch) for worker_batch in worker_batches]
                 for future in as_completed(futures):
                     try:
                         file_name = future.result()
-                        local_batch.append(file_name)
+                        local_batch.extend(file_name)
                     except Exception as e:
                         print(f"Error downloading {futures[future]}: {e}")
             pipeline_times['download'] += time.time() - time_download

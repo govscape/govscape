@@ -247,7 +247,7 @@ class WhooshIndex(AbstractKeywordIndex):
     def add_batch(self, texts, pdf_names, pages):
         if self.index is None:
             self.build_index()
-        writer = self.index.writer(procs=8, limitmb=512)
+        writer = self.index.writer(procs=12, limitmb=2048)
         for text, pdf_name, page in zip(texts, pdf_names, pages):
             writer.add_document(text=text, pdf_name=pdf_name, page=page)
         writer.commit()
