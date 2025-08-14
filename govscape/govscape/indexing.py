@@ -138,8 +138,11 @@ class FAISSIndex(AbstractVectorIndex):
 
         embeddings = np.asarray(embeddings)
         if self.faiss_index is None:
-            self.d = embeddings.shape[1]
-            self.faiss_index = faiss.IndexFlatL2(self.d)
+            self.d = embeddings.shape[1]        
+            coarse_quantizer = faiss.IndexFlatL2(self.d)
+            self.faiss_index = faiss.IndexIVFPQ(coarse_quantizer, self.d, 32, 8, 8)
+            self.faiss_index.train(embeddings)
+        
         # embeddings: list or array of shape (n, d)
         if embeddings.ndim == 1:
             embeddings = embeddings[np.newaxis, :]
