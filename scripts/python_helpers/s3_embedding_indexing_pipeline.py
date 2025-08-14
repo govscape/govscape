@@ -146,7 +146,6 @@ if __name__ == '__main__':
         print("finished uploading current batch")
         print("pipeline times: ", pipeline_times)
 
-
     # overall method that gets the files in batches and runs them through the pipeline
     def batched_file_download(BATCH_SIZE):
         # result = s3.list_objects_v2(Bucket=bucket_name, Prefix=pdfs_dir)
@@ -169,9 +168,10 @@ if __name__ == '__main__':
             pipeline_times['list'] += time.time() - time_list
             successful_downloads = []
             time_download = time.time()
-            worker_batches = np.array_split(embedding_files, 64)  # Split the batch into 64 smaller batches for parallel downloading
+            n_workers = 32
+            worker_batches = np.array_split(embedding_files, n_workers)  # Split the batch into 32 smaller batches for parallel downloading
 
-            with ProcessPoolExecutor(max_workers=64) as executor:
+            with ProcessPoolExecutor(max_workers=n_workers) as executor:
                 futures = [executor.submit(download_embeddings, embedding_directory, worker_batch) for worker_batch in worker_batches]
                 for future in as_completed(futures):
                     try:
