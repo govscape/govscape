@@ -131,12 +131,7 @@ class FAISSIndex(AbstractVectorIndex):
         pass
 
     def add_batch(self, embeddings, pdf_names, pdf_pages):
-        shape = embeddings[0].shape
-        for embedding in embeddings:
-            if embedding.shape != shape:
-                raise ValueError(f"Embedding dimension mismatch: expected {shape}, got {embedding.shape}")
 
-        embeddings = np.asarray(embeddings)
         if self.faiss_index is None:
             self.d = embeddings.shape[1]        
             coarse_quantizer = faiss.IndexFlatL2(self.d)
