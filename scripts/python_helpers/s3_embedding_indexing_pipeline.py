@@ -11,6 +11,7 @@ import numpy as np
 from botocore.config import Config
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from multiprocessing import Pool, cpu_count, get_context
+import math
 
 # ****************************************************************************************************
 # to run this file: poetry run python s3_ec2_embedding_pipeline.py 
@@ -67,6 +68,7 @@ if __name__ == '__main__':
 
     # gets txt files from s3
     def list_embedding_files(num_pages=1):
+        is_finished = False
         embedding_files = []
         continuation_token = None
         if os.path.exists(progress_path):
@@ -92,9 +94,13 @@ if __name__ == '__main__':
                 with open(progress_path, 'w') as f:
                     json.dump({'continuation_token': continuation_token}, f)
             
-            if pages_retrieved >= num_pages or not result.get('IsTruncated'):
+            if pages_retrieved >= num_pages:
                 break
-        return embedding_files
+
+            if not result.get('IsTruncated'):
+                is_finished = True
+                break
+        return embedding_files, is_finished
 
     # uploads dir of files to s3
     def upload_directory_to_s3(ec2_dir, s3_dir):
@@ -152,38 +158,43 @@ if __name__ == '__main__':
         overall_start_time = time.time()
 
         # get the pdf files from s3
-        time_list = time.time()
-        embedding_files = list_embedding_files(NUM_PAGES_TO_PROCESS)
-        pipeline_times['list'] = time.time() - time_list
+        pages_processed = 0
+        pages_per_batch = math.floor(NUM_PAGES_TO_PROCESS / BATCH_SIZE * 1000)
+        while pages_processed < NUM_PAGES_TO_PROCESS:
 
-        print("Now starting with total number of PDF files: ", len(embedding_files))
+            print('*****************************************************************************************************')
+            print("WE ARE ON BATCH: ", pages_processed * 1000)
+            print('*****************************************************************************************************')
 
-        for i in range(0, len(embedding_files), BATCH_SIZE):
-            print('*****************************************************************************************************')
-            print("WE ARE ON BATCH: ", i)
-            print('*****************************************************************************************************')
-            batch = embedding_files[i:i + BATCH_SIZE]
-            local_batch = []
+            time_list = time.time()
+            embedding_files, finished = list_embedding_files(pages_per_batch)
+            pipeline_times['list'] += time.time() - time_list
+            successful_downloads = []
             time_download = time.time()
-            worker_batches = np.array_split(batch, 64)  # Split the batch into 64 smaller batches for parallel downloading
+            worker_batches = np.array_split(embedding_files, 64)  # Split the batch into 64 smaller batches for parallel downloading
 
             with ProcessPoolExecutor(max_workers=64) as executor:
                 futures = [executor.submit(download_embeddings, embedding_directory, worker_batch) for worker_batch in worker_batches]
                 for future in as_completed(futures):
                     try:
                         file_names = future.result()
-                        local_batch.extend(file_names)
+                        successful_downloads.extend(file_names)
                     except Exception as e:
                         print(f"Error downloading {futures[future]}: {e}")
             pipeline_times['download'] += time.time() - time_download
 
-            process_embedding_files(local_batch)
+            process_embedding_files(successful_downloads)
 
             # delete the directories except for the indices which will continue to be updated
             if os.path.exists(DATA_DIR):
                 shutil.rmtree(embedding_directory)
                 os.makedirs(DATA_DIR, exist_ok=True)
-
+            
+            # If we didn't get a full set of embedding files,
+            if finished:
+                break
+            
+            pages_processed += pages_per_batch
         
         # After all batches are processed, clean up the directories
         if os.path.exists(embedding_directory):
