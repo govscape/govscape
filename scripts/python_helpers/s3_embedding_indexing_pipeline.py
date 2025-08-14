@@ -91,8 +91,6 @@ if __name__ == '__main__':
             pages_retrieved += 1
             if result.get('IsTruncated'):
                 continuation_token = result.get('NextContinuationToken')
-                with open(progress_path, 'w') as f:
-                    json.dump({'continuation_token': continuation_token}, f)
             
             if pages_retrieved >= num_pages:
                 break
@@ -100,7 +98,7 @@ if __name__ == '__main__':
             if not result.get('IsTruncated'):
                 is_finished = True
                 break
-        return embedding_files, is_finished
+        return embedding_files, is_finished, continuation_token
 
     # uploads dir of files to s3
     def upload_directory_to_s3(ec2_dir, s3_dir):
@@ -167,7 +165,7 @@ if __name__ == '__main__':
             print('*****************************************************************************************************')
 
             time_list = time.time()
-            embedding_files, finished = list_embedding_files(pages_per_batch)
+            embedding_files, finished, continuation_token = list_embedding_files(pages_per_batch)
             pipeline_times['list'] += time.time() - time_list
             successful_downloads = []
             time_download = time.time()
@@ -195,6 +193,13 @@ if __name__ == '__main__':
                 break
 
             pages_processed += pages_per_batch
+
+            # Save continuation token for next run
+            try:
+                with open(progress_path, 'w') as f:
+                    json.dump({'continuation_token': continuation_token}, f)
+            except Exception as e:
+                print(f"Error saving continuation token: {e}")
         
         # After all batches are processed, clean up the directories
         if os.path.exists(embedding_directory):
