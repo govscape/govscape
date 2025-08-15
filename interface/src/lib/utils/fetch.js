@@ -10,7 +10,8 @@ const ENDPOINTS = {
         textual: 'https://govscape.net/uae',
         visual: 'https://govscape.net/uae',
         keyword: 'https://govscape.net/uae', // TODO: update to api endpoint
-    }
+    },
+    S3: 'https://bcgl-public-bucket.s3.amazonaws.com/prod-serving'
 };
 
 export const getApiBaseUrl = (searchMode = 'textual') => {
@@ -20,9 +21,9 @@ export const getApiBaseUrl = (searchMode = 'textual') => {
 };
 
 export const getImageBaseUrl = (searchMode = 'textual') => {
-  if (IS_DEV) return ENDPOINTS.DEV[searchMode] + '/images';
-  
-  return ENDPOINTS.PROD[searchMode] + '/images';
+  if (IS_DEV) return ENDPOINTS.DEV[searchMode] + '/img';
+
+  return ENDPOINTS.S3 + '/img';
 };
 
 export async function apiFetch(endpoint, options = {}, searchMode = 'textual') {
