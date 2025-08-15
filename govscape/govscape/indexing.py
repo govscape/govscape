@@ -131,15 +131,14 @@ class FAISSIndex(AbstractVectorIndex):
         pass
 
     def add_batch(self, embeddings, pdf_names, pdf_pages):
-        shape = embeddings[0].shape
-        for embedding in embeddings:
-            if embedding.shape != shape:
-                raise ValueError(f"Embedding dimension mismatch: expected {shape}, got {embedding.shape}")
 
-        embeddings = np.asarray(embeddings)
         if self.faiss_index is None:
-            self.d = embeddings.shape[1]
-            self.faiss_index = faiss.IndexFlatL2(self.d)
+            self.d = embeddings.shape[1]        
+            coarse_quantizer = faiss.IndexFlatL2(self.d)
+            self.faiss_index = faiss.IndexIVFPQ(coarse_quantizer, self.d, 8192, int(self.d/4), 8)
+            self.faiss_index.train(embeddings)
+            self.faiss_index.nprobe = 32
+        
         # embeddings: list or array of shape (n, d)
         if embeddings.ndim == 1:
             embeddings = embeddings[np.newaxis, :]
@@ -247,7 +246,7 @@ class WhooshIndex(AbstractKeywordIndex):
     def add_batch(self, texts, pdf_names, pages):
         if self.index is None:
             self.build_index()
-        writer = self.index.writer(procs=8, limitmb=512)
+        writer = self.index.writer(procs=12, limitmb=2048)
         for text, pdf_name, page in zip(texts, pdf_names, pages):
             writer.add_document(text=text, pdf_name=pdf_name, page=page)
         writer.commit()

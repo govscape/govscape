@@ -8,6 +8,7 @@ import shutil
 import json
 import subprocess
 from botocore.config import Config
+from botocore.exceptions import ClientError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from multiprocessing import Pool, cpu_count, get_context
 
@@ -73,7 +74,7 @@ if __name__ == '__main__':
 
     # ****************************************************************************************************
     # for analyzing: 
-    pipeline_times = {'list' : 0, 'download' : 0, 'pdf_to_txt_img': 0, 'text_embed_time': 0, 'img_embed_time': 0, 'metadata_time': 0, 'upload' : 0}  # to keep track of the time it takes for each step in the pipeline
+    pipeline_times = {'list' : 0, 'download' : 0, 'pdf_to_txt_img': 0, 'text_embed_time': 0, 'img_embed_time': 0, 'metadata_time': 0, 'upload' : 0, 'pdfs_processed' : 0}  # to keep track of the time it takes for each step in the pipeline
 
     # gets pdfs from s3
     def list_pdfs(num_pages=1):
@@ -93,6 +94,7 @@ if __name__ == '__main__':
             contents = result.get('Contents', [])
             pdf_keys = [obj['Key'] for obj in contents if obj['Key'].endswith('.pdf')]
             pdf_keys = [key for key in pdf_keys if (hash(key) % args.num_servers) == args.server_id]
+
             pdf_files.extend(pdf_keys)
             pages_retrieved += 1
             if result.get('IsTruncated'):
@@ -107,11 +109,10 @@ if __name__ == '__main__':
 
     # uploads dir of files to s3
     def upload_directory_to_s3(ec2_dir, s3_dir):
-        subprocess.run(f"s5cmd --log error cp {ec2_dir} s3://{bucket_name}/{s3_dir}".split())
+        subprocess.run(f"/home/ubuntu/.local/bin/s5cmd --log error cp {ec2_dir} s3://{bucket_name}/{s3_dir}".split())
 
     # processing the pdfs: running through embedding pipeline and uploading to s3
     def process_pdfs(pdf_files, processor):
-        start_time = time.time()
 
         # PROCESS PDFS HERE 
         pdf_to_txt_img, text_embed_time, img_embed_time, metadata_time = processor.pdfs_to_embeddings(pdf_files=pdf_files)
@@ -120,13 +121,6 @@ if __name__ == '__main__':
         pipeline_times['img_embed_time'] += img_embed_time 
         pipeline_times['metadata_time'] += metadata_time
 
-        end_time = time.time()
-        duration = end_time - start_time
-        if duration > 0:
-            throughput = len(pdf_files) / duration
-        else:
-            throughput = 0
-        
         time1 = time.time()
         # UPLOADING EMBEDDINGS, TXTS, IMAGES TO S3 HERE 
         upload_directory_to_s3(txt_directory, data_dir_s3)
@@ -151,6 +145,7 @@ if __name__ == '__main__':
         time2 = time.time()
 
         pipeline_times['upload'] += time2-time1
+        pipeline_times['pdfs_processed'] += len(pdf_files)
 
         # Write pipeline_times to a JSON file
         perf_filename = f"performance_{args.server_id}.json"
