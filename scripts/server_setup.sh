@@ -13,5 +13,5 @@ s5cmd sync $s3_prefix/index_keyword/* data/prod/index_keyword
 s5cmd sync $s3_prefix/index_metadata/* data/prod/index_metadata
 s5cmd sync $s3_prefix/metadata/* data/prod/metadata
 
-poetry run python scripts/python_helpers/start_api_server.py --pdf-directory ./data/PDFs --data-directory ./data/prod --text_model BGE --visual_model CLIP 
+poetry run python scripts/python_helpers/run_gunicorn.py --pdf-directory ./data/PDFs --data-directory ./data/prod --text_model BGE --visual_model CLIP 
 
