@@ -1,26 +1,15 @@
-<main class="about-page">
+<main>
   <div class="about-container">
     <div class="about-header">
       <h1>About GovScape</h1>
     </div>
-    
     <div class="about-content">
-      <div class="status-badge">
-        <span class="dot"></span>
-        Coming Soon
-      </div>
-      
-      <div class="description">
-        <p>
-          GovScape is a project by the University of Washington and is coming soon. In the meantime, please contact Ben Lee with any questions.
-        </p>
-      </div>
-
+      <p class="description">
+        GovScape is a project by the University of Washington and is coming soon. In the meantime, please contact Ben Lee with any questions.
+      </p>
       <div class="contact-section">
-        <h2>Contact</h2>
-        <p>
-          For questions or inquiries about GovScape, please contact:
-        </p>
+        <div class="contact-section-header">Contact</div>
+        <p>For questions or inquiries about GovScape, please contact:</p>
         <a href="mailto:bcgl@uw.edu" class="contact-link">
           <i class="bi bi-envelope"></i>
           Ben Lee (bcgl@uw.edu)
@@ -31,62 +20,38 @@
 </main>
 
 <style>
-  .about-page {
-    min-height: 100vh;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    padding: 2rem;
-    background: linear-gradient(135deg, var(--background-color-primary), white);
+  main {
+    min-height: calc(100vh - 90px);
+    padding: 80px 2rem 0 2rem;
   }
 
   .about-container {
-    max-width: 800px;
+    max-width: 700px;
     width: 100%;
-    background: white;
-    padding: 3rem;
+    background: #fff;
+    padding: 0.5rem 1.5rem 1.5rem 1.5rem;
+    margin: 2rem auto;
     border-radius: 16px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
   }
 
   .about-header {
     text-align: center;
-    margin-bottom: 3rem;
+    margin: 1.5rem 0;
+
+    & > h1 {
+      color: var(--color-primary);
+      font-size: 2rem;
+      font-weight: 700;
+    }
   }
 
-  h1 {
-    color: var(--color-primary);
-    margin-bottom: 1rem;
-    font-size: 2.5rem;
-    font-weight: 700;
-  }
-
-  .status-badge {
-    display: inline-flex;
-    align-items: center;
-    background: var(--background-color-primary);
-    color: var(--color-primary);
-    padding: 0.5rem 1rem;
-    border-radius: 20px;
-    font-size: 0.9rem;
-    font-weight: 500;
-    margin-bottom: 2rem;
-  }
-
-  .dot {
-    width: 8px;
-    height: 8px;
-    background: var(--color-primary);
-    border-radius: 50%;
-    margin-right: 8px;
-    animation: pulse 2s infinite;
-  }
-
-  .description {
-    font-size: 1.2rem;
-    line-height: 1.6;
+  .about-content .description {
+    font-size: 1rem;
+    line-height: 1.8;
     color: var(--text-color-primary);
-    margin-bottom: 3rem;
+    margin-bottom: 1.5rem;
+    padding: 0 2rem;
   }
 
   .contact-section {
@@ -95,10 +60,12 @@
     border-radius: 12px;
   }
 
-  .contact-section h2 {
-    font-size: 1.4rem;
+  .contact-section .contact-section-header {
+    font-family: var(--sans-serif-font);
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
     color: var(--color-primary);
-    margin-bottom: 1rem;
   }
 
   .contact-link {
@@ -107,7 +74,6 @@
     color: var(--color-primary);
     text-decoration: none;
     font-weight: 500;
-    margin-top: 1rem;
     transition: color 0.2s ease;
   }
 
