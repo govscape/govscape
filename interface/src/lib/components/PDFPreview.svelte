@@ -24,8 +24,7 @@
 
     try {
       const data = await apiFetch(`/pages/${pdfData.id}`, { method: 'GET' });
-      const mode = get(searchStore).currentSearchMode;
-      const imageBase = getImageBaseUrl(mode);
+      const imageBase = getImageBaseUrl();
       
       images = (data.images || []).map(img => {
         const parts = img.split('/');

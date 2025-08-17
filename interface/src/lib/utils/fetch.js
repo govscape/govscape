@@ -1,32 +1,29 @@
 const IS_DEV = import.meta.env.DEV;
 
 const ENDPOINTS = {
-    DEV: {
-        textual: 'http://localhost:8080',
-        visual: 'http://localhost:8080',
-        keyword: 'http://localhost:8080',
-    },
-    PROD: {
-        textual: 'https://govscape.net/uae',
-        visual: 'https://govscape.net/uae',
-        keyword: 'https://govscape.net/uae', // TODO: update to api endpoint
-    },
-    S3: 'https://bcgl-public-bucket.s3.amazonaws.com/prod-serving'
+  DEV: {
+    API: 'http://localhost:8080/api',
+    S3: 'http://localhost:8080/img'
+  },
+  PROD: {
+    API: 'https://govscape.net/api',
+    S3: 'https://bcgl-public-bucket.s3.amazonaws.com/prod-serving/img'
+  }
 };
 
-export const getApiBaseUrl = (searchMode = 'textual') => {
-  if (IS_DEV) return ENDPOINTS.DEV[searchMode] + '/api';
+export const getApiBaseUrl = () => {
+  if (IS_DEV) return ENDPOINTS.DEV.API;
 
-  return ENDPOINTS.PROD[searchMode] + '/api';
+  return ENDPOINTS.PROD.API;
 };
 
-export const getImageBaseUrl = (searchMode = 'textual') => {
-  if (IS_DEV) return ENDPOINTS.DEV[searchMode] + '/img';
+export const getImageBaseUrl = () => {
+  if (IS_DEV) return ENDPOINTS.DEV.S3;
 
-  return ENDPOINTS.S3 + '/img';
+  return ENDPOINTS.PROD.S3;
 };
 
-export async function apiFetch(endpoint, options = {}, searchMode = 'textual') {
+export async function apiFetch(endpoint, options = {}) {
     const defaultOptions = {
         method: 'POST',
         headers: {
@@ -45,7 +42,7 @@ export async function apiFetch(endpoint, options = {}, searchMode = 'textual') {
     };
 
     try {
-        const apiUrl = getApiBaseUrl(searchMode);
+        const apiUrl = getApiBaseUrl();
         const response = await fetch(`${apiUrl}${endpoint}`, mergedOptions);
 
         if (!response.ok) {
