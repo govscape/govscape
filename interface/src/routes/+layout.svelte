@@ -24,7 +24,6 @@
       <img draggable="false" src="/logo.png" alt="GovScape Logo" class="logo-image" />
     </a>
     <nav>
-      <a href="/about">About</a>
       <a href="/faq">FAQ</a>
     </nav>
   </header>
@@ -33,10 +32,7 @@
   {/key}
   <footer>
     <div class="footer-content">
-      <p class="main-text">GovScape is coming soon</p>
-      <p class="contact-text">
-        For questions, please visit our <a href="/about">About</a> page
-      </p>
+      GovScape is a project by the University of Washington
     </div>
   </footer>
   <CookieConsent 
@@ -79,35 +75,17 @@
   }
 
   footer {
-    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 50px;
     background-color: var(--color-secondary);
-    color: white;
-    padding: 1rem 0;
-  }
-
-  .footer-content {
-    max-width: 1200px;
-    margin: 0 auto;
-    text-align: center;
-    font-family: var(--serif-font);
-  }
-
-  .footer-content .main-text {
-    font-size: 1rem;
-    margin-bottom: 0.65rem;
-  }
-
-  .footer-content .contact-text {
-    font-size: 0.9rem;
-    margin: 0;
-  }
-
-  .footer-content .contact-text a {
     color: #fff;
   }
 
-  .footer-content .contact-text a:hover {
-    opacity: 0.8;
-    text-decoration: underline;
+  .footer-content {
+    text-align: center;
+    font-family: var(--serif-font);
+    font-size: 0.8rem;
   }
 </style>

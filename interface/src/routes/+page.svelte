@@ -75,7 +75,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    min-height: calc(100vh - 90px);
+    min-height: calc(100vh - 50px);
     padding-top: 80px;
   }
 

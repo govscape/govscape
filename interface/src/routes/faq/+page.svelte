@@ -98,7 +98,7 @@
 
 <style>
   main {
-    min-height: calc(100vh - 90px);
+    min-height: calc(100vh - 50px);
     padding: 80px 2rem 2rem 2rem;
     max-width: 800px;
     margin: 0 auto;
