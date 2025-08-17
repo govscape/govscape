@@ -1,7 +1,7 @@
 server {
 	server_name govscape.net www.govscape.net;
 
-	root /var/www/govscape;
+	root /var/www/govscape/interface/build;
 	index index.html;
 
 	# Redirect all www requests to non-www requests
@@ -11,23 +11,21 @@ server {
 
 	# Serve static frontend files
 	location / {
-		proxy_pass http://localhost:8080/;
-		proxy_set_header Host $host;
-		proxy_set_header X-Real-IP $remote_addr;
+		try_files $uri $uri/ /index.html;
+		# Cache static assets
+		location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+			expires 1y;
+			add_header Cache-Control "public, immutable";
+		}
 	}
 
-	# Proxy to UAE backend service
-	location /uae/ {
-		proxy_pass http://localhost:8080/;
+	# Proxy API requests to Flask backend
+	location /api/ {
+		proxy_pass http://localhost:8080/api/;
 		proxy_set_header Host $host;
 		proxy_set_header X-Real-IP $remote_addr;
-	}
-
-	# Proxy to CLIP backend service
-	location /clip/ {
-		proxy_pass http://localhost:8080/;
-		proxy_set_header Host $host;
-		proxy_set_header X-Real-IP $remote_addr;
+		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto $scheme;
 	}
 
 	listen 443 ssl; # HTTPS port
