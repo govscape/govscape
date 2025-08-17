@@ -1,21 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
   import { page } from '$app/stores';
-  import CookieConsent from '$lib/components/CookieConsent.svelte';
-  import { userTracker } from '$lib/utils/userTracking.js';
-
-  let showCookieConsent = false;
-
-  function handleCookieConsent(event) {
-    const { accepted } = event.detail;
-
-    userTracker.updateConsent(accepted);
-    showCookieConsent = false;
-  }
-
-  onMount(() => {
-    showCookieConsent = userTracker.needsConsent();
-  });
 </script>
 
 <div class="app">
@@ -23,26 +7,10 @@
     <a href="/" class="logo">
       <img draggable="false" src="/logo.png" alt="GovScape Logo" class="logo-image" />
     </a>
-    <nav>
-      <a href="/about">About</a>
-      <a href="/faq">FAQ</a>
-    </nav>
   </header>
   {#key $page.url.pathname}
     <slot />
   {/key}
-  <footer>
-    <div class="footer-content">
-      <p class="main-text">GovScape is coming soon</p>
-      <p class="contact-text">
-        For questions, please visit our <a href="/about">About</a> page
-      </p>
-    </div>
-  </footer>
-  <CookieConsent 
-    show={showCookieConsent}
-    on:consent={handleCookieConsent}
-  />
 </div>
 
 <style>
