@@ -13,6 +13,9 @@
   $: loading = $searchStore.loading;
   $: hasMore = $searchStore.hasMore;
   $: page = $searchStore.page;
+  $: pageSize = $searchStore.pageSize;
+  $: totalCount = $searchStore.totalCount;
+  $: totalPages = $searchStore.totalPages;
 
   onMount(() => {
     if (!gridElement) return;
@@ -72,6 +75,29 @@
 {/if}
 
 <div class="grid-container">
+  {#if results.length > 0}
+  <div class="results-summary">
+    <div class="summary-card">
+      <div class="page-info">
+        Page <span class="page-number">{page.toLocaleString()}</span>
+        {#if totalPages}
+        of <span class="page-number">{totalPages.toLocaleString()}</span>
+        {/if}
+      </div>
+      {#if totalCount}
+      <div class="results-info">
+        <span class="results-range">
+          {((page - 1) * pageSize) + 1} – {Math.min(((page - 1) * pageSize) + pageSize, totalCount)}
+        </span>
+        of
+        <span class="total-results">{totalCount.toLocaleString()}</span>
+        Results
+      </div>
+      {/if}
+    </div>
+  </div>
+  {/if}
+  
   <div class="masonry-wrapper" bind:this={gridElement}>
     {#each results as result (result.pdf + result.page)}
     <div class="grid-item">
@@ -99,7 +125,13 @@
         <polyline points="15 18 9 12 15 6"></polyline>
       </svg>
     </button>
-    <span class="page-number">Page {page}</span>
+    <span>
+      Page
+      <span class="page-number">{page.toLocaleString()}</span>
+      {#if totalPages}
+      of <span class="page-number">{totalPages.toLocaleString()}</span>
+      {/if}
+    </span>
     <button on:click={nextPage} disabled={loading || !hasMore} aria-label="Next Page">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="9 18 15 12 9 6"></polyline>
@@ -113,8 +145,9 @@
   .grid-container {
     width: 90%;
     max-width: 1400px;
-    padding: 50px 0 20px 0;
+    padding: 10px 0 20px 0;
   }
+
   .masonry-wrapper {
     margin: 0 auto;
   }
@@ -171,6 +204,9 @@
     align-items: center;
     padding: 1rem 0 2rem 0;
     gap: 2rem;
+    color: var(--text-color-secondary);
+    font-family: var(--sans-serif-font);
+    font-size: 0.9rem;
   }
 
   .pagination-container button {
@@ -203,8 +239,8 @@
     box-shadow: none;
   }
 
-  .page-number {
-    font-size: 0.85rem;
+  .pagination-container .page-number {
+    font-weight: 500;
     color: var(--text-color-primary);
   }
 
@@ -222,6 +258,42 @@
     border-top: 4px solid var(--color-primary);
     border-radius: 50%;
     animation: spin 1s linear infinite;
+  }
+
+  .results-summary {
+    display: flex;
+    justify-content: center;
+    margin: 0 0 1.25rem 0;
+  }
+
+  .summary-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-family: var(--sans-serif-font);
+  }
+
+  .page-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .page-info, .results-info {
+    font-size: 0.85rem;
+    color: var(--text-color-secondary);
+  }
+
+  .results-summary .page-number,
+  .results-summary .results-range,
+  .results-summary .total-results {
+    color: var(--text-color-primary);
+    font-weight: 500;
+  }
+
+  .results-info {
+    padding-left: 16px;
+    border-left: 1px solid var(--border-color-primary);
   }
 
   @keyframes spin {

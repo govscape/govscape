@@ -11,7 +11,10 @@ export const searchStore = writable({
   loading: false,
   error: null,
   page: 1,
+  pageSize: 20,
   hasMore: false,
+  totalCount: null,
+  totalPages: null,
 });
 
 export const searchActions = {
@@ -29,7 +32,10 @@ export const searchActions = {
       results: [],
       error: null,
       page: 1,
+      pageSize: 20,
       hasMore: false,
+      totalCount: null,
+      totalPages: null,
     }));
   },
   
@@ -60,7 +66,10 @@ export const searchActions = {
       error: null,
       showFilters: false,
       page: 1,
+      pageSize: 20,
       hasMore: false,
+      totalCount: null,
+      totalPages: null,
     });
   },
   
@@ -72,11 +81,7 @@ export const searchActions = {
     const { isNewSearch = false } = options;
     const currentStore = get(searchStore);
 
-    if (currentStore.loading) return;
-    if (!currentStore.query.trim()) {
-      searchStore.update(store => ({ ...store, results: [], hasMore: false }));
-      return;
-    }
+    if (currentStore.loading || !currentStore.query.trim()) return;
 
     searchStore.update(store => ({
       ...store,
@@ -105,8 +110,10 @@ export const searchActions = {
       searchStore.update(store => ({
         ...store,
         results,
+        loading: false,
         hasMore: responseData.pagination.has_next_page,
-        loading: false
+        totalCount: responseData.pagination.total_count,
+        totalPages: responseData.pagination.total_pages
       }));
 
       if (isNewSearch && userTracker.hasConsent()) {
@@ -119,7 +126,9 @@ export const searchActions = {
         error: err.message || 'Search failed',
         loading: false,
         results: [],
-        hasMore: false
+        hasMore: false,
+        totalCount: null,
+        totalPages: null
       }));
     }
   }
