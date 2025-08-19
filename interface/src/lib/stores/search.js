@@ -94,7 +94,7 @@ export const searchActions = {
         body: JSON.stringify({ query, filters, search_type: currentSearchMode, page: pageNumber })
       });
 
-      const imageBase = getImageBaseUrl(currentSearchMode);
+      const imageBase = getImageBaseUrl();
       const results = (responseData.results || []).map(result => ({
         ...result,
         jpeg: result.jpeg && typeof result.jpeg === 'string'
