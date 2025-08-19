@@ -24,13 +24,17 @@
       <img draggable="false" src="/logo.png" alt="GovScape Logo" class="logo-image" />
     </a>
     <nav>
-      <a href="/about">About</a>
       <a href="/faq">FAQ</a>
     </nav>
   </header>
   {#key $page.url.pathname}
     <slot />
   {/key}
+  <footer>
+    <div class="footer-content">
+      GovScape is a project by the University of Washington
+    </div>
+  </footer>
   <CookieConsent 
     show={showCookieConsent}
     on:consent={handleCookieConsent}
@@ -68,5 +72,20 @@
     color: var(--text-color-primary);
     font-size: 0.85rem;
     text-decoration: none;
+  }
+
+  footer {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 50px;
+    background-color: var(--color-secondary);
+    color: #fff;
+  }
+
+  .footer-content {
+    text-align: center;
+    font-family: var(--serif-font);
+    font-size: 0.8rem;
   }
 </style>

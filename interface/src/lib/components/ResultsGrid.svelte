@@ -40,17 +40,9 @@
   
   $: onPageChange = (() => {
     if (typeof window === 'undefined') return;
-    
     if (previousPage !== undefined && page !== previousPage && gridElement) {
-      const rect = gridElement.getBoundingClientRect();
-      const offsetTop = window.scrollY + rect.top;
-
-      window.scrollTo({
-        top: offsetTop - 100,
-        behavior: 'smooth'
-      });
+      window.scrollTo({ top: 0 });
     }
-
     previousPage = page;
   })();
 
@@ -177,8 +169,8 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    padding: 20px 0 100px 0;
-    gap: 25px;
+    padding: 1rem 0 2rem 0;
+    gap: 2rem;
   }
 
   .pagination-container button {

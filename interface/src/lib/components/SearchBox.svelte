@@ -6,9 +6,13 @@
   import GlobeIcon from './icons/GlobeIcon.svelte';
   import FilterIcon from './icons/FilterIcon.svelte';
 
-  const suggestions = ['income tax', 'climate change', 'student loans', 'pie charts'];
+  const suggestionsByMode = {
+    visual: ['redacted documents', 'aerial photography', 'pie charts', 'maps of seattle'],
+    textual: ['pediatric healthcare in rural areas', 'budgetary data for environmental surveys', 'scientific innovation and policy'],
+    keyword: ['covid-19', 'social security', 'FAFSA']
+  };
   const searchModes = [
-    { id: 'textual', label: 'Textual Search', placeholder: 'Search PDFs with context-rich text search...' },
+    { id: 'textual', label: 'Semantic Text Search', placeholder: 'Search PDFs with context-rich text search...' },
     { id: 'visual', label: 'Visual Search', placeholder: 'Search PDFs using image semantics...' },
     { id: 'keyword', label: 'Keyword Search', placeholder: 'Enter keywords for search...' },
   ];
@@ -18,6 +22,8 @@
   let showSuggestionsDropdown = false;
   let searchInputElement;
   let query = '';
+
+  $: suggestions = suggestionsByMode[currentSearchMode.id] || [];
 
   $: if (query !== undefined && get(searchStore).query !== query) {
     searchActions.setQuery(query);
@@ -245,12 +251,12 @@
   }
 
   .search-mode-toggle-bg.toggle-right {
-    transform: translateX(200%);
+    transform: translateX(203.5%);
   }
 
   .search-mode-tabs button {
     position: relative;
-    min-width: 125px;
+    min-width: 150px;
     flex: 1 1 0;
     border: none;
     background: transparent;
