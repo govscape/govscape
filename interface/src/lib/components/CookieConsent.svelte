@@ -58,24 +58,24 @@
     position: fixed;
     top: 0;
     left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
     display: flex;
     justify-content: center;
-    align-items: center;
-    z-index: 1000;
+    z-index: 1050;
   }
 
   .modal-content {
-    background: white;
+    background: #fff;
+    width: 90%;
+    margin-top: 5vh;
+    max-width: 600px;
+    max-height: 75%;
     padding: 2rem;
     border-radius: 8px;
-    max-width: 600px;
-    width: 90%;
-    max-height: 75%;
-    overflow-y: auto;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    overflow-y: auto;
   }
 
   .modal-content h2 {
