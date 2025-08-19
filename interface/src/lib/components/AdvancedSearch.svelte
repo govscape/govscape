@@ -8,19 +8,18 @@
   let subDomain = '';
   let pageCount = '';
 
-  const crawlDateOptions = [
-    { value: '2024', label: '2024' },
-    { value: '2020', label: '2020' },
-    { value: '2016', label: '2016' },
-    { value: '2012', label: '2012' },
-    { value: '2008', label: '2008' },
-  ];
-
   const subdomainOptions = [
     { value: '', label: 'Any subdomain' },
-    { value: 'epa.gov', label: 'epa.gov' },
+    { value: 'tennille-ga.gov', label: 'tennille-ga.gov' },
+    { value: 'govinfo.gov', label: 'govinfo.gov' },
+    { value: 'westhaverstraw.org', label: 'westhaverstraw.org' },
+    { value: 'sec.gov', label: 'sec.gov' },
+    { value: 'ca.gov', label: 'ca.gov' },
+    { value: 'usda.gov', label: 'usda.gov' },
+    { value: 'census.gov', label: 'census.gov' },
+    { value: 'wa.gov', label: 'wa.gov' },
+    { value: 'utah.gov', label: 'utah.gov' },
     { value: 'nasa.gov', label: 'nasa.gov' },
-    { value: 'cdc.gov', label: 'cdc.gov' },
   ];
 
   function applyFilters() {
