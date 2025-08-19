@@ -4,21 +4,26 @@ server {
 	root /var/www/govscape;
 	index index.html;
 
-# Serve static frontend files
+	# Redirect all HTTP requests to HTTPS
+	if ($host = www.govscape.net) {
+		return 301 https://govscape.net$request_uri;
+	}
+
+	# Serve static frontend files
 	location / {
 		proxy_pass http://localhost:8080/;
 		proxy_set_header Host $host;
 		proxy_set_header X-Real-IP $remote_addr;
 	}
 
-# Proxy to UAE backend service
+	# Proxy to UAE backend service
 	location /uae/ {
 		proxy_pass http://localhost:8080/;
 		proxy_set_header Host $host;
 		proxy_set_header X-Real-IP $remote_addr;
 	}
 
-# Proxy to CLIP backend service
+	# Proxy to CLIP backend service
 	location /clip/ {
 		proxy_pass http://localhost:8080/;
 		proxy_set_header Host $host;
@@ -41,7 +46,7 @@ server {
 
 	# Redirect all HTTP requests to HTTPS
 	if ($host = www.govscape.net) {
-		return 301 https://$host$request_uri;
+		return 301 https://govscape.net$request_uri;
 	}
 
 	if ($host = govscape.net) {
