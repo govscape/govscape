@@ -1,21 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
   import { page } from '$app/stores';
-  import CookieConsent from '$lib/components/CookieConsent.svelte';
-  import { userTracker } from '$lib/utils/userTracking.js';
-
-  let showCookieConsent = false;
-
-  function handleCookieConsent(event) {
-    const { accepted } = event.detail;
-
-    userTracker.updateConsent(accepted);
-    showCookieConsent = false;
-  }
-
-  onMount(() => {
-    showCookieConsent = userTracker.needsConsent();
-  });
 </script>
 
 <div class="app">
@@ -23,18 +7,10 @@
     <a href="/" class="logo">
       <img draggable="false" src="/logo.png" alt="GovScape Logo" class="logo-image" />
     </a>
-    <nav>
-      <a href="/about">About</a>
-      <a href="/faq">FAQ</a>
-    </nav>
   </header>
   {#key $page.url.pathname}
     <slot />
   {/key}
-  <CookieConsent 
-    show={showCookieConsent}
-    on:consent={handleCookieConsent}
-  />
 </div>
 
 <style>
@@ -68,5 +44,38 @@
     color: var(--text-color-primary);
     font-size: 0.85rem;
     text-decoration: none;
+  }
+
+  footer {
+    width: 100%;
+    background-color: var(--color-secondary);
+    color: white;
+    padding: 1rem 0;
+  }
+
+  .footer-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    text-align: center;
+    font-family: var(--serif-font);
+  }
+
+  .footer-content .main-text {
+    font-size: 1rem;
+    margin-bottom: 0.65rem;
+  }
+
+  .footer-content .contact-text {
+    font-size: 0.9rem;
+    margin: 0;
+  }
+
+  .footer-content .contact-text a {
+    color: #fff;
+  }
+
+  .footer-content .contact-text a:hover {
+    opacity: 0.8;
+    text-decoration: underline;
   }
 </style>
