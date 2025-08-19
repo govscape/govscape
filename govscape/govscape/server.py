@@ -6,6 +6,9 @@ import numpy as np
 import os
 import struct
 import json
+import fcntl
+import time
+import math
 from .api import init_api
 from .filter import Filter
 from .indexing import DiskANNIndex, FAISSIndex, WhooshIndex, SQLiteMetadataIndex
@@ -29,6 +32,7 @@ class Server:
         self.index_keyword_directory = config.index_keyword_directory
         self.index_metadata_directory = config.index_metadata_directory
         self.image_directory = config.image_directory
+        self.stats_file = config.stats_file
         self.index_type = config.index_type
         self.k = config.k
 
@@ -157,12 +161,17 @@ class Server:
         start_index = (page - 1) * self.k
         end_index = start_index + self.k
 
+        total_count = self._get_total_pdfs_count() or 0
+        total_pages = math.ceil(total_count / self.k) if total_count else 0
+
         return {
             "results": search_results[start_index:end_index],
             "pagination": {
                 "page": page,
                 "page_size": self.k,
                 "has_next_page": len(search_results) > end_index,
+                "total_count": total_count,
+                "total_pages": total_pages,
             },
         }
 
@@ -190,6 +199,58 @@ class Server:
         image_dir = os.path.join(self.image_directory, pdf_id)
         images = [f"{image_dir}/{pdf_id}_{i}.jpeg" for i in range(num_pages)]
         return {"images": images}
+
+    def _get_total_pdfs_count(self):
+        # TODO: use Redis to cache the total number of PDFs
+        current_time = time.time()
+        cache_duration = 3600  # 1 hour in seconds
+        
+        if (hasattr(self, '_total_pdfs_cache') and 
+            hasattr(self, '_total_pdfs_cache_time') and
+            current_time - self._total_pdfs_cache_time < cache_duration):
+            return self._total_pdfs_cache
+        
+        total_pdfs_path = self.stats_file
+        
+        if not total_pdfs_path or not os.path.exists(total_pdfs_path):
+            self._total_pdfs_cache = 0
+            self._total_pdfs_cache_time = current_time
+            return 0
+        
+        try:
+            with open(total_pdfs_path, "r", encoding='utf-8') as f:
+                locked = False
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+                    locked = True
+                except (OSError, IOError):
+                    pass
+                
+                content = f.read().strip()
+                if not content:
+                    val = 0
+                else:
+                    try:
+                        val = int(content)
+                    except ValueError:
+                        val = 0
+                
+                if locked:
+                    try:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                    except Exception:
+                        pass
+                
+                self._total_pdfs_cache = val
+                self._total_pdfs_cache_time = current_time
+                
+                return val
+                
+        except Exception as e:
+            print(f"Error reading total_pdfs.txt: {str(e)}")
+            self._total_pdfs_cache = 0
+            self._total_pdfs_cache_time = current_time
+            return 0
 
     def serve(self):
         # keep this function to maintain compatibility with scripts/start_server.py

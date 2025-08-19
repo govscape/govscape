@@ -25,7 +25,9 @@ search_result = ns.model('SearchResult', {
 pagination_model = ns.model('Pagination', {
     'page': fields.Integer(description='Current page number'),
     'page_size': fields.Integer(description='Number of results per page'),
-    'has_next_page': fields.Boolean(description='Indicates if there is a next page')
+    'has_next_page': fields.Boolean(description='Indicates if there is a next page'),
+    'total_count': fields.Integer(description='Total number of PDFs'),
+    'total_pages': fields.Integer(description='Total number of pages')
 })
 
 search_response = ns.model('SearchResponse', {
