@@ -105,7 +105,7 @@
 
   .filters-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
     gap: 16px;
     width: 100%;
   }
@@ -130,6 +130,7 @@
     color: var(--text-color-primary);
     padding: 8px;
   }
+
   .filter-item input::placeholder {
     color: var(--text-color-secondary);
   }
@@ -139,9 +140,17 @@
     align-items: center;
     gap: 2px;
   }
+
   .em-dash {
     margin: 0 4px;
     font-size: 1.2em;
     color: var(--text-color-secondary, #888);
+  }
+
+  @media (max-width: 767px) {
+    .date-range-row input {
+      flex: 1 1 120px;
+      min-width: 120px;
+    }
   }
 </style>
