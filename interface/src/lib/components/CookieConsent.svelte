@@ -63,15 +63,15 @@
     background: rgba(0, 0, 0, 0.6);
     display: flex;
     justify-content: center;
+    align-items: center;
     z-index: 1050;
   }
 
   .modal-content {
     background: #fff;
     width: 90%;
-    margin-top: 5vh;
     max-width: 600px;
-    max-height: 90vh;
+    max-height: 85%;
     padding: 2rem;
     border-radius: 8px;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -162,5 +162,12 @@
   .consent:disabled {
     background: #ccc;
     cursor: not-allowed;
+  }
+
+  @media (max-width: 767px) {
+    .modal-content {
+      margin-top: -5%;
+      max-height: 70%;
+    }
   }
 </style>
