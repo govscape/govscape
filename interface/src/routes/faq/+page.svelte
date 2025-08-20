@@ -120,15 +120,15 @@
     margin-bottom: 1rem;
   }
 
-  .item {
+  .faq .item {
     border-bottom: 1px solid #e9ecef;
   }
 
-  .item:last-child {
+  .faq .item:last-child {
     border-bottom: none;
   }
 
-  summary {
+  .faq summary {
     position: relative;
     padding: 1.5rem;
     font-size: 1.1rem;
@@ -139,11 +139,11 @@
     list-style: none;
   }
 
-  summary::-webkit-details-marker {
+  .faq summary::-webkit-details-marker {
     display: none;
   }
 
-  summary::after {
+  .faq summary::after {
     content: '▼';
     position: absolute;
     top: 1.5rem;
@@ -152,54 +152,48 @@
     color: var(--color-primary);
   }
 
-  :global(.item.opened) summary::after {
+  :global(.faq .item.opened) summary::after {
     transform: rotate(180deg);
   }
 
-  .content {
-    max-height: 0;
-    overflow: hidden;
-  }
-
-  :global(.item.opened) .content {
-    max-height: 1000px;
+  .faq .content {
     padding: 0 1.5rem 1.5rem;
   }
 
-  p, li {
+  .faq .content p,
+  .faq .content li {
     font-size: 0.95rem;
     line-height: 1.7;
     color: var(--text-color-primary);
     margin-bottom: 1rem;
   }
 
-  p:last-child {
+  .faq .content p:last-child {
     margin-bottom: 0;
   }
 
-  ul {
+  .faq .content ul {
     padding-left: 1.5rem;
   }
 
-  .note {
+  .faq .content .note {
     background: var(--background-color-primary);
     padding: 1rem;
     border-radius: 8px;
     border-left: 4px solid var(--color-primary);
   }
 
-  a {
+  .faq .content a {
     color: var(--color-primary);
     text-decoration: none;
     font-weight: 500;
   }
-
-  a:hover {
+  .faq .content a:hover {
     color: var(--color-secondary);
     text-decoration: underline;
   }
 
-  .team {
+  .faq .content .team {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 0.5rem;
@@ -207,7 +201,7 @@
     list-style: none;
   }
 
-  .team li {
-    margin-bottom: 0.3rem;
+  .faq .content .team li {
+    margin-bottom: 0;
   }
 </style>
