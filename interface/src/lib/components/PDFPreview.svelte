@@ -64,6 +64,49 @@
     currentPageIndex--;
   }
 
+  async function sharePreview() {
+    if (!pdfData?.id || isLinkCopied) return;
+    
+    const baseUrl = window.location.origin;
+    const previewUrl = `${baseUrl}/preview/${pdfData.id}${currentPageIndex > 0 ? `?page=${currentPageIndex + 1}` : ''}`;
+    
+    try {
+      // Try to use the modern Clipboard API
+      await navigator.clipboard.writeText(previewUrl);
+      showShareFeedback();
+    } catch (err) {
+      // Fallback for older browsers
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = previewUrl;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        showShareFeedback();
+      } catch (fallbackErr) {
+        // If all else fails, still show the button feedback
+        showShareFeedback();
+      }
+    }
+  }
+
+  let isLinkCopied = false;
+  
+  function showShareFeedback(message, isError = false) {
+    isLinkCopied = true;
+    
+    // Reset button text after 2 seconds
+    setTimeout(() => {
+      isLinkCopied = false;
+    }, 2000);
+  }
+
   async function downloadPDF() {
     if (!pdfData?.id) return;
     // Construct the S3 URL
@@ -126,9 +169,31 @@
               <div><b>Sub-Domain:</b> {pdfData?.sub_domain || 'Not Available'}</div>
               <div><b>Crawl Date:</b> {pdfData?.crawl_date || 'Not Available'}</div>
               <div><b>Crawl URL:</b> <a href={pdfData?.crawl_url || 'Not Available'}>{pdfData?.crawl_url || 'Not Available'}</a></div>
-              <button class="btn btn-primary" on:click={downloadPDF}>
-                <div> Download PDF </div>
-              </button>
+              <div class="action-buttons">
+                <button class="btn btn-primary" on:click={downloadPDF}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7,10 12,15 17,10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  Download PDF
+                </button>
+                <button class="btn btn-secondary share-btn" class:copied={isLinkCopied} on:click={sharePreview} disabled={isLinkCopied}>
+                  {#if isLinkCopied}
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="20,6 9,17 4,12"/>
+                    </svg>
+                    Link Copied
+                  {:else}
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+                      <polyline points="16,6 12,2 8,6"/>
+                      <line x1="12" y1="2" x2="12" y2="15"/>
+                    </svg>
+                    Share Link
+                  {/if}
+                </button>
+              </div>
             </div>
             <div class="preview-thumbnail-panel">
               <h6 class="preview-thumbnail-panel-title">All Pages</h6>
@@ -308,6 +373,49 @@
   .preview-details b {
     font-weight: 600;
     color: var(--text-color-primary);
+  }
+
+  .action-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 1rem;
+  }
+
+  .action-buttons .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+  }
+
+  .action-buttons .btn-primary {
+    background-color: var(--color-primary);
+    color: #fff;
+  }
+
+  .action-buttons .btn-secondary {
+    background-color: #fff;
+    border: 1px solid var(--color-primary);
+    color: var(--color-primary);
+  }
+
+  .action-buttons .btn-secondary.copied {
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+  }
+
+  .action-buttons .btn:disabled {
+    cursor: default;
   }
 
   .preview-thumbnail-panel {
