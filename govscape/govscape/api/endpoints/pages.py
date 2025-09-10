@@ -6,7 +6,12 @@ ns = Namespace("pages", description="PDF pages operations")
 
 pages_response = ns.model(
     "PagesResponse",
-    {"images": fields.List(fields.String, description="List of image paths for pages")},
+    {
+        "images": fields.List(fields.String, description="List of image paths for pages"),
+        "crawl_url": fields.String(description="Crawl URL for the PDF"),
+        "crawl_date": fields.String(description="Crawl date for the PDF (YYYY-MM-DD)"),
+        "sub_domain": fields.String(description="Subdomain for the PDF source"),
+    },
 )
 
 
