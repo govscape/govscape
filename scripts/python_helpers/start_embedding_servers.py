@@ -4,11 +4,11 @@ AMI_ID = 'ami-0321559df76fad329'
 INSTANCE_TYPE = 'g4dn.4xlarge'  # Change as needed
 KEY_NAME = 'kyle-desktop'  # Replace with your EC2 key pair name
 IAM_INSTANCE_PROFILE = {'Name': 'GovScapeServerEC2Role'}
-NUM_SERVERS = 2
+NUM_SERVERS = 30
 SECURITY_GROUPS = [{'GroupId': 'sg-0e4b8310618ef3b7a'}]  # Replace with your security group ID
-NUM_PAGES_TO_PROCESS = 2
+NUM_PAGES_TO_PROCESS = 10000000
 
-ec2 = boto3.client('ec2')
+ec2 = boto3.client('ec2', region_name='us-east-2')
 
 user_data_template = '''#!/bin/bash
 sudo -u ubuntu bash -c "
@@ -44,7 +44,7 @@ for i in range(NUM_SERVERS):
             {
                 'ResourceType': 'instance',
                 'Tags': [
-                    {'Key': 'Name', 'Value': f'embedding-server-test2-{i}'}
+                    {'Key': 'Name', 'Value': f'embedding-server-{i}'}
                 ]
             }
         ]

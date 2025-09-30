@@ -11,5 +11,5 @@ data_dir="dev-serving"
 s5cmd sync $s3_prefix/$data_dir/index_keyword/* data/prod/index_keyword
 
 # Run the embeddings pipeline
-poetry run python scripts/python_helpers/s3_text_indexing_pipeline.py --num_pages_to_process 10000 --bucket_name 'bcgl-public-bucket' --in_data_dir $data_dir --out_data_dir $data_dir 
+poetry run python scripts/python_helpers/s3_text_indexing_pipeline.py --num_pages_to_process 1000000 --bucket_name 'bcgl-public-bucket' --in_data_dir $data_dir --out_data_dir $data_dir 
 
