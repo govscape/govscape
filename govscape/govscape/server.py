@@ -145,7 +145,7 @@ class Server:
                         "page": page_num,
                         "distance": float(distance), 
                         "jpeg": jpeg_file,
-                        "crawl_url" : metadata.get("url", ""),
+                        "crawl_url" : metadata.get("crawl_url", ""),
                         "crawl_date": metadata.get("crawl_date", ""),
                         "sub_domain": metadata.get("sub_domain", ""),
                     })

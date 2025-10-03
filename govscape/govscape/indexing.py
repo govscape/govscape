@@ -355,7 +355,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS metadata (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT,
+                crawl_url TEXT,
                 crawl_date TEXT,
                 pdf_name TEXT,
                 sub_domain TEXT,
@@ -369,11 +369,11 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             self.conn = sqlite3.connect(self.db_path)
             self.cursor = self.conn.cursor()
         to_insert = [
-            (md.get("url", ""), md.get("crawl_date", ""), md.get("pdf_name", ""), md.get("sub_domain", ""), md.get("page_count", 0))
+            (md.get("crawl_url", ""), md.get("crawl_date", ""), md.get("pdf_name", ""), md.get("sub_domain", ""), md.get("page_count", 0))
             for md in metadata_dicts
         ]
         self.cursor.executemany(
-            "INSERT INTO metadata (url, crawl_date, pdf_name, sub_domain, page_count) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO metadata (crawl_url, crawl_date, pdf_name, sub_domain, page_count) VALUES (?, ?, ?, ?, ?)",
             to_insert
         )
         self.conn.commit()
@@ -417,7 +417,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         for row in rows:
             pdf_name = row[2]
             row_dict = {
-                    "url": row[0],
+                    "crawl_url": row[0],
                     "crawl_date": f"{row[1][0:4]}-{row[1][4:6]}-{row[1][6:8]}",
                     "pdf_name": row[2],
                     "sub_domain": row[3]
