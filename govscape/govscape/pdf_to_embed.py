@@ -206,10 +206,8 @@ class PDFsToEmbeddings:
             image.save(img_file_path, format="JPEG")
 
     # converts dir of pdfs -> dir of subdirs of txt files of each page AKA OVERALL PDFS -> TXTS
-    def convert_pdfs_to_txt_and_img(self, pdf_files=None):
+    def convert_pdfs_to_txt_and_img(self, pdf_files):
         self.ensure_dir(self.txts_path)
-        if pdf_files is None:
-            pdf_files = os.listdir(self.pdfs_path)
         ctx = get_context('forkserver')
         with ctx.Pool(processes=os.cpu_count()) as pool:
             pool.starmap(self.convert_pdf_to_txt_and_img, [(self.txts_path, self.img_path, self.pdfs_path, file) for file in pdf_files])
@@ -299,9 +297,16 @@ class PDFsToEmbeddings:
     # *******************************************************************************************************************
     def create_metadata_jsons(self, pdf_files):
         os.makedirs(self.metadata_dir, exist_ok=True)
+        pdf_file_batches = [pdf_files[i:i + 50] for i in range(0, len(pdf_files), 50)]
+        ctx = get_context('spawn')
+        with ctx.Pool(processes=os.cpu_count()) as pool:
+            pool.starmap(self.create_metadata_jsons_worker, [(batch, self.metadata_dir) for batch in pdf_file_batches])
+        
+    @staticmethod
+    def create_metadata_jsons_worker(pdf_files, metadata_dir):
         for pdf_file in pdf_files:
             json_data = dict()
-            pdf_path = os.path.join(self.pdfs_path, pdf_file)
+            pdf_path = os.path.join(pdf_file)
             try:
                 pdf = pypdfium2.PdfDocument(pdf_path)
                 num_pages = len(pdf)
@@ -322,7 +327,7 @@ class PDFsToEmbeddings:
                 print(f"Skipping invalid PDF {pdf_path}: {e}")
                 continue
 
-            pdf_metadata_dir = os.path.join(self.metadata_dir, os.path.splitext(os.path.basename(pdf_file))[0])
+            pdf_metadata_dir = os.path.join(metadata_dir, os.path.splitext(os.path.basename(pdf_file))[0])
             os.makedirs(pdf_metadata_dir, exist_ok=True)
             json_file_path = os.path.join(pdf_metadata_dir, "metadata.json")
             with open(json_file_path, "w") as json_file:

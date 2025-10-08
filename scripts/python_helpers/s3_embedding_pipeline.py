@@ -192,7 +192,7 @@ if __name__ == '__main__':
             os.makedirs(pdf_directory, exist_ok=True)
             download_batch_size = 100
             download_batches = [batch[i:i + download_batch_size] for i in range(0, len(batch), download_batch_size)]
-            with get_context("fork").Pool(processes=256) as pool:
+            with get_context("fork").Pool(processes=os.cpu_count()*2) as pool:
                 results = pool.starmap(
                     download_pdfs,
                     [(pdfs, bucket_name, pdf_directory) for pdfs in download_batches]
