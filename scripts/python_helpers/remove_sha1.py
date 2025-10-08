@@ -23,8 +23,6 @@ def remove_sha1(bucket, sha1_keys):
     copied_properly = 0
     for sha1_key in sha1_keys:
         clean_key = sha1_key.replace('sha1:', '')
-        if sha1_key == clean_key:
-            print(f"Key {sha1_key} does not start with 'sha1:'. Skipping.")
         correctly_copied = False
         try:
             response = s3.copy_object(

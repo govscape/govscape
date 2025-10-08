@@ -170,13 +170,12 @@ class PDFsToEmbeddings:
     # converts a single pdf file to txt and img files (one of each per page)
     @staticmethod
     def convert_pdf_to_txt_and_img(txts_path, imgs_path, pdfs_path, pdf_file):
+        pdf_name = os.path.splitext(os.path.basename(pdf_file))[0]
         pdf_path = os.path.join(pdfs_path, pdf_file)
-        pdf_txt_subdir = os.path.join(txts_path, os.path.splitext(pdf_file)[0])
-        pdf_img_subdir = os.path.join(imgs_path, os.path.splitext(pdf_file)[0])
-
+        pdf_txt_subdir = os.path.join(txts_path, pdf_name)
+        pdf_img_subdir = os.path.join(imgs_path, pdf_name)
         os.makedirs(pdf_txt_subdir, exist_ok=True)
         os.makedirs(pdf_img_subdir, exist_ok=True)
-
         try:
             pdf = pypdfium2.PdfDocument(pdf_path)
             num_pages = len(pdf)
@@ -197,15 +196,14 @@ class PDFsToEmbeddings:
             return
         
         for page_num, page_text in enumerate(text):
-            txt_file_path = os.path.join(pdf_txt_subdir, f'{os.path.splitext(pdf_file)[0]}_{page_num}.txt')
+            txt_file_path = os.path.join(pdf_txt_subdir, f'{pdf_name}_{page_num}.txt')
             if page_text and len(page_text) != 0:
                 with open(txt_file_path, 'w', encoding='utf-8') as text_file:
                     text_file.write(page_text)
-            
-            img_file_path = os.path.join(pdf_img_subdir, f'{os.path.splitext(pdf_file)[0]}_{page_num}.jpeg')
+
+            img_file_path = os.path.join(pdf_img_subdir, f'{pdf_name}_{page_num}.jpeg')
             image = images[page_num]
             image.save(img_file_path, format="JPEG")
-
 
     # converts dir of pdfs -> dir of subdirs of txt files of each page AKA OVERALL PDFS -> TXTS
     def convert_pdfs_to_txt_and_img(self, pdf_files=None):
@@ -257,7 +255,7 @@ class PDFsToEmbeddings:
 
         try:
             with fitz.open(full_pdf_path) as pdf_doc:
-                title = os.path.splitext(os.path.basename(pdf_path))[0]
+                pdf_name = os.path.splitext(os.path.basename(pdf_path))[0]
 
                 empty = True
                 for page_num in range(len(pdf_doc)):
@@ -277,7 +275,7 @@ class PDFsToEmbeddings:
                         except Exception as e:
                             continue
 
-                        image_path = Path(output_img_dir_path) / f"{title}_{page_num}_{i}.jpeg"
+                        image_path = Path(output_img_dir_path) / f"{pdf_name}_{page_num}_{i}.jpeg"
                         image = image.convert("RGB")
 
                         if image.size[0] < 80 or image.size[1] < 80 or image.size[0] > 7000 or image.size[1] > 7000:  #image is too small/big to be considered
@@ -291,12 +289,10 @@ class PDFsToEmbeddings:
             logging.error(f"can't open PDF {pdf_path}: {e}")
             return
 
-    
     def convert_pdfs_to_extracted_imgs(self, pdf_files):
         ctx = get_context('spawn')
         with ctx.Pool(processes=os.cpu_count()) as pool:
             pool.starmap(self.extract_img_pdfs, [(self.pdfs_path, self.extracted_img_path, self.embeddings_img_e_path, file) for file  in pdf_files])
-
 
     # *******************************************************************************************************************
     # pdf --> dir metadata (json) for each pdf
@@ -325,8 +321,8 @@ class PDFsToEmbeddings:
                 json_data['num_pages'] = 1
                 print(f"Skipping invalid PDF {pdf_path}: {e}")
                 continue
-            
-            pdf_metadata_dir = os.path.join(self.metadata_dir, os.path.splitext(pdf_file)[0])
+
+            pdf_metadata_dir = os.path.join(self.metadata_dir, os.path.splitext(os.path.basename(pdf_file))[0])
             os.makedirs(pdf_metadata_dir, exist_ok=True)
             json_file_path = os.path.join(pdf_metadata_dir, "metadata.json")
             with open(json_file_path, "w") as json_file:
@@ -343,7 +339,8 @@ class PDFsToEmbeddings:
         pdf_names = []
         pages = []
         for pdf_file in pdf_files:
-            pdf_txt_subdir = os.path.join(self.txts_path, os.path.splitext(pdf_file)[0])
+            pdf_name = os.path.splitext(os.path.basename(pdf_file))[0]
+            pdf_txt_subdir = os.path.join(self.txts_path, pdf_name)
             if not os.path.exists(pdf_txt_subdir):
                 continue
             for txt_file in os.listdir(pdf_txt_subdir):
@@ -353,7 +350,7 @@ class PDFsToEmbeddings:
                         text = f.read()
                     if text.strip():
                         texts.append(text)
-                        pdf_names.append(os.path.splitext(pdf_file)[0])
+                        pdf_names.append(pdf_name)
                         # Extract page number from filename (assumes format: <pdfname>_<page>.txt)
                         page_num = int(os.path.splitext(txt_file)[0].split('_')[-1])
                         pages.append(page_num)
@@ -369,40 +366,45 @@ class PDFsToEmbeddings:
     # overall pipeline
     # *******************************************************************************************************************
 
-    def pdfs_to_embeddings(self, pdf_files=None):
-        pdf_files = pdf_files or os.listdir(self.pdfs_path)
+    def pdfs_to_embeddings(self, pdf_files,
+                                do_text_embedding,
+                                do_img_embedding,
+                                do_metadata_collection):
         time1 = time.time()
-
-        print("Converting pdfs to txts and page images")
-        self.convert_pdfs_to_txt_and_img(pdf_files)
+        if do_text_embedding or do_img_embedding:
+            print("Converting pdfs to txts and page images")
+            self.convert_pdfs_to_txt_and_img(pdf_files)
+        
         time2 = time.time()
-
-        print("Converting txts to embeddings")
-        compute_text_embeddings(self.text_model, self.model_pool, self.txts_path, self.embeddings_path)
+        if do_img_embedding:
+            print("Converting txts to embeddings")
+            compute_text_embeddings(self.text_model, self.model_pool, self.txts_path, self.embeddings_path)
         time3 = time.time()
         
-        os.makedirs(self.embeddings_img_path, exist_ok=True)
-        img_paths = []
-        embedding_paths = []
-        for img_subdir in os.scandir(self.img_path):
-            if img_subdir.is_dir():
-                os.makedirs(os.path.join(self.embeddings_img_path, img_subdir.name), exist_ok=True)
-                img_subdir_paths = os.listdir(img_subdir.path)
-                for img_file in img_subdir_paths:
-                    img_paths.append(os.path.join(img_subdir.path, img_file))
-                    embedding_paths.append(os.path.join(self.embeddings_img_path,  img_subdir.name, os.path.splitext(img_file)[0] + '.npy'))
+        if do_img_embedding:
+            os.makedirs(self.embeddings_img_path, exist_ok=True)
+            img_paths = []
+            embedding_paths = []
+            for img_subdir in os.scandir(self.img_path):
+                if img_subdir.is_dir():
+                    os.makedirs(os.path.join(self.embeddings_img_path, img_subdir.name), exist_ok=True)
+                    img_subdir_paths = os.listdir(img_subdir.path)
+                    for img_file in img_subdir_paths:
+                        img_paths.append(os.path.join(img_subdir.path, img_file))
+                        embedding_paths.append(os.path.join(self.embeddings_img_path,  img_subdir.name, os.path.splitext(img_file)[0] + '.npy'))
 
-        print("Embedding this many images: ", len(img_paths))
-        img_model = CLIPEmbeddingModel()
-        emb = img_model.encode_images(img_paths)
+            print("Embedding this many images: ", len(img_paths))
+            img_model = CLIPEmbeddingModel()
+            emb = img_model.encode_images(img_paths)
 
-        print("Embeddings computed. Shape:", emb.shape)
-        self.convert_img_embedding_to_files(emb, embedding_paths)
+            print("Embeddings computed. Shape:", emb.shape)
+            self.convert_img_embedding_to_files(emb, embedding_paths)
+
         time4 = time.time()
-
-        # TODO: Remove metadata jsons in favor of SQLite Database
-        print("Creating metadata jsons for each pdf")
-        self.create_metadata_jsons(pdf_files)  # extract images and save
+        if do_metadata_collection:
+            # TODO: Remove metadata jsons in favor of SQLite Database
+            print("Creating metadata jsons for each pdf")
+            self.create_metadata_jsons(pdf_files)  # extract images and save
         time5 = time.time()
 
         pdf_to_txt_img = time2 - time1

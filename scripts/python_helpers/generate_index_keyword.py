@@ -153,9 +153,6 @@ if __name__ == '__main__':
 
     # overall method that gets the files in batches and runs them through the pipeline
     def batched_file_download(BATCH_SIZE):
-        # result = s3.list_objects_v2(Bucket=bucket_name, Prefix=pdfs_dir)
-        # # get list of pdf file names
-        # pdf_files = [obj['Key'] for obj in result.get('Contents', []) if obj['Key'].endswith('.pdf')]  # note this only returns 1000
 
         overall_start_time = time.time()
 

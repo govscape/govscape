@@ -3,14 +3,12 @@ import os
 import argparse
 import time
 import govscape as gs
-import torch
 import shutil
 import json
 import subprocess
 import numpy as np
 from botocore.config import Config
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
-from multiprocessing import Pool, cpu_count, get_context
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import math
 
 # ****************************************************************************************************

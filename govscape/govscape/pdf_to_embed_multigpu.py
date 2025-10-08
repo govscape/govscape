@@ -129,7 +129,8 @@ class TxtsToEmbeddings:
         for txt_subdir in os.scandir(self.txts_path):
             if txt_subdir.is_dir():
                 txt_subdirs_paths.append(txt_subdir.path)
-        
+
+        print(f"Found {len(txt_subdirs_paths)} subdirectories in {self.txts_path}.")
         # splitting into groups for each process:   # TODO: verify concept: difference between passing in txt_subdir_batches and txt_subdirs_paths
         batch_size = math.ceil(len(txt_subdirs_paths) / (os.cpu_count() // 2))
         txt_subdir_batches = []

@@ -359,7 +359,8 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
                 crawl_date TEXT,
                 pdf_name TEXT,
                 sub_domain TEXT,
-                page_count INTEGER
+                page_count INTEGER,
+                s3_url TEXT
             );                
         """)
         self.conn.commit()
@@ -368,12 +369,15 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         if self.conn is None:
             self.conn = sqlite3.connect(self.db_path)
             self.cursor = self.conn.cursor()
+        self.cursor.execute("DROP INDEX IF EXISTS idx_pdf_name;")
+        self.cursor.execute("DROP INDEX IF EXISTS idx_crawl_date;")
+        self.cursor.execute("DROP INDEX IF EXISTS idx_sub_domain;")
         to_insert = [
-            (md.get("crawl_url", ""), md.get("crawl_date", ""), md.get("pdf_name", ""), md.get("sub_domain", ""), md.get("page_count", 0))
+            (md.get("crawl_url", ""), md.get("crawl_date", ""), md.get("pdf_name", ""), md.get("sub_domain", ""), md.get("page_count", 0), md.get("s3_url", ""))
             for md in metadata_dicts
         ]
         self.cursor.executemany(
-            "INSERT INTO metadata (crawl_url, crawl_date, pdf_name, sub_domain, page_count) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO metadata (crawl_url, crawl_date, pdf_name, sub_domain, page_count, s3_url) VALUES (?, ?, ?, ?, ?, ?)",
             to_insert
         )
         self.conn.commit()
@@ -398,7 +402,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
 
     def search(self, pdf_names, filter=None):
         placeholders = ",".join(f"'{name}'" for name in pdf_names)
-        query = f"SELECT url, crawl_date, pdf_name, sub_domain FROM metadata WHERE pdf_name IN ({placeholders})"
+        query = f"SELECT url, crawl_date, pdf_name, sub_domain, s3_url FROM metadata WHERE pdf_name IN ({placeholders})"
         if filter:
             for key, value in filter.items():
                 if key == 'subDomain' and value != None:

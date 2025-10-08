@@ -2,13 +2,11 @@ import os
 import argparse
 from urllib.parse import urlparse
 import boto3
-from govscape.indexing import SQLiteMetadataIndex
-import warcio
 import json
 import re
 import gzip
 import pandas as pd
-from multiprocessing import Pool, Manager, cpu_count
+from multiprocessing import Pool, cpu_count
 import re
 
 def extract_date_from_crawl_string(crawl_string):
