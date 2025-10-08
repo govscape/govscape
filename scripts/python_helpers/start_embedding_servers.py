@@ -35,21 +35,6 @@ rm /home/ubuntu/govscape/progress.json || true && \
 "
 '''
 
-```
-poetry run python scripts/python_helpers/s3_embedding_pipeline.py \
-    --num_pages_to_process 100 \
-    --batch_size 100000 \
-    --bucket_name 'bcgl-public-bucket' \
-    --pdf_dir 'archive/2020/PDFs/' \
-    --data_dir 'dev-serving/' \
-    --model_type 'BGE' \
-    --num_servers 1 \
-    --server_id 0 \
-    --do_text_embedding 0 \
-    --do_img_embedding 0 \
-    --do_metadata_collection 1 >> /home/ubuntu/govscape/log.txt
-```
-
 for i in range(NUM_SERVERS):
     user_data = user_data_template.format(num_pages=NUM_PAGES_TO_PROCESS, num_servers=NUM_SERVERS, server_id=i)
     response = ec2.run_instances(
