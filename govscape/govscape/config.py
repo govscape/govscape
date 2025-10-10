@@ -3,8 +3,7 @@
 import numpy as np
 
 class IndexConfig:
-    def __init__(self, pdf_directory, data_dir, index_type):
-        self.pdf_directory = pdf_directory
+    def __init__(self, data_dir, index_type):
         self.embedding_directory = data_dir + '/embeddings'
         self.embedding_img_pg_directory = data_dir + '/embeddings_img_pg'
         self.index_directory = data_dir + '/index'
@@ -23,7 +22,6 @@ class IndexConfig:
 class ServerConfig:
     def __init__(self, index_config : IndexConfig, text_model, visual_model, k=3):
         self.index_config= index_config
-        self.pdf_directory = index_config.pdf_directory
         self.embedding_directory = index_config.embedding_directory
         self.embedding_img_pg_directory = index_config.embedding_img_pg_directory
         self.index_directory = index_config.index_directory

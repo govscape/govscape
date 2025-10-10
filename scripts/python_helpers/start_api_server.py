@@ -5,7 +5,6 @@ import argparse
 
 def _get_arg_parser():
     parser = argparse.ArgumentParser(description='Start the GovScape API server')
-    parser.add_argument('-p', '--pdf-directory', default='data/test_data/TechnicalReport234PDFs', help='Directory containing PDF files')
     parser.add_argument('-d', '--data-directory', default='data/test_data', help='Directory containing data files')
     parser.add_argument('-tm', '--text_model', default='ST', help='The model to use for text embedding.')
     parser.add_argument('-vm', '--visual_model', default='CLIP', help='The model to use for visual embedding.')
@@ -18,7 +17,6 @@ def _get_arg_parser():
     return parser
 
 def _build_app_from_args(args):
-    pdf_directory = args.pdf_directory
     if args.text_model == 'ST':
         text_model = gs.ST_TextEmbeddingModel()
     elif args.text_model == 'BGE':
@@ -31,7 +29,7 @@ def _build_app_from_args(args):
     else:
         raise ValueError(f"Unsupported visual model: {args.visual_model}")
 
-    index_config = gs.IndexConfig(pdf_directory, args.data_directory, args.index_type)
+    index_config = gs.IndexConfig(args.data_directory, args.index_type)
 
     server_config = gs.ServerConfig(
         index_config, 
