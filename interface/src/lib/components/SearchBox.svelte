@@ -1,10 +1,14 @@
 <script>
   import { searchStore, searchActions } from '$lib/stores/search';
-  import { onMount, tick } from 'svelte';
+  import { tick } from 'svelte';
   import { get } from 'svelte/store';
+  import { goto } from '$app/navigation';
+  import { createEventDispatcher } from 'svelte';
   import AdvancedSearch from './AdvancedSearch.svelte';
   import GlobeIcon from './icons/GlobeIcon.svelte';
   import FilterIcon from './icons/FilterIcon.svelte';
+
+  const dispatch = createEventDispatcher();
 
   const suggestionsByMode = {
     visual: ['redacted documents', 'aerial photography', 'pie charts', 'maps of seattle'],
@@ -25,18 +29,54 @@
 
   $: suggestions = suggestionsByMode[currentSearchMode.id] || [];
 
+  // Keep local query in sync with store only when not typing (e.g., URL-driven changes)
+  $: if (!searchInputFocused && $searchStore.query !== query) {
+    query = $searchStore.query || '';
+  }
+
+  // Update store when local query changes (user typing)
   $: if (query !== undefined && get(searchStore).query !== query) {
     searchActions.setQuery(query);
+  }
+
+  // Keep local mode in sync with store
+  $: if (currentSearchMode.id !== $searchStore.currentSearchMode) {
+    const match = searchModes.find(m => m.id === $searchStore.currentSearchMode);
+    currentSearchMode = match || searchModes[0];
   }
 
   function setMode(mode) {
     currentSearchMode = mode;
     searchActions.setSearchMode(mode.id);
-    query = '';
+    dispatch('setMode', { mode });
+  }
+
+  function buildSearchParams() {
+    const { filters, currentSearchMode: modeFromStore, query: storeQuery } = get(searchStore);
+    const params = new URLSearchParams();
+
+    if (storeQuery && storeQuery.trim()) params.set('q', storeQuery.trim());
+    if (modeFromStore) params.set('mode', modeFromStore);
+
+    if (filters) {
+      if (filters.crawledAfter) params.set('after', filters.crawledAfter);
+      if (filters.crawledBefore) params.set('before', filters.crawledBefore);
+      if (filters.subDomain) params.set('subdomain', filters.subDomain);
+    }
+
+    // Always reset to page 1 on new searches by omitting page
+    return params;
+  }
+
+  function navigateToSearch() {
+    const params = buildSearchParams();
+    const url = params.toString() ? `/search?${params.toString()}` : '/search';
+    goto(url);
   }
 
   function handleSearch() {
-    searchActions.performSearch();
+    searchActions.setQuery(query || '');
+    navigateToSearch();
     if (searchInputElement) searchInputElement.blur();
   }
 
@@ -44,11 +84,13 @@
     searchActions.toggleFilters();
   }
 
-  async function applySuggestion(suggestion) {
+  async function applySuggestion(suggestion, event) {
+    event?.preventDefault();
     query = suggestion;
+    searchActions.setQuery(suggestion);
     await tick();
-    searchActions.performSearch();
     showSuggestionsDropdown = false;
+    setTimeout(() => navigateToSearch(), 0);
   }
 
   function handleInputFocus() {
@@ -114,7 +156,7 @@
         <div class="suggestions-dropdown">
           <ul>
             {#each suggestions as suggestionText}
-              <li on:mousedown={() => applySuggestion(suggestionText)} role="option" aria-selected="false" tabindex="0">
+              <li on:mousedown={(e) => applySuggestion(suggestionText, e)} role="option" aria-selected="false" tabindex="0">
                 <svg class="suggestion-item-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
                 </svg>

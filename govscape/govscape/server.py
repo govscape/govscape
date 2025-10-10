@@ -176,7 +176,10 @@ class Server:
         }
 
     def pdf_pages(self, pdf_id):
-        """Get all page images for a PDF by pdf_id. Returns dict with 'images' key or error message."""
+        """
+        Get all page images and metadata for a PDF by pdf_id.
+        Returns dict with 'images', 'crawl_url', 'crawl_date', 'sub_domain' keys or error message.
+        """
         if not pdf_id:
             return {"error": "Missing 'pdf_id' parameter"}, 400
 
@@ -198,7 +201,19 @@ class Server:
 
         image_dir = os.path.join(self.image_directory, pdf_id)
         images = [f"{image_dir}/{pdf_id}_{i}.jpeg" for i in range(num_pages)]
-        return {"images": images}
+
+        md = (self.metadata_index.search([pdf_id]) or {})
+        first = (md.get(pdf_id) or [{}])[0]
+        crawl_url = first.get("url", "")
+        crawl_date = first.get("crawl_date", "")
+        sub_domain = first.get("sub_domain", "")
+
+        return {
+            "images": images,
+            "crawl_url": crawl_url,
+            "crawl_date": crawl_date,
+            "sub_domain": sub_domain,
+        }
 
     def _get_total_pdfs_count(self):
         # TODO: use Redis to cache the total number of PDFs

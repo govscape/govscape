@@ -1,6 +1,8 @@
 <script>
   import { fade, slide } from 'svelte/transition';
   import { searchStore, searchActions } from '$lib/stores/search';
+  import { get } from 'svelte/store';
+  import { goto } from '$app/navigation';
   export let show = false;
 
   let crawledAfter = '';
@@ -21,6 +23,28 @@
     { value: 'utah.gov', label: 'utah.gov' },
     { value: 'nasa.gov', label: 'nasa.gov' },
   ];
+
+  $: if ($searchStore?.filters) {
+    crawledAfter = $searchStore.filters.crawledAfter || '';
+    crawledBefore = $searchStore.filters.crawledBefore || '';
+    subDomain = $searchStore.filters.subDomain || '';
+  }
+
+  function updateURLWithFilters() {
+    const store = get(searchStore);
+    const params = new URLSearchParams();
+
+    if (store.query && store.query.trim()) params.set('q', store.query.trim());
+    if (store.currentSearchMode) params.set('mode', store.currentSearchMode);
+
+    if (crawledAfter) params.set('after', crawledAfter);
+    if (crawledBefore) params.set('before', crawledBefore);
+    if (subDomain) params.set('subdomain', subDomain);
+
+    // Reset to first page on filter changes by omitting page
+    const url = params.toString() ? `/search?${params.toString()}` : '/search';
+    goto(url);
+  }
 
   function applyFilters() {
     let minPages = null;
@@ -46,13 +70,14 @@
       minPages: minPages,
       maxPages: maxPages,
     });
+
+    updateURLWithFilters();
   }
 
   function handleFacetKeydown(event) {
     if (event.key === 'Enter') {
       event.preventDefault();
       applyFilters();
-      searchActions.performSearch();
     }
   }
 </script>

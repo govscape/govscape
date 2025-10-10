@@ -2,6 +2,8 @@
   import { createEventDispatcher, onMount, afterUpdate, onDestroy } from 'svelte';
   import Masonry from 'masonry-layout';
   import { searchStore, searchActions } from '$lib/stores/search';
+  import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
 
   const dispatch = createEventDispatcher();
 
@@ -12,7 +14,7 @@
   $: results = $searchStore.results;
   $: loading = $searchStore.loading;
   $: hasMore = $searchStore.hasMore;
-  $: page = $searchStore.page;
+  $: currentPage = $searchStore.page;
   $: pageSize = $searchStore.pageSize;
   $: totalCount = $searchStore.totalCount;
   $: totalPages = $searchStore.totalPages;
@@ -43,10 +45,10 @@
   
   $: onPageChange = (() => {
     if (typeof window === 'undefined') return;
-    if (previousPage !== undefined && page !== previousPage && gridElement) {
+    if (previousPage !== undefined && currentPage !== previousPage && gridElement) {
       window.scrollTo({ top: 0 });
     }
-    previousPage = page;
+    previousPage = currentPage;
   })();
 
   function handlePDFSelect(pdf, page, crawl_date, crawl_url, sub_domain) {
@@ -55,15 +57,31 @@
     dispatch('pdfSelect', { pdf, page, id: pdfId, crawl_date, crawl_url, sub_domain});
   }
 
+  function updatePageInURL(newPage) {
+    const params = new URLSearchParams($page.url.searchParams);
+
+    if (newPage > 1) {
+      params.set('page', newPage.toString());
+    } else {
+      params.delete('page');
+    }
+
+    const newUrl = params.toString() ? `/search?${params.toString()}` : '/search';
+    
+    goto(newUrl, { replaceState: true, noScroll: true });
+  }
+
   function nextPage() {
     if (!loading && hasMore) {
-      searchActions.goToPage(page + 1);
+      const newPage = currentPage + 1;
+      updatePageInURL(newPage);
     }
   }
 
   function prevPage() {
-    if (!loading && page > 1) {
-      searchActions.goToPage(page - 1);
+    if (!loading && currentPage > 1) {
+      const newPage = currentPage - 1;
+      updatePageInURL(newPage);
     }
   }
 </script>
@@ -79,7 +97,7 @@
   <div class="results-summary">
     <div class="summary-card">
       <div class="page-info">
-        Page <span class="page-number">{page.toLocaleString()}</span>
+        Page <span class="page-number">{currentPage.toLocaleString()}</span>
         {#if totalPages}
         of <span class="page-number">{totalPages.toLocaleString()}</span>
         {/if}
@@ -87,7 +105,7 @@
       {#if totalCount}
       <div class="results-info">
         <span class="results-range">
-          {((page - 1) * pageSize) + 1} – {Math.min(((page - 1) * pageSize) + pageSize, totalCount)}
+          {((currentPage - 1) * pageSize) + 1} – {Math.min(((currentPage - 1) * pageSize) + pageSize, totalCount)}
         </span>
         of
         <span class="total-results">{totalCount.toLocaleString()}</span>
@@ -120,14 +138,14 @@
 
   {#if results.length > 0}
   <div class="pagination-container">
-    <button on:click={prevPage} disabled={loading || page <= 1} aria-label="Previous Page">
+    <button on:click={prevPage} disabled={loading || currentPage <= 1} aria-label="Previous Page">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="15 18 9 12 15 6"></polyline>
       </svg>
     </button>
     <span>
       Page
-      <span class="page-number">{page.toLocaleString()}</span>
+      <span class="page-number">{currentPage.toLocaleString()}</span>
       {#if totalPages}
       of <span class="page-number">{totalPages.toLocaleString()}</span>
       {/if}
