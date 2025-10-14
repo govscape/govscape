@@ -75,15 +75,6 @@ def vector_index_case(request, tmp_path, monkeypatch):
 		monkeypatch.setattr("govscape.indexing.faiss.IndexIVFPQ", DummyIndexIVFPQ)
 		index = FAISSIndex(index_dir.as_posix())
 
-		def extra_checks(original_index, reloaded_index, search_result):
-			distances, names, pages = search_result
-			assert reloaded_index.total_entries() == len(pdf_names)
-			assert len(distances) == k_neighbors
-			assert names[0] == pdf_names[0]
-			assert pages[0] == pdf_pages[0]
-			# Ensure distances are finite numbers
-			assert np.isfinite(distances).all()
-
 		return {
 			"index": index,
 			"add_args": (embeddings, pdf_names, pdf_pages),
@@ -92,61 +83,35 @@ def vector_index_case(request, tmp_path, monkeypatch):
 			"save": lambda idx: idx.save_index(),
 			"reload_factory": lambda: FAISSIndex(index_dir.as_posix()),
 			"expected_total": len(pdf_names),
-			"extra_checks": extra_checks,
+			"pdf_names": tuple(pdf_names),
+			"pdf_pages": tuple(pdf_pages),
+			"stored_vectors": embeddings,
+			"query_for_distance": query_vector,
 		}
 
 	# DiskANN setup
 	embedding_dir = tmp_path / "diskann_embeddings"
 	index_dir = tmp_path / "diskann_index"
-	call_tracker = {}
-
-	def fake_build_disk_index(**kwargs):
-		call_tracker["build_kwargs"] = kwargs
-
-	class FakeStaticDiskIndex:
-		def __init__(self, **kwargs):
-			call_tracker["static_index_kwargs"] = kwargs
-
-		def search(self, query, k_neighbors, complexity):
-			call_tracker["search_kwargs"] = {
-				"query": query,
-				"k_neighbors": k_neighbors,
-				"complexity": complexity,
-			}
-			internal_indices = np.arange(k_neighbors, dtype=np.int32).reshape(1, -1)
-			distances = np.linspace(0.0, 0.25, k_neighbors, dtype=np.float32).reshape(1, -1)
-			return internal_indices, distances
-
-	monkeypatch.setattr("govscape.indexing.dap.build_disk_index", fake_build_disk_index)
-	monkeypatch.setattr("govscape.indexing.dap.StaticDiskIndex", FakeStaticDiskIndex)
 
 	class TestDiskANNIndex(DiskANNIndex):
 		def add_batch(self, embeddings, pdf_names, pdf_pages):
 			embeddings = np.asarray(embeddings, dtype=np.float32)
+			embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
 			embedding_path = Path(self.embedding_directory)
 			embedding_path.mkdir(parents=True, exist_ok=True)
-			(embedding_path / "embeddings.bin").write_bytes(embeddings.tobytes())
+			bin_path = embedding_path / "embeddings.bin"
+			with open(bin_path, "wb") as f:
+				np.array([embeddings.shape[0]], dtype=np.int32).tofile(f)
+				np.array([embeddings.shape[1]], dtype=np.int32).tofile(f)
+				embeddings.tofile(f)
 			self.pdf_names = list(pdf_names)
 			self.pdf_pages = list(pdf_pages)
 			self.page_indices = list(range(len(pdf_names)))
 
 	index = TestDiskANNIndex(embedding_dir.as_posix(), index_dir.as_posix())
 
-	def extra_checks(original_index, reloaded_index, search_result):
-		assert "build_kwargs" in call_tracker
-		assert Path(call_tracker["build_kwargs"]["data"]).name == "embeddings.bin"
-		assert call_tracker["build_kwargs"]["index_directory"] == index.index_directory
-		assert "static_index_kwargs" in call_tracker
-		distances, internal_indices = search_result
-		assert distances.shape == (1, k_neighbors)
-		assert internal_indices.shape == (1, k_neighbors)
-		search_info = call_tracker["search_kwargs"]
-		assert search_info["k_neighbors"] == k_neighbors
-		assert search_info["complexity"] == k_neighbors * 10
-		normalized_query = search_info["query"]
-		norm = np.linalg.norm(normalized_query)
-		assert np.isclose(norm, 1.0)
-		assert reloaded_index.total_entries() == 0
+	normalized_embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+	normalized_query = query_vector / np.linalg.norm(query_vector)
 
 	return {
 		"index": index,
@@ -158,7 +123,10 @@ def vector_index_case(request, tmp_path, monkeypatch):
 			embedding_dir.as_posix(), index_dir.as_posix()
 		),
 		"expected_total": 0,
-		"extra_checks": extra_checks,
+		"pdf_names": tuple(pdf_names),
+		"pdf_pages": tuple(pdf_pages),
+		"stored_vectors": normalized_embeddings,
+		"query_for_distance": normalized_query,
 	}
 
 
@@ -179,4 +147,26 @@ def test_vector_indices_round_trip(vector_index_case):
 
 	search_result = reloaded_index.search(query, k)
 
-	vector_index_case["extra_checks"](index, reloaded_index, search_result)
+	distances = np.asarray(search_result[0]).reshape(-1)
+	assert distances.size == k
+	assert np.isfinite(distances).all()
+
+	second_component = search_result[1]
+	if isinstance(second_component, list):
+		indices = [pdf_names.index(name) for name in second_component[:k]]
+	else:
+		indices = [int(idx) for idx in np.asarray(second_component).reshape(-1)[:k]]
+
+	stored_vectors = vector_index_case["stored_vectors"]
+	query_for_distance = vector_index_case["query_for_distance"]
+	expected_order = np.argsort(
+		np.linalg.norm(stored_vectors - query_for_distance, axis=1)
+	)[:k].tolist()
+	assert indices == expected_order
+
+	if len(search_result) > 2:
+		pages_component = search_result[2]
+		expected_pages = [pdf_pages[idx] for idx in indices[: len(pages_component)]]
+		assert list(pages_component)[: len(expected_pages)] == expected_pages
+
+	assert reloaded_index.total_entries() == vector_index_case["expected_total"]
