@@ -3,7 +3,7 @@ set -e
 
 # Server setup
 s3_prefix="s3://bcgl-public-bucket/test-serving"
-data_dir="data/prod" # 'dev-serving' or 'prod-serving'
+data_dir="data/prod" # 'dev-serving', 'test-serving', or 'prod-serving'
 #s5cmd sync $s3_prefix/embeddings/* data/prod/embeddings
 #s5cmd sync $s3_prefix/embeddings_img_pg/* data/prod/embeddings_img_pg
 #s5cmd sync $s3_prefix/img/* data/prod/img

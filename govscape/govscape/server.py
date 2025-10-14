@@ -11,7 +11,7 @@ import time
 import math
 from .api import init_api
 from .filter import Filter
-from .indexing import DiskANNIndex, FAISSIndex, LanceDBKeywordIndex, SQLiteMetadataIndex
+from .indexing import DiskANNIndex, FAISSIndex, LanceDBKeywordIndex, WhooshKeywordIndex, SQLiteMetadataIndex
 
 # basic pipeline developed:
 # 1. accept a query until EOF detected
@@ -194,7 +194,7 @@ class Server:
         crawl_url = first.get("crawl_url", "")
         crawl_date = first.get("crawl_date", "")
         sub_domain = first.get("sub_domain", "")
-        page_count = int(first.get("page_count", ""))
+        page_count = int(first.get("page_count", 0))
 
         image_dir = os.path.join(self.image_directory, pdf_id)
         images = [f"{image_dir}/{pdf_id}_{i}.jpeg" for i in range(page_count)]

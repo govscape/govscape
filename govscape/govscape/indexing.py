@@ -307,7 +307,7 @@ class LanceDBKeywordIndex(AbstractKeywordIndex):
             self.load_index()
         return self.table.count_rows()
 
-class WhooshIndex(AbstractKeywordIndex):
+class WhooshKeywordIndex(AbstractKeywordIndex):
     def __init__(self, index_keyword_directory):
         self.index_keyword_directory = index_keyword_directory
         self.index = None
