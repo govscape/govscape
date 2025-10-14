@@ -15,3 +15,4 @@ Thumbs.db
 .env.*
 !.env.example
 !.env.test
+scripts/__pycache__/*
