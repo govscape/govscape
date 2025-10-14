@@ -141,7 +141,6 @@ if __name__ == '__main__':
         parser.add_argument('--do_img_embedding', type=str2bool, help='Whether to do image embedding', default=True)
         parser.add_argument('--do_metadata_collection', type=str2bool, help='Whether to do metadata collection', default=True)
         args = parser.parse_args()
-        print("Arguments: ", args)
         NUM_PAGES_TO_PROCESS = args.num_pages_to_process
         BATCH_SIZE = args.batch_size
 
