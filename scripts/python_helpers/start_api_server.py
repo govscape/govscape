@@ -9,7 +9,8 @@ def _get_arg_parser():
     parser.add_argument('-tm', '--text_model', default='ST', help='The model to use for text embedding.')
     parser.add_argument('-vm', '--visual_model', default='CLIP', help='The model to use for visual embedding.')
     parser.add_argument('-k', '--top-k', type=int, default=20, help='Number of top results to return')
-    parser.add_argument('-i', '--index_type', default='Memory', help='The type of index of use')
+    parser.add_argument('-i', '--vector_index_type', default='Memory', help='The type of vector index of use')
+    parser.add_argument('-ki', '--keyword_index_type', default='LanceDB', help='The type of keyword index of use')
     parser.add_argument('-v', '--verbose', action='store_true')
     parser.add_argument('--host', default='0.0.0.0', help='Host to run the server on')
     parser.add_argument('--port', type=int, default=8080, help='Port to run the server on')
@@ -29,7 +30,7 @@ def _build_app_from_args(args):
     else:
         raise ValueError(f"Unsupported visual model: {args.visual_model}")
 
-    index_config = gs.IndexConfig(args.data_directory, args.index_type)
+    index_config = gs.IndexConfig(args.data_directory, args.vector_index_type, args.keyword_index_type)
 
     server_config = gs.ServerConfig(
         index_config, 

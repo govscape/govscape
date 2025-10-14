@@ -13,10 +13,12 @@ class IndexConfig:
         self.image_directory = data_dir + '/img'
         self.metadata_directory = data_dir + '/metadata'
         self.stats_file = data_dir + '/total_pdfs.txt'
-        if index_type not in ["Memory", "Disk"]:
-            raise ValueError("index_type must be either 'Memory' or 'Disk'")
+        if vector_index_type not in ["Memory", "Disk"]:
+            raise ValueError("vector_index_type must be either 'Memory' or 'Disk'")
         self.vector_index_type = vector_index_type
-        self.keyword_index_type = index_config.keyword_index_type
+        self.keyword_index_type = keyword_index_type
+        if keyword_index_type not in ["LanceDB", "Whoosh"]:
+            raise ValueError("keyword_index_type must be either 'LanceDB' or 'Whoosh'")
         self.dtype = np.float32
 
         
