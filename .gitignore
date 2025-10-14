@@ -1,7 +1,6 @@
 dist
 govscape/govscape/**/__pycache__
 govscape/tests/**/__pycache__
-govscape/tests/test_data
 govscape/data/*
 .venv
 data
@@ -15,3 +14,6 @@ Thumbs.db
 .env.*
 !.env.example
 !.env.test
+scripts/__pycache__/*
+.pytest_cache
+.__pycache__/*

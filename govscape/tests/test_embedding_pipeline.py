@@ -1,124 +1,100 @@
-# pip install pytest
-# pip install reportlab 
+import shutil
+from pathlib import Path
 
-import pytest 
-import sys  # to find pdf_to_embedding.py
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../govscape'))) # for finding the pdf_to_embedding file
 import numpy as np
-from reportlab.pdfgen import canvas
-from govscape import * 
-from reportlab.lib.pagesizes import letter
-import shutil  # for deleting test_data/text, test_data/embeddings after pytest has finished running 
-""" 
-# checks that the text outputs an embedding of type np.ndarray
-def test_encode_text_CLIP():
-    model = CLIPEmbeddingModel()
-    text = "test"
-    embedding = model.encode_text(text)
-    assert isinstance(embedding, np.ndarray)
+import pytest
 
-# checks that the pdf text matches the text outputted
-def test_convert_pdf_to_txt():
-    model = CLIPEmbeddingModel()
-    pdf_directory = 'tests/test_data/small/PDFs'
-    txt_directory = 'tests/test_data/small/text'
-    embed_directory = 'tests/test_data/small/embeddings'
-    image_directory = 'tests/test_data/small/images'
-    embed_pipeline = PDFsToEmbeddings(pdf_directory, txt_directory, embed_directory, image_directory, model)
-    embed_pipeline.convert_pdf_to_txt('govscape_intro.pdf')
+from govscape.pdf_to_embed import PDFsToEmbeddings
 
-    with open("tests/test_data/small/text/govscape_intro/govscape_intro_0.txt", "r", encoding="utf-8") as file:
-        text = file.read()
-        assert text == "hello my name is govscape"
 
-# makes sure the number of subdirs are equal to each other, 
-# also that there are more than one txt file per subdir
-def test_convert_pdfs_to_txt():
-    model = CLIPEmbeddingModel()
-    pdf_directory = 'tests/test_data/small/PDFs'
-    txt_directory = 'tests/test_data/small/text'
-    embed_directory = 'tests/test_data/small/embeddings'
-    image_directory = 'tests/test_data/small/images'
-    embed_pipeline = PDFsToEmbeddings(pdf_directory, txt_directory, embed_directory, image_directory, model)
-    embed_pipeline.convert_pdfs_to_txt()
-    assert os.path.isdir(txt_directory) == True
+class DummyTextEmbeddingModel:
+    """Lightweight stand-in for the real text embedding model used in tests."""
 
-    pdfs = [pdf for pdf in os.listdir(pdf_directory) if pdf.endswith(".pdf")]
+    def encode_text(self, text: str) -> np.ndarray:
+        return np.ones(4, dtype=np.float32)
 
-    subdirs_txt = [os.path.join(txt_directory, d) for d in os.listdir(txt_directory) if os.path.isdir(os.path.join(txt_directory, d))]
-        
-    assert(len(pdfs) == len(subdirs_txt))
+    def encode_image(self, image_path: str) -> np.ndarray:
+        return np.ones(4, dtype=np.float32)
 
-    for subdir in subdirs_txt:
-        txt_files = [f for f in os.listdir(subdir) if f.endswith(".txt")]
-        assert len(txt_files) > 0, f"{subdir}"
 
-# checks that the text creates an embedding of type np.ndarray
-def test_text_to_embeddings():
-    model = CLIPEmbeddingModel()
-    pdf_directory = 'tests/test_data/small/PDFs'
-    txt_directory = 'tests/test_data/small/text'
-    embed_directory = 'tests/test_data/small/embeddings'
-    image_directory = 'tests/test_data/small/images'
-    embed_pipeline = PDFsToEmbeddings(pdf_directory, txt_directory, embed_directory, image_directory, model)
-    text = "test"
-    embedding = embed_pipeline.text_to_embeddings(text)
-    assert isinstance(embedding, np.ndarray)
+@pytest.fixture()
+def sample_pipeline(tmp_path):
+    source_pdfs = Path(__file__).resolve().parent / "test_data" / "small" / "PDFs"
+    pdf_dir = tmp_path / "pdfs"
+    shutil.copytree(source_pdfs, pdf_dir)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    pipeline = PDFsToEmbeddings(str(pdf_dir), str(data_dir), DummyTextEmbeddingModel(), model_pool=None)
+    pdf_files = sorted(f.name for f in pdf_dir.glob("*.pdf"))
+    return pipeline, pdf_files
 
-# checks that the txt file creates an embedding of type np.ndarray
-def test_convert_txt_to_embedding():
-    model = CLIPEmbeddingModel()
-    pdf_directory = 'tests/test_data/small/PDFs'
-    txt_directory = 'tests/test_data/small/text'
-    embed_directory = 'tests/test_data/small/embeddings'
-    image_directory = 'tests/test_data/small/images'
-    embed_pipeline = PDFsToEmbeddings(pdf_directory, txt_directory, embed_directory, image_directory, model)
-    txt_file_paths = []
 
-    for subdir, _, files in os.walk(txt_directory):
-        for file in files:
-            if file.endswith(".txt"):
-                txt_file_paths.append(os.path.join(subdir, file))
-    
-    for txt_path in txt_file_paths:
-        embedding = embed_pipeline.convert_txt_to_embedding(txt_path)
-        assert isinstance(embedding, np.ndarray)
+def test_convert_pdf_to_txt_and_img(sample_pipeline):
+    pipeline, pdf_files = sample_pipeline
+    assert "govscape_intro.pdf" in pdf_files
+    PDFsToEmbeddings.convert_pdf_to_txt_and_img(
+        pipeline.txts_path,
+        pipeline.img_path,
+        pipeline.pdfs_path,
+        "govscape_intro.pdf",
+    )
 
-# checks for the same file structure with txt and embed and that they have the same number of embeddings and txt files
-def test_convert_txts_to_embeddings():
-    model = CLIPEmbeddingModel()
-    pdf_directory = 'tests/test_data/small/PDFs'
-    txt_directory = 'tests/test_data/small/text'
-    embed_directory = 'tests/test_data/small/embeddings'
-    image_directory = 'tests/test_data/small/images'
-    embed_pipeline = PDFsToEmbeddings(pdf_directory, txt_directory, embed_directory, image_directory, model)
-    embed_pipeline.convert_txts_to_embeddings()
-    subdirs_txt = [os.path.join(txt_directory, d) for d in os.listdir(txt_directory) if os.path.isdir(os.path.join(txt_directory, d))]
-    subdirs_npy = [os.path.join(embed_directory, d) for d in os.listdir(embed_directory) if os.path.isdir(os.path.join(embed_directory, d))]
-    assert(len(subdirs_txt) == len(subdirs_npy))
-    
-    npy_counts = {}
-    for subdir in subdirs_npy:
-        npy_count = sum(1 for filename in os.listdir(subdir) if os.path.isfile(os.path.join(subdir, filename)))
-        npy_counts[os.path.basename(subdir)] = npy_count
+    pdf_stem = "govscape_intro"
+    text_path = Path(pipeline.txts_path) / pdf_stem / f"{pdf_stem}_0.txt"
+    image_path = Path(pipeline.img_path) / pdf_stem / f"{pdf_stem}_0.jpeg"
 
-    for subdir in subdirs_txt:
-        file_count = sum(1 for filename in os.listdir(subdir) if os.path.isfile(os.path.join(subdir, filename)))
-        assert((npy_counts[os.path.basename(subdir)] - 1) == file_count)  # -1 to account for the json file
+    assert text_path.exists()
+    assert image_path.exists()
 
-# checks if same file structure and that the final embeddings contains at least two files (json and embedding file)
-def test_pdfs_to_embeddings():
-    model = CLIPEmbeddingModel()
-    pdf_directory = 'tests/test_data/small/PDFs'
-    txt_directory = 'tests/test_data/small/text'
-    embed_directory = 'tests/test_data/small/embeddings'
-    image_directory = 'tests/test_data/small/images'
-    embed_pipeline = PDFsToEmbeddings(pdf_directory, txt_directory, embed_directory, image_directory, model)
-    embed_pipeline.pdfs_to_embeddings()
-    subdirs_npy = [os.path.join(embed_directory, d) for d in os.listdir(embed_directory) if os.path.isdir(os.path.join(embed_directory, d))]
-    
-    for subdir in subdirs_npy:
-        npy_count = sum(1 for filename in os.listdir(subdir) if os.path.isfile(os.path.join(subdir, filename)))
-        assert(npy_count >= 2)
- """
+    text_content = text_path.read_text(encoding="utf-8").strip().lower()
+    assert "govscape" in text_content
+
+
+def test_convert_pdfs_to_txt_and_img_creates_outputs(sample_pipeline):
+    pipeline, pdf_files = sample_pipeline
+    pipeline.convert_pdfs_to_txt_and_img(pdf_files)
+
+    txt_base = Path(pipeline.txts_path)
+    img_base = Path(pipeline.img_path)
+
+    expected_dirs = {Path(pdf).stem for pdf in pdf_files}
+    txt_dirs = {p.name for p in txt_base.iterdir() if p.is_dir()}
+    img_dirs = {p.name for p in img_base.iterdir() if p.is_dir()}
+
+    assert txt_dirs == expected_dirs
+    assert img_dirs == expected_dirs
+
+    total_txt_files = 0
+    total_img_files = 0
+
+    for stem in expected_dirs:
+        txt_files = list((txt_base / stem).glob("*.txt"))
+        img_files = list((img_base / stem).glob("*.jpeg"))
+        total_txt_files += len(txt_files)
+        total_img_files += len(img_files)
+
+    assert total_txt_files > 0
+    assert total_img_files > 0
+
+
+def test_pdfs_to_embeddings_text_only(sample_pipeline):
+    pipeline, pdf_files = sample_pipeline
+
+    # Run the text-only portion of the pipeline; skips heavy image embedding work.
+    timings = pipeline.pdfs_to_embeddings(
+        pdf_files,
+        do_text_embedding=True,
+        do_img_embedding=False,
+        do_metadata_collection=False,
+    )
+
+    assert len(timings) == 4
+    assert all(isinstance(value, float) for value in timings)
+
+    txt_base = Path(pipeline.txts_path)
+    img_base = Path(pipeline.img_path)
+
+    for pdf_file in pdf_files:
+        stem = Path(pdf_file).stem
+        assert (txt_base / stem).exists()
+        assert (img_base / stem).exists()

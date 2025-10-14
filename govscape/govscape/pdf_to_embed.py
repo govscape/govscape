@@ -19,7 +19,6 @@ import shutil
 import multiprocessing as mp
 import pypdfium2
 from .pdf_to_embed_multigpu import BGE_TextEmbeddingModel, ST_TextEmbeddingModel, compute_text_embeddings
-from .indexing import WhooshIndex
 
 # global vars *******************************************************************************************************
 GPU_BATCH_SIZE = 2
@@ -332,40 +331,6 @@ class PDFsToEmbeddings:
             json_file_path = os.path.join(pdf_metadata_dir, "metadata.json")
             with open(json_file_path, "w") as json_file:
                 json.dump(json_data, json_file, indent=4)
-
-    # *******************************************************************************************************************
-    # keyword indexing
-    # *******************************************************************************************************************
-
-    def add_texts_to_whoosh_index(self, pdf_files):
-        """Add text from the current batch of pdf_files to the WhooshIndex object."""
-        whoosh_index = WhooshIndex(self.index_keyword_directory)
-        texts = []
-        pdf_names = []
-        pages = []
-        for pdf_file in pdf_files:
-            pdf_name = os.path.splitext(os.path.basename(pdf_file))[0]
-            pdf_txt_subdir = os.path.join(self.txts_path, pdf_name)
-            if not os.path.exists(pdf_txt_subdir):
-                continue
-            for txt_file in os.listdir(pdf_txt_subdir):
-                txt_path = os.path.join(pdf_txt_subdir, txt_file)
-                try:
-                    with open(txt_path, 'r', encoding='utf-8') as f:
-                        text = f.read()
-                    if text.strip():
-                        texts.append(text)
-                        pdf_names.append(pdf_name)
-                        # Extract page number from filename (assumes format: <pdfname>_<page>.txt)
-                        page_num = int(os.path.splitext(txt_file)[0].split('_')[-1])
-                        pages.append(page_num)
-                except Exception as e:
-                    print(f"Error reading {txt_path}: {e}")
-        if texts:
-            whoosh_index.add_batch(texts, pdf_names, pages)
-            print(f"Added {len(texts)} pages to Whoosh keyword index.")
-        else:
-            print("No text pages found to add to Whoosh keyword index.")
 
     # *******************************************************************************************************************
     # overall pipeline

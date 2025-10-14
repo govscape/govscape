@@ -3,7 +3,7 @@
 import numpy as np
 
 class IndexConfig:
-    def __init__(self, data_dir, index_type):
+    def __init__(self, data_dir, vector_index_type, keyword_index_type):
         self.embedding_directory = data_dir + '/embeddings'
         self.embedding_img_pg_directory = data_dir + '/embeddings_img_pg'
         self.index_directory = data_dir + '/index'
@@ -13,9 +13,12 @@ class IndexConfig:
         self.image_directory = data_dir + '/img'
         self.metadata_directory = data_dir + '/metadata'
         self.stats_file = data_dir + '/total_pdfs.txt'
-        if index_type not in ["Memory", "Disk"]:
-            raise ValueError("index_type must be either 'Memory' or 'Disk'")
-        self.index_type = index_type
+        if vector_index_type not in ["Memory", "Disk"]:
+            raise ValueError("vector_index_type must be either 'Memory' or 'Disk'")
+        self.vector_index_type = vector_index_type
+        self.keyword_index_type = keyword_index_type
+        if keyword_index_type not in ["LanceDB", "Whoosh"]:
+            raise ValueError("keyword_index_type must be either 'LanceDB' or 'Whoosh'")
         self.dtype = np.float32
 
         
@@ -33,7 +36,8 @@ class ServerConfig:
         self.stats_file = index_config.stats_file
         self.text_model = text_model
         self.visual_model = visual_model
-        self.index_type = index_config.index_type
+        self.vector_index_type = index_config.vector_index_type
+        self.keyword_index_type = index_config.keyword_index_type
 
         # define k for top-k
         self.k = k

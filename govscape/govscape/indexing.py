@@ -8,6 +8,9 @@ import pickle as pkl
 from abc import ABC, abstractmethod
 import contextlib
 import sys
+import pyarrow as pa
+from lancedb import connect
+from lancedb.query import MatchQuery, PhraseQuery
 from whoosh.index import create_in, open_dir
 from whoosh.fields import *
 from whoosh.qparser import QueryParser
@@ -234,7 +237,77 @@ class AbstractKeywordIndex(ABC):
         """
         pass
 
-class WhooshIndex(AbstractKeywordIndex):
+class LanceDBKeywordIndex(AbstractKeywordIndex):
+    def __init__(self, index_keyword_directory):
+        self.index_keyword_directory = index_keyword_directory
+        self.db = None
+        self.table = None
+        self.table_name = "keyword_index"
+
+    def _connect(self):
+        if self.db is None:
+            os.makedirs(self.index_keyword_directory, exist_ok=True)
+            self.db = connect(self.index_keyword_directory)
+
+    def build_index(self):
+        self._connect()
+        if self.table_name in self.db.table_names():
+            self.table = self.db.open_table(self.table_name)
+            return
+        schema = pa.schema([
+            pa.field("text", pa.string()),
+            pa.field("pdf_name", pa.string()),
+            pa.field("page", pa.int32()),
+        ])
+        self.table = self.db.create_table(self.table_name, schema=schema)
+        self.table.create_fts_index("text", with_position=True)
+
+    def add_batch(self, texts, pdf_names, pages):
+        if self.table is None:
+            self.build_index()
+        rows = [
+            {"text": text, "pdf_name": pdf, "page": int(page)}
+            for text, pdf, page in zip(texts, pdf_names, pages)
+        ]
+        if rows:
+            self.table.add(rows)
+
+    def save_index(self):
+        self.table.optimize()
+
+    def load_index(self):
+        self._connect()
+        try:
+            self.table = self.db.open_table(self.table_name)
+        except FileNotFoundError:
+            self.build_index()
+
+    def search(self, query, k):
+        if self.table is None:
+            self.load_index()
+        if query[0] == '"' and query[-1] == '"':
+            results = (
+                self.table.search(PhraseQuery(query, "text"), fts_columns="text", query_type="fts", vector_column_name='')
+                .limit(k)
+                .to_list()
+            )
+        else:
+            results = (
+                self.table.search(MatchQuery(query, "text"), fts_columns="text", query_type="fts", vector_column_name='')
+                .limit(k)
+                .to_list()
+            )
+        scores = [r.get("_score", 0.0) for r in results]
+        pdf_names = [r["pdf_name"] for r in results]
+        pages = [str(r["page"]) for r in results]
+        return scores, pdf_names, pages
+
+    def total_entries(self):
+        if self.table is None:
+            self.load_index()
+        return self.table.count_rows()
+
+class WhooshKeywordIndex(AbstractKeywordIndex):
     def __init__(self, index_keyword_directory):
         self.index_keyword_directory = index_keyword_directory
         self.index = None
@@ -285,6 +358,7 @@ class WhooshIndex(AbstractKeywordIndex):
 
     def total_pages(self):
         return self.total_entries()
+
 
 
 class AbstractMetadataIndex(ABC):
@@ -402,7 +476,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
 
     def search(self, pdf_names, filter=None):
         placeholders = ",".join(f"'{name}'" for name in pdf_names)
-        query = f"SELECT url, crawl_date, pdf_name, sub_domain, s3_url FROM metadata WHERE pdf_name IN ({placeholders})"
+        query = f"SELECT crawl_url, crawl_date, pdf_name, sub_domain, s3_url, page_count FROM metadata WHERE pdf_name IN ({placeholders})"
         if filter:
             for key, value in filter.items():
                 if key == 'subDomain' and value != None:
@@ -424,7 +498,8 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
                     "crawl_url": row[0],
                     "crawl_date": f"{row[1][0:4]}-{row[1][4:6]}-{row[1][6:8]}",
                     "pdf_name": row[2],
-                    "sub_domain": row[3]
+                    "sub_domain": row[3],
+                    "page_count": row[5]
                 }
             if pdf_name not in metadata:
                 metadata[pdf_name] = [row_dict]

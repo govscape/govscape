@@ -11,7 +11,7 @@ import time
 import math
 from .api import init_api
 from .filter import Filter
-from .indexing import DiskANNIndex, FAISSIndex, WhooshIndex, SQLiteMetadataIndex
+from .indexing import DiskANNIndex, FAISSIndex, LanceDBKeywordIndex, WhooshKeywordIndex, SQLiteMetadataIndex
 
 # basic pipeline developed:
 # 1. accept a query until EOF detected
@@ -23,7 +23,6 @@ class Server:
         self.config = config
 
         # Directories
-        self.pdf_directory = config.pdf_directory
         self.metadata_directory = config.metadata_directory
         self.embedding_directory = config.embedding_directory
         self.embedding_img_pg_directory = config.embedding_img_pg_directory
@@ -33,7 +32,8 @@ class Server:
         self.index_metadata_directory = config.index_metadata_directory
         self.image_directory = config.image_directory
         self.stats_file = config.stats_file
-        self.index_type = config.index_type
+        self.vector_index_type = config.vector_index_type
+        self.keyword_index_type = config.keyword_index_type
         self.k = config.k
 
         # Index configuration
@@ -46,20 +46,23 @@ class Server:
         self.visual_model = config.visual_model
         self.visual_d = config.visual_d
 
-        if self.index_type == 'Disk':
+        if self.vector_index_type == 'Disk':
             self.text_index = DiskANNIndex(self.embedding_directory, self.index_directory)
-            self.text_index.load_index()
             self.visual_index = DiskANNIndex(self.embedding_directory, self.index_img_pg_directory)
-            self.visual_index.load_index()
-        elif self.index_type == 'Memory':
+        elif self.vector_index_type == 'Memory':
             self.text_index = FAISSIndex(self.index_directory)
-            self.text_index.load_index()
             self.visual_index = FAISSIndex(self.index_img_pg_directory)
-            self.visual_index.load_index()
         else:
-            raise ValueError(f"Unsupported index type: {self.index_type}")
+            raise ValueError(f"Unsupported vector index type: {self.vector_index_type}")
+        self.text_index.load_index()
+        self.visual_index.load_index()
 
-        self.keyword_index = WhooshIndex(self.index_keyword_directory)
+        if self.keyword_index_type == 'LanceDB':
+            self.keyword_index = LanceDBKeywordIndex(self.index_keyword_directory)
+        elif self.keyword_index_type == 'Whoosh':
+            self.keyword_index = WhooshKeywordIndex(self.index_keyword_directory)
+        else:
+            raise ValueError(f"Unsupported keyword index type: {self.keyword_index_type}")
         self.keyword_index.load_index()
 
         self.metadata_index = SQLiteMetadataIndex(self.index_metadata_directory)
@@ -96,6 +99,7 @@ class Server:
         self.app.server = self
         self.api = init_api(self.app)
 
+
     @staticmethod
     def deduplicate_responses(D, names, pages):
         seen = set()
@@ -128,8 +132,11 @@ class Server:
         search_results = []
         while len(search_results) < results_needed_for_page:
             # Search for the k closest arrays
+            start = time.time()
+            
             D, pdf_names, pdf_pages = index.search(query_embedding, current_k)
-
+            print(f"Index Search took {time.time() - start} seconds")
+            print(f"Search type: {search_type}, current_k: {current_k}, results found: {len(search_results)}")
             D, pdf_names, pdf_pages = self.deduplicate_responses(D, pdf_names, pdf_pages)
             
             pdf_metadata = self.metadata_index.search(pdf_names, filters)
@@ -149,7 +156,6 @@ class Server:
                         "crawl_date": metadata.get("crawl_date", ""),
                         "sub_domain": metadata.get("sub_domain", ""),
                     })
-
             if current_k > min(100000, index.total_entries()): 
                 break # TODO: If we have to expand beyond 100k, we should simply do the filtering first
 
@@ -188,7 +194,7 @@ class Server:
         crawl_url = first.get("crawl_url", "")
         crawl_date = first.get("crawl_date", "")
         sub_domain = first.get("sub_domain", "")
-        page_count = first.get("page_count", "")
+        page_count = int(first.get("page_count", 0))
 
         image_dir = os.path.join(self.image_directory, pdf_id)
         images = [f"{image_dir}/{pdf_id}_{i}.jpeg" for i in range(page_count)]

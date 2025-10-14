@@ -40,11 +40,12 @@ if __name__ == '__main__':
     parser.add_argument('--bucket_name', type=str, help='S3 Bucket Name')
     parser.add_argument('--in_data_dir', type=str, help='S3 Directory for input data')
     parser.add_argument('--out_data_dir', type=str, help='S3 Directory for output data')
+    parser.add_argument('--keyword_index_type', type=str, default='LanceDB', help='Type of keyword index to use: LanceDB or Whoosh')
     args = parser.parse_args()
 
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process
     BATCH_SIZE = args.batch_size
-
+    index_type = args.keyword_index_type # 'LanceDB' or 'Whoosh'
     bucket_name = args.bucket_name # 'bcgl-public-bucket'
     in_data_dir = args.in_data_dir # 'prod-serving/'# INPUT DATA DIR IN S3 HERE 
     out_data_dir = args.out_data_dir # 'prod-serving/' # OUTPUT OVERALL DATA DIR IN S3 HERE 
@@ -102,7 +103,12 @@ if __name__ == '__main__':
         start_time = time.time()
 
         time_index_start = time.time()
-        index = gs.WhooshIndex(index_keyword_directory)
+        if index_type == "LanceDB":
+            index = gs.LanceDBKeywordIndex(index_keyword_directory)
+        elif index_type == "Whoosh":
+            index = gs.WhooshKeywordIndex(index_keyword_directory)
+        else:
+            raise ValueError("index_type must be either 'LanceDB' or 'Whoosh'")
         index.load_index()
         names = []
         pages = []
