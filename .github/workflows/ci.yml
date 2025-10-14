@@ -22,9 +22,6 @@ jobs:
       - name: Install package
         run: |
           poetry install
-      - name: Set Python Version
-        run: |
-          poetry env use ${{ matrix.python }}
       - name: Run tests
         run: |
           poetry run pytest govscape/tests
