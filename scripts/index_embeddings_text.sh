@@ -5,7 +5,7 @@ set -e
 rm -rf data/prod
 
 s3_prefix="s3://bcgl-public-bucket"
-data_dir="dev-serving"
+data_dir="test-serving"
 embedding_type="/embeddings/"
 index_dir="index"
 
