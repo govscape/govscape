@@ -10,7 +10,7 @@ import contextlib
 import sys
 import pyarrow as pa
 from lancedb import connect
-from lancedb.query import MatchQuery
+from lancedb.query import MatchQuery, PhraseQuery
 from whoosh.index import create_in, open_dir
 from whoosh.fields import *
 from whoosh.qparser import QueryParser
@@ -260,7 +260,7 @@ class LanceDBKeywordIndex(AbstractKeywordIndex):
             pa.field("page", pa.int32()),
         ])
         self.table = self.db.create_table(self.table_name, schema=schema)
-        self.table.create_fts_index("text")
+        self.table.create_fts_index("text", with_position=True)
 
     def add_batch(self, texts, pdf_names, pages):
         if self.table is None:
@@ -285,11 +285,19 @@ class LanceDBKeywordIndex(AbstractKeywordIndex):
     def search(self, query, k):
         if self.table is None:
             self.load_index()
-        results = (
-            self.table.search(MatchQuery(query, "text", fuzziness=2), fts_columns="text", query_type="fts", vector_column_name='')
-            .limit(k)
-            .to_list()
-        )
+        print(query)
+        if query[0] == '"' and query[-1] == '"':
+            results = (
+                self.table.search(PhraseQuery(query, "text"), fts_columns="text", query_type="fts", vector_column_name='')
+                .limit(k)
+                .to_list()
+            )
+        else:
+            results = (
+                self.table.search(MatchQuery(query, "text"), fts_columns="text", query_type="fts", vector_column_name='')
+                .limit(k)
+                .to_list()
+            )
         scores = [r.get("_score", 0.0) for r in results]
         pdf_names = [r["pdf_name"] for r in results]
         pages = [str(r["page"]) for r in results]
@@ -469,7 +477,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
 
     def search(self, pdf_names, filter=None):
         placeholders = ",".join(f"'{name}'" for name in pdf_names)
-        query = f"SELECT crawl_url, crawl_date, pdf_name, sub_domain, s3_url FROM metadata WHERE pdf_name IN ({placeholders})"
+        query = f"SELECT crawl_url, crawl_date, pdf_name, sub_domain, s3_url, page_count FROM metadata WHERE pdf_name IN ({placeholders})"
         if filter:
             for key, value in filter.items():
                 if key == 'subDomain' and value != None:
@@ -491,7 +499,8 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
                     "crawl_url": row[0],
                     "crawl_date": f"{row[1][0:4]}-{row[1][4:6]}-{row[1][6:8]}",
                     "pdf_name": row[2],
-                    "sub_domain": row[3]
+                    "sub_domain": row[3],
+                    "page_count": row[5]
                 }
             if pdf_name not in metadata:
                 metadata[pdf_name] = [row_dict]
