@@ -28,6 +28,7 @@ pytest = "^8.4.0"
 pypdfium2 = "^4.30"
 whoosh = "^2.7.4"
 gunicorn = "^23.0.0"
+lancedb = "^0.25.2"
 
 
 [build-system]
