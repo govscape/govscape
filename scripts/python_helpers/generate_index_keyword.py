@@ -6,6 +6,7 @@ import govscape as gs
 import torch
 import shutil
 import json
+import math
 import subprocess
 import numpy as np
 from botocore.config import Config
@@ -36,7 +37,7 @@ if __name__ == '__main__':
     # FIELDS TO SET **************************************************************************************
     parser = argparse.ArgumentParser(description="S3 EC2 Embedding Pipeline")
     parser.add_argument('--num_pages_to_process', type=int, default=100, help='Number of pages to process from S3')
-    parser.add_argument('--batch_size', type=int, default=1000000, help='Number of pages to process at a time')
+    parser.add_argument('--batch_size', type=int, default=100000, help='Number of pages to process at a time')
     parser.add_argument('--bucket_name', type=str, help='S3 Bucket Name')
     parser.add_argument('--in_data_dir', type=str, help='S3 Directory for input data')
     parser.add_argument('--out_data_dir', type=str, help='S3 Directory for output data')
@@ -72,6 +73,7 @@ if __name__ == '__main__':
                 progress = json.load(f)
                 continuation_token = progress.get('continuation_token', None)
         pages_retrieved = 0
+        finished = False
         while True:
             if continuation_token:
                 result = s3.list_objects_v2(Bucket=bucket_name, Prefix=in_data_dir + "/txt", ContinuationToken=continuation_token)
@@ -86,13 +88,12 @@ if __name__ == '__main__':
             pages_retrieved += 1
             if result.get('IsTruncated'):
                 continuation_token = result.get('NextContinuationToken')
-                with open(progress_path, 'w') as f:
-                    json.dump({'continuation_token': continuation_token}, f)
-            
+            else:
+                finished = True
             if pages_retrieved >= num_pages or not result.get('IsTruncated'):
                 break
 
-        return txt_files
+        return txt_files, finished, continuation_token
 
     # uploads dir of files to s3
     def upload_directory_to_s3(ec2_dir, s3_dir):
@@ -163,20 +164,23 @@ if __name__ == '__main__':
     def batched_file_download(BATCH_SIZE):
 
         overall_start_time = time.time()
+        finished = False
+        pages_processed = 0
+        pages_per_batch = math.floor(BATCH_SIZE / 1000)
+        while pages_processed < NUM_PAGES_TO_PROCESS and not finished:
 
-        # get the pdf files from s3
-        time_list = time.time()
-        txt_files = list_txt_files(NUM_PAGES_TO_PROCESS)
-        pipeline_times['list'] = time.time() - time_list
-
-        print("Now starting with total number of PDF files: ", len(txt_files))
-
-        for i in range(0, len(txt_files), BATCH_SIZE):
             print('*****************************************************************************************************')
-            print("WE ARE ON BATCH: ", i)
+            print("WE ARE ON BATCH: ", pages_processed * 1000)
             print('*****************************************************************************************************')
-            batch = txt_files[i:i + BATCH_SIZE] 
-            worker_batches = np.array_split(batch, 64)  # Split the batch into 64 smaller batches for parallel downloading
+
+
+            time_list = time.time()
+            txt_files, finished, continuation_token = list_txt_files(pages_per_batch)
+            pipeline_times['list'] += time.time() - time_list
+
+            print("Now starting with total number of PDF files: ", len(txt_files))
+
+            worker_batches = np.array_split(txt_files, 64)  # Split the batch into 64 smaller batches for parallel downloading
             local_batch = []
             time_download = time.time()
             
@@ -192,6 +196,9 @@ if __name__ == '__main__':
 
             process_txt_files(local_batch)
 
+            with open(progress_path, 'w') as f:
+                json.dump({'continuation_token': continuation_token}, f)
+            
             # delete the directories except for the indices which will continue to be updated
             if os.path.exists(DATA_DIR):
                 shutil.rmtree(DATA_DIR + "/txt")
