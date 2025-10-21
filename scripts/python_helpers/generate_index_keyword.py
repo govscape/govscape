@@ -106,7 +106,7 @@ if __name__ == '__main__':
         if index_type == "LanceDB":
             index = gs.LanceDBKeywordIndex(index_keyword_directory)
         elif index_type == "SQLite":
-            index = gs.(index_keyword_directory)
+            index = gs.SQLiteKeywordIndex(index_keyword_directory)
         elif index_type == "Whoosh":
             index = gs.WhooshKeywordIndex(index_keyword_directory)
         else:
