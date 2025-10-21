@@ -351,7 +351,7 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
 
     def search(self, query_vector, k):
         self.load_index()
-        self.cursor.execute("SELECT *, rank FROM fts_txt WHERE fts_txt MATCH ? LIMIT ?", [query_vector, k]);
+        self.cursor.execute("SELECT *, rank FROM fts_txt WHERE fts_txt MATCH ? ORDER BY rank LIMIT ?", [query_vector, k]);
         distances = []
         pdf_names = []
         pages = []
