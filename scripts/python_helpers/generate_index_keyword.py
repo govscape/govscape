@@ -58,10 +58,14 @@ if __name__ == '__main__':
     txt_directory = os.path.join(DATA_DIR, 'txt')
     index_keyword_directory = os.path.join(DATA_DIR, 'index_keyword')
 
-    progress_path = 'text_index_progress.json'  # Token to track of which pages have already been processed
+    progress_filename = 'text_index_progress.json'  # Token to track of which pages have already been processed
+    progress_path = os.path.join(DATA_DIR, progress_filename)
 
+    perf_filename = "text_indexing_performance.json"
+    perf_path = os.path.join(DATA_DIR, perf_filename)
+    
     # ****************************************************************************************************
-    # for analyzing: 
+    # for analyzing:     
     pipeline_times = {'list' : 0, 'download' : 0, 'keyword_indexing_time' : 0, 'upload' : 0, 'pdfs_processed' : 0}  # to keep track of the time it takes for each step in the pipeline
 
     # gets txt files from s3
@@ -147,22 +151,20 @@ if __name__ == '__main__':
         pipeline_times['upload'] += time2-time1
         pipeline_times['pdfs_processed'] += len(txt_files)
         
-        # Write pipeline_times to a JSON file
-        perf_filename = f"text_indexing_performance.json"
-        perf_path = os.path.join(DATA_DIR, perf_filename)
-        with open(perf_path, "w") as f:
-            json.dump(pipeline_times, f, indent=2)
-
-        # Upload the performance JSON to S3
-        s3.upload_file(perf_path, bucket_name, os.path.join(out_data_dir, perf_filename))
-        print("finished uploading current batch")
-        print("pipeline times: ", pipeline_times)
 
 
 
     # overall method that gets the files in batches and runs them through the pipeline
     def batched_file_download(BATCH_SIZE):
-
+        try:
+            s3.download_file(bucket_name, os.path.join(out_data_dir, progress_filename), progress_path)
+            s3.download_file(bucket_name, os.path.join(out_data_dir, perf_filename), perf_path)
+            with open(perf_path, "r") as f:
+                existing_pipeline_times = json.load(f)
+                for key in pipeline_times:
+                    pipeline_times[key] = existing_pipeline_times.get(key, 0)
+        except Exception as e:
+            print("No existing progress or performance file found in S3. Starting fresh.")
         overall_start_time = time.time()
         finished = False
         pages_processed = 0
@@ -177,9 +179,6 @@ if __name__ == '__main__':
             time_list = time.time()
             txt_files, finished, continuation_token = list_txt_files(pages_per_batch)
             pipeline_times['list'] += time.time() - time_list
-
-            print("Now starting with total number of PDF files: ", len(txt_files))
-
             worker_batches = np.array_split(txt_files, 64)  # Split the batch into 64 smaller batches for parallel downloading
             local_batch = []
             time_download = time.time()
@@ -191,14 +190,26 @@ if __name__ == '__main__':
                         file_name = future.result()
                         local_batch.extend(file_name)
                     except Exception as e:
-                        print(f"Error downloading {futures[future]}: {e}")
+                        print(f"Error downloading {future}: {e}")
             pipeline_times['download'] += time.time() - time_download
 
             process_txt_files(local_batch)
 
+            # Write continuation token to progress file
             with open(progress_path, 'w') as f:
                 json.dump({'continuation_token': continuation_token}, f)
-            
+                
+            # Write pipeline_times to a JSON file
+            with open(perf_path, "w") as f:
+                json.dump(pipeline_times, f, indent=2)
+
+            # Upload the performance json and progress to s3
+            s3.upload_file(progress_path, bucket_name, os.path.join(out_data_dir, progress_filename))
+            s3.upload_file(perf_path, bucket_name, os.path.join(out_data_dir, perf_filename))
+            print("finished uploading current batch")
+            print("pipeline times: ", pipeline_times)
+            pages_processed += len(txt_files)
+
             # delete the directories except for the indices which will continue to be updated
             if os.path.exists(DATA_DIR):
                 shutil.rmtree(DATA_DIR + "/txt")
