@@ -7,7 +7,7 @@ readme = "README.md"
 
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.12"
+python = "3.11.14"
 numpy = "1.25"
 faiss-cpu = "1.11.0"
 pdf2image = "^1.17.0"
