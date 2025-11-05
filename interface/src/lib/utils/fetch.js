@@ -3,7 +3,7 @@ const IS_DEV = import.meta.env.DEV;
 const ENDPOINTS = {
   DEV: {
     API: 'http://localhost:8080/api',
-    S3: 'http://localhost:8080/img'
+    S3: 'https://bcgl-public-bucket.s3.amazonaws.com/dev-serving/img'
   },
   PROD: {
     API: 'https://govscape.net/api',

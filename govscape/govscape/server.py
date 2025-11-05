@@ -4,9 +4,7 @@ from flask_cors import CORS
 from .config import ServerConfig
 import numpy as np
 import os
-import struct
-import json
-import fcntl
+import boto3
 import time
 import math
 from .api import init_api
@@ -71,6 +69,7 @@ class Server:
         self.metadata_index.load_index()
 
         self.filt = Filter(config)
+        self.s3 = boto3.client('s3')
 
         # Get the absolute path to the build directory
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -93,14 +92,8 @@ class Server:
             print("Serving index.html")
             return self.app.send_static_file("index.html")
 
-        @self.app.route("/images/<path:filename>")
-        def serve_image(filename):
-            image_dir = os.path.abspath(self.image_directory)
-            return send_from_directory(image_dir, filename)
-
         self.app.server = self
         self.api = init_api(self.app)
-
 
     @staticmethod
     def deduplicate_responses(D, names, pages):
@@ -132,17 +125,18 @@ class Server:
         current_k = self.k * 2
         results_needed_for_page = page * self.k + 1 # we need one extra result to check if there is a next page
         search_results = []
+        old_results_found = -1
         while len(search_results) < results_needed_for_page:
             # Search for the k closest arrays
             start = time.time()
             
             D, pdf_names, pdf_pages = index.search(query_embedding, current_k)
-            print(f"Index Search took {time.time() - start} seconds")
-            print(f"Search type: {search_type}, current_k: {current_k}, results found: {len(search_results)}")
             D, pdf_names, pdf_pages = self.deduplicate_responses(D, pdf_names, pdf_pages)
             
+            print(f"Index Search took {time.time() - start} seconds")
+            print(f"Search type: {search_type}, current_k: {current_k}, results found: {len(D)}")
             pdf_metadata = self.metadata_index.search(pdf_names, filters)
-                
+            print(f"Search type: {search_type}, current_k: {current_k}, results found after filtering: {len(pdf_metadata)}")
             search_results = []
             for distance, name, page_num in zip(D, pdf_names, pdf_pages):
                 metadata = pdf_metadata.get(name, None)
@@ -164,6 +158,11 @@ class Server:
             if len(search_results) >= results_needed_for_page:
                 break # If we have enough results for our target page, we can stop.
             
+            results_found = len(search_results)
+            if results_found == old_results_found and (len(filters or {}) == 0):
+                break # No more results can be found even after increasing k
+            old_results_found = results_found
+
             current_k *= 2  # Double the k until we have enough results
 
         start_index = (page - 1) * self.k
@@ -209,73 +208,24 @@ class Server:
         }
 
     def _get_total_pdfs_count(self):
-        # TODO: use Redis to cache the total number of PDFs
-        current_time = time.time()
-        cache_duration = 3600  # 1 hour in seconds
-        
-        if (hasattr(self, '_total_pdfs_cache') and 
-            hasattr(self, '_total_pdfs_cache_time') and
-            current_time - self._total_pdfs_cache_time < cache_duration):
+        if (hasattr(self, '_total_pdfs_cache')):
             return self._total_pdfs_cache
         
         total_pdfs_path = self.stats_file
         
         if not total_pdfs_path or not os.path.exists(total_pdfs_path):
-            self._total_pdfs_cache = 0
-            self._total_pdfs_cache_time = current_time
             return 0
         
         try:
             with open(total_pdfs_path, "r", encoding='utf-8') as f:
-                locked = False
-                try:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
-                    locked = True
-                except (OSError, IOError):
-                    pass
-                
                 content = f.read().strip()
-                if not content:
-                    val = 0
-                else:
-                    try:
-                        val = int(content)
-                    except ValueError:
-                        val = 0
-                
-                if locked:
-                    try:
-                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-                    except Exception:
-                        pass
-                
-                self._total_pdfs_cache = val
-                self._total_pdfs_cache_time = current_time
-                
-                return val
+                self._total_pdfs_cache =  int(content) 
+                return self._total_pdfs_cache
                 
         except Exception as e:
             print(f"Error reading total_pdfs.txt: {str(e)}")
             self._total_pdfs_cache = 0
-            self._total_pdfs_cache_time = current_time
             return 0
-
-    def serve(self):
-        # keep this function to maintain compatibility with scripts/start_server.py
-        print("Welcome to End-Of-Term PDF Search Server")
-
-        print("Searching against " + str(self.index.total_entries()) + " embeddings\n")
-        try:
-            while True:
-                query = input("Search: ")
-                if query == "":
-                    continue
-
-                result = self.search(query)
-                print(json.dumps(result, indent=4))
-
-        except EOFError:
-            print("\nThank you for using!")
 
     def run(self, host="localhost", port=8080, debug=False):
         """Run the Flask server."""

@@ -17,6 +17,7 @@ gunicorn = "^23.0.0"
 s5cmd = "^0.3.3"
 scipy = "^1.13"
 npm = "^0.1.1"
+awscli = "^1.42.66"
 
 
 [build-system]

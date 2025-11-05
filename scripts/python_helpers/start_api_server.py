@@ -8,7 +8,7 @@ def _get_arg_parser():
     parser.add_argument('-d', '--data-directory', default='data/test_data', help='Directory containing data files')
     parser.add_argument('-tm', '--text_model', default='ST', help='The model to use for text embedding.')
     parser.add_argument('-vm', '--visual_model', default='CLIP', help='The model to use for visual embedding.')
-    parser.add_argument('-k', '--top-k', type=int, default=20, help='Number of top results to return')
+    parser.add_argument('-k', '--top-k', type=int, default=21, help='Number of top results to return')
     parser.add_argument('-i', '--vector_index_type', default='Memory', help='The type of vector index to use')
     parser.add_argument('-ki', '--keyword_index_type', default='LanceDB', help='The type of keyword index to use')
     parser.add_argument('-v', '--verbose', action='store_true')

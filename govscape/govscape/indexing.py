@@ -15,7 +15,6 @@ from whoosh.index import create_in, open_dir
 from whoosh.fields import *
 from whoosh.qparser import QueryParser
 from whoosh.filedb.filestore import FileStorage
-from whoosh.index import EmptyIndexError
 
 
 # Avoid annoying output from faiss during import
@@ -358,15 +357,16 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
         # Escape single quotes in the query
         return query.replace("-", "")
     
-    def search(self, query_vector, k):
+    def search(self, query, k):
+        query = self._clean_query(query)
         if not self.cursor:
             self.load_index()
         try:
-            self.cursor.execute(f'SELECT *, rank FROM fts_txt WHERE fts_txt MATCH \'{query_vector}\' LIMIT {k}')
+            self.cursor.execute(f'SELECT *, rank FROM fts_txt WHERE fts_txt MATCH \'{query}\' ORDER BY rank LIMIT {k}')
         except sqlite3.ProgrammingError as e:
             self.load_index()
-            self.cursor.execute(f'SELECT *, rank FROM fts_txt WHERE fts_txt MATCH \'{query_vector}\' LIMIT {k}')
-        print(f'SELECT *, rank FROM fts_txt WHERE fts_txt MATCH \'{query_vector}\' LIMIT {k}')
+            self.cursor.execute(f'SELECT *, rank FROM fts_txt WHERE fts_txt MATCH \'{query}\' ORDER BY rank LIMIT {k}')
+        print(f'SELECT *, rank FROM fts_txt WHERE fts_txt MATCH \'{query}\' ORDER BY rank LIMIT {k}')
         distances = []
         pdf_names = []
         pages = []
