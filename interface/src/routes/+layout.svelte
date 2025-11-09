@@ -32,7 +32,7 @@
   {/key}
   <footer>
     <div class="footer-content">
-      GovScape is a project by the University of Washington
+      GovScape is a project by the University of Washington & Boston University (learn more at our <a href="index.html" target="_blank">FAQ</a>)
     </div>
   </footer>
   <CookieConsent 
