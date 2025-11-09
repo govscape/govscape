@@ -13,13 +13,13 @@
         What is GovScape, and how does it work?
       </summary>
       <div class="content">
-        <p>GovScape is a collaboration between the University of Washington, Boston University, along with a number of other institutions. GovScape currently supports multimodal search over 10 million PDFs (~60 million PDF pages) within the End of Term Web Archive's 2020 crawl, completed at the end of the first Trump presidential administration. GovScape supports 3 forms of searching over these PDFs:</p>
+        <p>GovScape is a collaboration between the University of Washington, Boston University, along with a number of other institutions. GovScape currently supports multimodal search over 10 million PDFs (~60 million PDF pages) within the End of Term Web Archive's 2020 crawl. GovScape supports 3 forms of searching over these PDFs:</p>
         <ul>
           <li>
             <strong>"keyword search," or exact text search:</strong> this form of search is canonical keyword search over document text, i.e., basic keyword search.
           </li>
           <li>
-            <strong>"text search," or vectorized natural language text search:</strong> with this form of search, you can define more flexible textual queries such as "budgetary data related to the Iraq war" or "rural healthcare for children," which will return PDF pages ranked based on the relevance of the page's text to your query – even if the exact string is not present. For this search functionality, we leverage embeddings from the <a href="https://huggingface.co/BAAI/bge-base-en-v1.5" target="_blank" rel="noopener noreferrer">BAAI/bge-base-en-v1.5</a> model. Not sure what this means? Give one of the example searches a try!
+            <strong>"semantic text search," or vectorized natural language text search:</strong> with this form of search, you can define more flexible textual queries such as "budgetary data related to the Iraq war" or "rural healthcare for children," which will return PDF pages ranked based on the relevance of the page's text to your query – even if the exact string is not present. For this search functionality, we leverage embeddings from the <a href="https://huggingface.co/BAAI/bge-base-en-v1.5" target="_blank" rel="noopener noreferrer">BAAI/bge-base-en-v1.5</a> model. Not sure what this means? Give one of the example searches a try!
           </li>
           <li>
             <strong>"visual search" over individual PDF pages:</strong> here, you can try queries like "redacted documents," "pie charts," or "aerial photography" – PDF pages are returned based on the relevance of their visual features to the query. For this search functionality, we leverage CLIP embeddings generated using the <a href="https://huggingface.co/openai/clip-vit-base-patch32" target="_blank" rel="noopener noreferrer">openai/clip-vit-base-patch32</a> model.
@@ -27,6 +27,9 @@
         </ul>
         <p>
           All three of these search methods can be combined with <strong>metadata filtering</strong> according to <strong>subdomain</strong> and <strong>crawl date</strong>, available by clicking the filter button just to the left of the magnifying glass (which executes the search).
+        </p>
+        <p>
+          While <strong>"keyword search"</strong> filters search results based on the presence of the search string, <strong>"semantic text search"</strong> and <strong>"visual search"</strong> only re-ranks search results (all PDFs meeting the criteria in the metadata filters will be returned).
         </p>
         <p class="note">
           In future versions of GovScape, we plan to support searching the PDFs across the End of Term Web Archive, including the 2024 crawl when it is released.
