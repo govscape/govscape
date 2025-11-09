@@ -13,7 +13,7 @@
         What is GovScape, and how does it work?
       </summary>
       <div class="content">
-        <p>GovScape is a collaboration between the University of Washington's Information School and Paul G. Allen School for Computer Science & Engineering, along with a number of other institutions. GovScape currently supports multimodal search over 4.7 million PDFs (25 million PDF pages) within the End of Term Web Archive's 2020 crawl, completed at the end of the first Trump presidential administration. GovScape supports 3 forms of searching over these PDFs:</p>
+        <p>GovScape is a collaboration between the University of Washington, Boston University, along with a number of other institutions. GovScape currently supports multimodal search over 10 million PDFs (~60 million PDF pages) within the End of Term Web Archive's 2020 crawl, completed at the end of the first Trump presidential administration. GovScape supports 3 forms of searching over these PDFs:</p>
         <ul>
           <li>
             <strong>"keyword search," or exact text search:</strong> this form of search is canonical keyword search over document text, i.e., basic keyword search.
@@ -80,7 +80,7 @@
           <li><a href="https://www.linkedin.com/in/claire-gong-597b8b196" target="_blank" rel="noopener noreferrer">Claire Gong</a></li>
           <li><a href="https://www.linkedin.com/in/shreya-shaji" target="_blank" rel="noopener noreferrer">Shreya Shaji</a></li>
           <li><a href="https://www.linkedin.com/in/alisonyan" target="_blank" rel="noopener noreferrer">Alison Yan</a></li>
-          <li>Leslie Harka</li>
+          <li><a href="https://lazlou.github.io/" target="_blank" rel="noopener noreferrer">Leslie Harka</a></li>
         </ul>
       </div>
     </details>
