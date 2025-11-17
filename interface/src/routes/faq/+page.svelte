@@ -34,7 +34,7 @@
         <p class="note">
           In future versions of GovScape, we plan to support searching the PDFs across the End of Term Web Archive, including the 2024 crawl when it is fully uploaded and released.
         </p>
-        <p>You can learn more about GovScape in our paper available here: <a href="https://arxiv.org/abs/2511.11010" target="_blank" rel="noopener noreferrer">https://arxiv.org/abs/2511.11010</a>.</p>
+        <p>You can learn more about GovScape in our paper available here: <a href="https://arxiv.org/abs/2511.11010" target="_blank" rel="noopener noreferrer">https://arxiv.org/abs/2511.11010</a>. We also have a brief tutorial video available here: <a href="https://youtu.be/mNda8lVKT1U" target="_blank" rel="noopener noreferrer">https://youtu.be/mNda8lVKT1U</a>.</p> 
       </div>
     </details>
 
