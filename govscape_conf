@@ -1,55 +1,36 @@
 server {
-	server_name govscape.net www.govscape.net;
+    listen 80 default_server;
+    server_name _;
 
-	root /home/ubuntu/govscape/interface/build;
-	index index.html;
+    root /home/ubuntu/govscape/interface/build;
+    index index.html;
 
-	# Redirect all www requests to non-www requests
-	if ($host = www.govscape.net) {
-		return 301 https://govscape.net$request_uri;
-	}
+    # Nginx's health check endpoint for ALB
+    location /health {
+        access_log off;
+        return 200 "ok";
+        add_header Content-Type text/plain;
+    }
 
-	# Serve static frontend files
-	location / {
-		try_files $uri $uri/ /index.html;
-		# Cache static assets
-		location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-			expires 1y;
-			add_header Cache-Control "public, immutable";
-		}
-	}
+    # Cache static assets
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
 
-	# Proxy API requests to Flask backend
-	location /api/ {
-		proxy_pass http://localhost:8080/api/;
-		proxy_set_header Host $host;
-		proxy_set_header X-Real-IP $remote_addr;
-		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-		proxy_set_header X-Forwarded-Proto $scheme;
-	}
+    # Serve static frontend files
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
 
-	listen 443 ssl; # HTTPS port
-
-	# SSL configuration (managed by Certbot)
-	ssl_certificate /etc/letsencrypt/live/govscape.net/fullchain.pem;
-	ssl_certificate_key /etc/letsencrypt/live/govscape.net/privkey.pem;
-	include /etc/letsencrypt/options-ssl-nginx.conf;
-	ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-}
-
-# HTTP server block: redirect to HTTPS
-server {
-	listen 80;
-	server_name govscape.net www.govscape.net;
-
-	# Redirect all HTTP requests to HTTPS
-	if ($host = www.govscape.net) {
-		return 301 https://govscape.net$request_uri;
-	}
-
-	if ($host = govscape.net) {
-		return 301 https://$host$request_uri;
-	}
-
-	return 404; # fallback
+    # Proxy API requests to Flask backend
+    location /api/ {
+        proxy_pass http://127.0.0.1:8080/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # forward https protocol from ALB
+        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+    }
 }
