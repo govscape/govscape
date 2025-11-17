@@ -47,6 +47,7 @@
   }
 
   let lastApplied = null;
+  let lastSearchParams = null;
 
   async function applyFromURL(urlSearchParams) {
     const { q, mode, page: pageNum, filters } = getParamsObject(urlSearchParams);
@@ -60,11 +61,15 @@
     if (lastApplied === currentSignature) return;
     lastApplied = currentSignature;
 
+    const currentSearchParams = JSON.stringify({ q, mode, filters });
+    const isNewSearch = lastSearchParams !== currentSearchParams;
+    lastSearchParams = currentSearchParams;
+
     searchActions.setSearchMode(mode);
     searchActions.setQuery(q);
     searchActions.updateFilters(filters);
 
-    await searchActions.goToPage(pageNum, { isNewSearch: pageNum === 1 });
+    await searchActions.goToPage(pageNum, { isNewSearch });
   }
 
   function handleSetModeEvent(e) {

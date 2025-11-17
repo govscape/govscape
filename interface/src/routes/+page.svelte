@@ -70,7 +70,6 @@
           title="GovScape: A Tutorial Video"
           frameborder="0"
           allow="autoplay; encrypted-media"
-          allowfullscreen
           class="video-iframe"
         ></iframe>
       </div>
@@ -111,34 +110,30 @@
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 1.25rem;
-    width: 40vw;
+    width: 45vw;
     min-width: 500px;
-    margin-top: 6rem;
+    margin-top: 7rem;
     margin-bottom: 3rem;
   }
 
   .resource-card {
-    background: #fff;
-    border-radius: 10px;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
-    overflow: hidden;
     text-decoration: none;
     color: var(--text-color-primary);
-    transition: transform 0.2s, box-shadow 0.2s;
+    transition: opacity 0.2s;
     display: flex;
     flex-direction: column;
   }
 
   .resource-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 6px 12px rgba(0, 110, 185, 0.15);
+    opacity: 0.8;
   }
 
   .card-image {
     position: relative;
     width: 100%;
-    height: 140px;
+    height: 240px;
     overflow: hidden;
+    border: 1px solid #e0e0e0;
   }
 
   .arxiv-preview,
@@ -211,7 +206,7 @@
     }
 
     .card-image {
-      height: 100px;
+      height: 180px;
     }
 
     .arxiv-preview i,
