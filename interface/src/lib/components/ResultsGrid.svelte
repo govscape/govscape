@@ -71,7 +71,13 @@
     const pdfId = pdf.split('/').pop();
 
     try {
-      userTracker.logPdfClick({ id: pdfId, page, subDomain });
+      userTracker.logPdfClick({ 
+        id: pdfId, 
+        page, 
+        subDomain, 
+        crawlUrl, 
+        crawlDate 
+      });
     } catch (e) {}
 
     dispatch('pdfSelect', { pdf, page, id: pdfId, crawlDate, crawlUrl, subDomain });

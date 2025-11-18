@@ -56,12 +56,14 @@ export class UserTracker {
     }
   }
 
-  logPdfClick({ id, page, subDomain }) {
+  logPdfClick({ id, page, subDomain, crawlUrl, crawlDate }) {
     try {
       trackGA4PdfClick({
         id,
         page,
         subDomain,
+        crawlUrl,
+        crawlDate,
       });
     } catch (error) {
       console.error(error);

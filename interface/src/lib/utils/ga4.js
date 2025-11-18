@@ -71,6 +71,8 @@ export function trackGA4PdfClick(data) {
     id,
     page,
     subDomain,
+    crawlUrl,
+    crawlDate,
   } = data || {};
 
   const eventData = {
@@ -80,6 +82,14 @@ export function trackGA4PdfClick(data) {
 
   if (subDomain) {
     eventData.sub_domain = subDomain.substring(0, 100);
+  }
+
+  if (crawlUrl) {
+    eventData.crawl_url = crawlUrl.toString().substring(0, 200);
+  }
+
+  if (crawlDate) {
+    eventData.crawl_date = crawlDate.toString().substring(0, 50);
   }
 
   window.gtag('event', 'pdf_click', eventData);
