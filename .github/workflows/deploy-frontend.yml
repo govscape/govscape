@@ -40,34 +40,26 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: us-east-2
       
-      - name: Sync to S3
+      - name: Sync to S3 (Zero-downtime deployment)
         run: |
-          aws s3 sync interface/build/ s3://govscape-frontend-prod --delete \
-            --cache-control "public, max-age=31536000, immutable" \
+          # Step 1: Upload all new assets first (immutable files with hash)
+          # These have hash in filename, so won't conflict with old versions
+          aws s3 sync interface/build/ s3://govscape-frontend-prod \
             --exclude "index.html" \
             --exclude "_app/version.json"
           
-          # Upload index.html with no-cache
-          aws s3 cp interface/build/index.html s3://govscape-frontend-prod/index.html \
-            --cache-control "no-cache, no-store, must-revalidate" \
-            --metadata-directive REPLACE
+          # Step 2: Upload index.html LAST (entry point)
+          # This ensures all referenced assets are already available
+          # Cache headers are controlled by CloudFront policies
+          aws s3 cp interface/build/index.html s3://govscape-frontend-prod/index.html
           
-          # Upload version.json with no-cache
-          aws s3 cp interface/build/_app/version.json s3://govscape-frontend-prod/_app/version.json \
-            --cache-control "no-cache, no-store, must-revalidate" \
-            --metadata-directive REPLACE
-      
-      - name: Invalidate CloudFront cache
-        run: |
-          aws cloudfront create-invalidation \
-            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
-            --paths "/index.html" "/_app/version.json"
+          # Step 3: Upload version.json
+          # This is unecessary for statically built SvelteKit apps (consider removing later)
+          aws s3 cp interface/build/_app/version.json s3://govscape-frontend-prod/_app/version.json
       
       - name: Deployment summary
         run: |
           echo "Frontend deployed successfully to S3!"
           echo "Bucket: s3://govscape-frontend-prod"
-          echo "CloudFront cache invalidated"
-
