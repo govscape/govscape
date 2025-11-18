@@ -21,20 +21,31 @@ export function loadGA4Script() {
 
     window.dataLayer = window.dataLayer || [];
     window.gtag = function() { window.dataLayer.push(arguments); };
+
+    window.gtag('consent', 'default', {
+      'ad_storage': 'denied',
+      'ad_user_data': 'denied',
+      'ad_personalization': 'denied',
+      'analytics_storage': 'denied',
+      'functionality_storage': 'granted',
+      'personalization_storage': 'granted',
+      'security_storage': 'granted',
+    });
+
     window.gtag('js', new Date());
-    
+
     const script = document.createElement('script');
     script.async = true;
     script.src = `https://www.googletagmanager.com/gtag/js?id=${GA4_CONFIG.MEASUREMENT_ID}`;
-    
+
     script.onload = () => {
       resolve();
     };
-    
+
     script.onerror = () => {
       reject(new Error('Failed to load GA4 script'));
     };
-    
+
     document.head.appendChild(script);
   });
 }
@@ -43,6 +54,25 @@ export function setGA4Config() {
   window.gtag('config', GA4_CONFIG.MEASUREMENT_ID, {
     'cookie_expires': GA4_CONFIG.COOKIE_EXPIRES_DAYS * 24 * 60 * 60,
     'anonymize_ip': true
+  });
+}
+
+export function updateGA4Consent(consentSettings) {
+  if (!shouldEnableGA4() || typeof window.gtag !== 'function') {
+    return;
+  }
+
+  window.gtag('consent', 'update', {
+    'ad_storage': consentSettings.ad_storage || 'denied',
+    'ad_user_data': consentSettings.ad_user_data || 'denied',
+    'ad_personalization': consentSettings.ad_personalization || 'denied',
+    'analytics_storage': consentSettings.analytics_storage || 'denied',
+  });
+}
+
+export function grantAnalyticsConsent() {
+  updateGA4Consent({
+    analytics_storage: 'granted',
   });
 }
 

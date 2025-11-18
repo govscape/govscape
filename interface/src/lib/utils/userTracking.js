@@ -1,10 +1,11 @@
 import Cookies from 'js-cookie';
-import { 
+import {
   loadGA4Script,
   setGA4Config,
   trackGA4Search,
   trackGA4PdfClick,
   trackGA4Pagination,
+  grantAnalyticsConsent,
 } from './ga4.js';
 
 export class UserTracker {
@@ -12,12 +13,14 @@ export class UserTracker {
     this.consentGiven = Cookies.get('govscape_consent') === 'true';
     if (this.consentGiven) this.init();
   }
-  
+
   async init() {
     try {
-      await loadGA4Script().then(() => {
-        setGA4Config();
-      });
+      await loadGA4Script();
+
+      if (this.consentGiven) grantAnalyticsConsent();
+
+      setGA4Config();
     } catch (error) {
       console.error(error);
     }
