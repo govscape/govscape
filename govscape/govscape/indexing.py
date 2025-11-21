@@ -314,6 +314,7 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
         self.cursor = None
         self.index = None
         self._total_entries = -1
+        self.VALID_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _"
     
     def build_index(self):
         if not os.path.exists(self.index_keyword_directory):
@@ -353,12 +354,35 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
     def save_index(self):
         return
 
-    def _remove_hyphens(self, query):
+    def valid_char(self, c):
+        return c in self.VALID_CHARS or not c.isascii()
+
+    def _clean_query(self, query):
         # Remove hyphens from the query
-        return query.replace("-", "")
+        in_quote = False
+        new_string = ''
+        for c in query:
+            if not in_quote and c == '"':
+                in_quote = True
+                new_string += c
+                continue
+            elif in_quote and c == '"':
+                in_quote = False
+                new_string += c
+                continue
+            elif in_quote:
+                new_string += c
+                continue
+            elif not in_quote and self.valid_char(c):
+                new_string += c
+            else:
+                new_string += ' '
+        if in_quote:
+            new_string += '"'
+        return new_string
     
     def search(self, query, k):
-        query = self._remove_hyphens(query)
+        query = self._clean_query(query)
         if not self.cursor:
             self.load_index()
         try:

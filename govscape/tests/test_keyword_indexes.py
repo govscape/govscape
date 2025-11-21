@@ -6,12 +6,12 @@ from govscape.indexing import LanceDBKeywordIndex, SQLiteKeywordIndex, WhooshKey
 @pytest.fixture
 def sample_documents():
 	texts = [
-		"Offshore wind procurement policy overview with federal incentives",
-		"Coastal resilience strategy for climate change adaptation planning",
-		"Transportation infrastructure funding updates and grants",
-		"Wildfire mitigation tactics for rural counties",
-		"Solar energy adoption roadmap for municipal buildings",
-		"Water conservation guidelines for drought-prone regions",
+		"Offshore wind procurement policy overview with federal incentives,",
+		"Coastal resilience strategy for climate change adaptation planning&",
+		"Transportation infrastructure funding updates and grants!",
+		"Wildfire mitigation tactics for rural counties*",
+		"Solar energy adoption roadmap for municipal buildings;",
+		"Water conservation guidelines for drought-prone regions^",
 		"Wastewater treatment modernization feasibility study",
 		"Broadband expansion program for underserved communities",
 		"Emergency management coordination best practices",
