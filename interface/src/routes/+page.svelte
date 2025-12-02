@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { assets } from '$app/paths';
   import { searchStore, searchActions } from '$lib/stores/search';
   import SearchBox from '$lib/components/SearchBox.svelte';
   import TypingEffect from '$lib/components/TypingEffect.svelte';
@@ -49,12 +50,11 @@
   <div class="resources-section">
     <a href="https://arxiv.org/abs/2511.11010" target="_blank" rel="noopener noreferrer" class="resource-card">
       <div class="card-image">
-        <iframe
-          src="https://arxiv.org/pdf/2511.11010"
-          title="GovScape: A Public Multimodal Search System for 70 Million Pages of Government PDFs"
-          frameborder="0"
-          class="arxiv-iframe"
-        ></iframe>
+        <img
+          src="{`${assets}/paper-preview.png`}"
+          alt="GovScape: A Public Multimodal Search System for 70 Million Pages of Government PDFs"
+          class="arxiv-preview-image"
+        />
       </div>
       <div class="card-content">
         <h3 class="card-title">
@@ -162,7 +162,13 @@
     opacity: 0.9;
   }
 
-  .arxiv-iframe,
+  .arxiv-preview-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+  }
+
   .video-iframe {
     width: 100%;
     height: 100%;
