@@ -6,47 +6,6 @@ import pytest
 from govscape.indexing import DiskANNIndex, FAISSIndex
 
 
-class DummyIndexFlatL2:
-	def __init__(self, d):
-		self.d = d
-
-
-class DummyIndexIVFPQ:
-	def __init__(self, coarse_quantizer, d, nlist, m, nbits):
-		self.d = d
-		self.coarse_quantizer = coarse_quantizer
-		self.nlist = nlist
-		self.m = m
-		self.nbits = nbits
-		self.nprobe = 0
-		self._vectors = np.empty((0, d), dtype=np.float32)
-
-	def train(self, embeddings):
-		if embeddings.ndim == 1:
-			embeddings = embeddings[np.newaxis, :]
-		# No-op for dummy implementation; real FAISS would train here.
-
-	def add(self, embeddings):
-		if embeddings.ndim == 1:
-			embeddings = embeddings[np.newaxis, :]
-		embeddings = embeddings.astype(np.float32)
-		self._vectors = np.vstack([self._vectors, embeddings])
-
-	def search(self, query, k):
-		if query.ndim == 1:
-			query = query[np.newaxis, :]
-		distances = np.linalg.norm(self._vectors - query, axis=1)
-		order = np.argsort(distances)[:k]
-		return (
-			distances[order].astype(np.float32)[np.newaxis, :],
-			order.astype(np.int64)[np.newaxis, :],
-		)
-
-	@property
-	def ntotal(self):
-		return self._vectors.shape[0]
-
-
 @pytest.fixture(params=["faiss", "diskann"], ids=["faiss", "diskann"])
 def vector_index_case(request, tmp_path, monkeypatch):
 	embedding_dim = 4
@@ -71,8 +30,6 @@ def vector_index_case(request, tmp_path, monkeypatch):
 
 	if request.param == "faiss":
 		index_dir = tmp_path / "faiss_index"
-		monkeypatch.setattr("govscape.indexing.faiss.IndexFlatL2", DummyIndexFlatL2)
-		monkeypatch.setattr("govscape.indexing.faiss.IndexIVFPQ", DummyIndexIVFPQ)
 		index = FAISSIndex(index_dir.as_posix())
 
 		return {

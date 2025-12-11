@@ -131,22 +131,36 @@ class FAISSIndex(AbstractVectorIndex):
         self.index_directory = index_directory
         self.faiss_index = None
         self.d = None
+        self.is_trained = False
+        self.train_batch = None
         self.pdf_names = []
         self.pdf_pages = []
-        pass
+        faiss.omp_set_num_threads(os.cpu_count())
+
 
     def add_batch(self, embeddings, pdf_names, pdf_pages):
 
-        if self.faiss_index is None:
-            self.d = embeddings.shape[1]        
-            coarse_quantizer = faiss.IndexFlatL2(self.d)
-            self.faiss_index = faiss.IndexIVFPQ(coarse_quantizer, self.d, 8192, int(self.d/4), 8)
-            self.faiss_index.train(embeddings)
-            self.faiss_index.nprobe = 32
-        
         # embeddings: list or array of shape (n, d)
         if embeddings.ndim == 1:
             embeddings = embeddings[np.newaxis, :]
+
+        if self.d is None:
+            self.d = embeddings.shape[1]
+            self.train_batch = np.array([], dtype=np.float32).reshape(0, self.d)
+
+        if self.faiss_index is None:
+            self.faiss_index = faiss.IndexFlatL2(self.d)
+
+        if not self.is_trained:
+            self.train_batch = np.vstack((self.train_batch, embeddings))
+            if self.train_batch.shape[0] >= 8192*39:
+                coarse_quantizer = faiss.IndexFlatL2(self.d)
+                self.faiss_index = faiss.IndexIVFPQ(coarse_quantizer, self.d, 8192, int(self.d/4), 8)
+                self.faiss_index.train(self.train_batch)
+                self.faiss_index.nprobe = 32
+                self.faiss_index.add(self.train_batch[:-embeddings.shape[0], :]) # add all but the last batch
+                self.is_trained = True
+
         if embeddings.shape[1] != self.d:
             raise ValueError(f"Embedding dimension mismatch: expected {self.d}, got {embeddings.shape[1]}")
         self.faiss_index.add(embeddings)
@@ -423,7 +437,9 @@ class WhooshKeywordIndex(AbstractKeywordIndex):
     def add_batch(self, texts, pdf_names, pages):
         if self.index is None:
             self.build_index()
-        writer = self.index.writer(procs=12, limitmb=2048)
+        # Whoosh's multi-process writer is prone to finish_subsegment races when the caller
+        # exits or crashes early, so stick with a single-process writer for stability.
+        writer = self.index.writer(procs=12, limitmb=512)
         for text, pdf_name, page in zip(texts, pdf_names, pages):
             writer.add_document(text=text, pdf_name=pdf_name, page=page)
         writer.commit()

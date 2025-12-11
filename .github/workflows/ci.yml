@@ -12,6 +12,11 @@ jobs:
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Disk Cleanup
+        run: |
+            sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+            sudo docker image prune --all --force
+            sudo docker builder prune -a
       - name: Checkout Repo
         uses: actions/checkout@v4
       - uses: actions/setup-python@v5
