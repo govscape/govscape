@@ -9,7 +9,7 @@ import multiprocessing
 import boto3
 import time
 import io 
-
+from get_pdf_title import get_pdf_title
 def main():
     parser = argparse.ArgumentParser(description='Retrieve PDFs from S3 & store them.')
     parser.add_argument('--bucket', required=True, help='S3 bucket name')
@@ -75,9 +75,12 @@ def retrieve_and_store_pdfs(file_batch, idx, output_bucket_name, output_director
                     if not is_valid_pdf:
                         invalid_pdfs += 1
                         continue
+                    pdf_title = get_pdf_title(record.content_stream().read())
+                    if not pdf_title:
+                        pdf_title = "untitled" # if anything goes wrong
                     s3.put_object(
                         Bucket=output_bucket_name,
-                        Key=os.path.join(output_directory, output_digest + '.pdf'),
+                        Key=os.path.join(output_directory, f'{pdf_title}_{output_digest}' + '.pdf'),
                         Body=record.content_stream().read()
                     )
                     valid_pdfs += 1
