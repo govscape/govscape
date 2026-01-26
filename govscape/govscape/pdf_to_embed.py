@@ -312,6 +312,9 @@ class PDFsToEmbeddings:
                 # pypdfium2 does not provide metadata directly, so set as Unknown or use another lib if needed
                 gov_name = pdf.get_metadata_value("Title")
                 timestamp = pdf.get_metadata_value("CreationDate")
+                keywords = pdf.get_metadata_value("Keywords")
+                if len(keywords) == 0:
+                    keywords = 'Unknown'
                 if len(gov_name) == 0:
                     gov_name = 'Unknown'
                 if len(timestamp) == 0:
@@ -319,10 +322,12 @@ class PDFsToEmbeddings:
                 json_data['gov_name'] = gov_name
                 json_data['timestamp'] = timestamp
                 json_data['num_pages'] = num_pages
+                json_data['keywords'] = keywords
             except Exception as e:
                 json_data['gov_name'] = 'Unknown'
                 json_data['timestamp'] = 'Unknown'
                 json_data['num_pages'] = 1
+                json_data['keywords'] = 'Unknown'
                 print(f"Skipping invalid PDF {pdf_path}: {e}")
                 continue
 
