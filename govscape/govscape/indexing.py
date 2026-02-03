@@ -777,42 +777,14 @@ class ElasticsearchKeywordIndex(AbstractKeywordIndex):
 
 
 class MeilisearchKeywordIndex(AbstractKeywordIndex):
-    # def _create_index_if_missing(self, *, primary_key: str):
-    #     try:
-    #         # If it exists, fetch_info works; if not, it errors.
-    #         self._index.fetch_info()
-    #         return
-    #     except Exception:
-    #         pass
-
-    #     # Create index with primaryKey option. :contentReference[oaicite:8]{index=8}
-    #     task = self._client.create_index("govscape_keyword", {"primaryKey": primary_key})
-    #     self._client.wait_for_task(task.task_uid)
-
-    #     # refresh handle
-    #     self._index = self._client.index("govscape_keyword")
-
     def __init__(self, index_keyword_directory):
         print("Connecting to Meilisearch at http://host.docker.internal:7700/")
         self._client = meilisearch.Client("http://host.docker.internal:7700/", "masterKey")
-        
-        # # delete existing index for fresh start
-        # try:
-        #     print("deleting")
-        #     self._client.index("govscape_keyword").delete()
-        
-        # except Exception:
-        #     pass
-            
-        # self._create_index_if_missing(primary_key="id")
-        print("232")
 
         self._index = self._client.index("govscape_keyword")
-        print("232213")
 
 
     def build_index(self):
-        # self._create_index_if_missing(primary_key="pdf_name")
         pass
 
     def add_batch(self, texts, pdf_names, pages):

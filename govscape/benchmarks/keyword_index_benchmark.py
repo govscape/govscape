@@ -38,6 +38,7 @@ INDEX_REGISTRY: Dict[str, Type[AbstractKeywordIndex]] = {
     "sqlite": SQLiteKeywordIndex,
     "whoosh": WhooshKeywordIndex,
     "lucene": LuceneKeywordIndex,
+    "meilisearch": MeilisearchKeywordIndex,
 }
 
 try:  # pragma: no cover - optional dependency
