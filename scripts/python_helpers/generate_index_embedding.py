@@ -5,25 +5,12 @@ import govscape as gs
 import shutil
 import json
 import numpy as np
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import math
 from govscape.data_loader import build_data_loader
 
 # ****************************************************************************************************
 # to run this file: poetry run python s3_ec2_embedding_pipeline.py 
 # ****************************************************************************************************
-
-def download_embeddings(backend, bucket_name, local_base_dir, embedding_directory, embedding_files):
-    data_loader = build_data_loader(backend, bucket_name, local_base_dir)
-    local_files = []
-    for embedding_file in embedding_files:
-        file_name = embedding_file.split('/')[-1]
-        pdf_name = embedding_file.split('/')[-2]
-        local_path = os.path.join(embedding_directory, pdf_name, file_name)
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        data_loader.download_file(embedding_file, local_path)
-        local_files.append(os.path.join(pdf_name, file_name))
-    return local_files
 
 if __name__ == '__main__':
     # FIELDS TO SET **************************************************************************************
@@ -66,29 +53,6 @@ if __name__ == '__main__':
         args.local_base_dir,
         checkpoint_path=progress_path,
     )
-
-    # gets embedding files from backend
-    def list_embedding_files(num_pages=1):
-        is_finished = False
-        embedding_files = []
-        
-        pages_retrieved = 0
-        while True:
-            result = data_loader.list_objects(in_data_dir)
-            print(f"Retrieved {len(result.keys)} files from backend prefix: {in_data_dir}")
-
-            embedding_keys = [key for key in result.keys if key.endswith('.npy')]
-
-            embedding_files.extend(embedding_keys)
-            pages_retrieved += 1
-            
-            if pages_retrieved >= num_pages:
-                break
-
-            if not result.is_truncated:
-                is_finished = True
-                break
-        return embedding_files, is_finished
 
     # uploads dir of files to backend
     def upload_directory_to_backend(local_dir, remote_dir):
@@ -142,38 +106,33 @@ if __name__ == '__main__':
         # # get list of pdf file names
         # pdf_files = [obj['Key'] for obj in result.get('Contents', []) if obj['Key'].endswith('.pdf')]  # note this only returns 1000
         overall_start_time = time.time()
-        try:
-            data_loader.download_file(os.path.join(out_data_dir, os.path.basename(progress_path)), progress_path)
-        except Exception as e:
-            print(f"No existing progress file found. Starting fresh. {e}")
+        # Progress checkpoint is now managed by DataLoader
             
-        # get the pdf files from s3
-        pages_processed = 0
-        pages_per_batch = math.floor(BATCH_SIZE / 1000)
-        while pages_processed < NUM_PAGES_TO_PROCESS:
+        max_files_to_process = NUM_PAGES_TO_PROCESS * 1000
+        files_processed = 0
+        while files_processed < max_files_to_process:
 
             print('*****************************************************************************************************')
-            print("WE ARE ON BATCH: ", pages_processed * 1000)
+            print("FILES PROCESSED: ", files_processed)
             print('*****************************************************************************************************')
 
-            time_list = time.time()
-            embedding_files, finished = list_embedding_files(pages_per_batch)
-            pipeline_times['list'] += time.time() - time_list
-            successful_downloads = []
             time_download = time.time()
-            n_workers = 96
-            worker_batches = np.array_split(embedding_files, n_workers)  # Split the batch into 32 smaller batches for parallel downloading
-
-            with ProcessPoolExecutor(max_workers=n_workers) as executor:
-                futures = [executor.submit(download_embeddings, args.backend, bucket_name, args.local_base_dir, embedding_directory, worker_batch) for worker_batch in worker_batches]
-                for future in as_completed(futures):
-                    try:
-                        file_names = future.result()
-                        successful_downloads.extend(file_names)
-                    except Exception as e:
-                        print(f"Error downloading {future}: {e}")
+            batch_limit = min(BATCH_SIZE, max_files_to_process - files_processed)
+            local_paths = data_loader.download_files(
+                in_data_dir,
+                embedding_directory,
+                max_keys=batch_limit,
+                filter_fn=lambda key: key.endswith('.npy'),
+            )
             pipeline_times['download'] += time.time() - time_download
 
+            if not local_paths:
+                break
+
+            successful_downloads = [
+                os.path.relpath(path, embedding_directory).replace("\\", "/")
+                for path in local_paths
+            ]
             process_embedding_files(successful_downloads)
             data_loader.save_checkpoint()
 
@@ -182,17 +141,9 @@ if __name__ == '__main__':
                 shutil.rmtree(embedding_directory)
                 os.makedirs(DATA_DIR, exist_ok=True)
             
-            # If we didn't get a full set of embedding files,
-            if finished:
-                break
+            files_processed += len(local_paths)
 
-            pages_processed += pages_per_batch
-
-            # Save continuation token for next run
-            try:
-                data_loader.upload_file(progress_path, os.path.join(out_data_dir, os.path.basename(progress_path)))
-            except Exception as e:
-                print(f"Error saving continuation token: {e}")
+            # Progress checkpoint is now managed by DataLoader
 
         # After all batches are processed, clean up the directories
         if os.path.exists(embedding_directory):

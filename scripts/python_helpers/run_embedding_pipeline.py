@@ -5,42 +5,10 @@ import govscape as gs
 import torch
 import shutil
 import json
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
-from multiprocessing import Pool, cpu_count, get_context
 
 # ****************************************************************************************************
 # to run this file: poetry run python s3_ec2_embedding_pipeline.py 
 # ****************************************************************************************************
-
-def download_pdfs(backend, bucket_name, local_base_dir, pdfs, pdf_directory):
-    data_loader = gs.build_data_loader(backend, bucket_name, local_base_dir)
-    downloaded_files = []
-    pdfs_downloaded = 0
-    for pdf in pdfs:
-        file_name = os.path.basename(pdf)
-        local_path = os.path.join(pdf_directory, file_name)
-        data_loader.download_file(pdf, local_path)
-        downloaded_files.append(local_path)
-        pdfs_downloaded += 1
-    return downloaded_files
-
-# ****************************************************************************************************
-# gets pdfs from s3
-def list_pdfs(data_loader, num_pages, progress_path, pdfs_dir, num_servers, server_id):
-    pdf_files = []
-    pages_retrieved = 0
-    while True:
-        result = data_loader.list_objects(pdfs_dir)
-        pdf_keys = [key for key in result.keys if key.endswith('.pdf')]
-        pdf_keys = [key for key in pdf_keys if (hash(key) % num_servers) == server_id]
-
-        pdf_files.extend(pdf_keys)
-        pages_retrieved += 1
-        
-        if pages_retrieved >= num_pages or not result.is_truncated:
-            break
-
-    return pdf_files
 
 # uploads dir of files to s3
 def upload_directory_to_backend(data_loader, local_dir, remote_dir):
@@ -164,37 +132,41 @@ if __name__ == '__main__':
         
         overall_start_time = time.time()
 
-        # get the pdf files from s3
-        time_list = time.time()
-        pdf_files = list_pdfs(data_loader, NUM_PAGES_TO_PROCESS, progress_path, pdfs_dir, args.num_servers, args.server_id)
-        pipeline_times['list'] = time.time() - time_list
-
-        print("Now starting with total number of PDF files: ", len(pdf_files))
-
-        for i in range(0, len(pdf_files), BATCH_SIZE):
+        max_files_to_process = NUM_PAGES_TO_PROCESS * 1000
+        files_processed = 0
+        while files_processed < max_files_to_process:
             print('*****************************************************************************************************')
-            print("WE ARE ON BATCH: ", i)
+            print("FILES PROCESSED: ", files_processed)
             print('*****************************************************************************************************')
-            batch = pdf_files[i:i + BATCH_SIZE] 
-            local_batch = []
             time_download = time.time()
             os.makedirs(pdf_directory, exist_ok=True)
-            download_batch_size = 100
-            download_batches = [batch[i:i + download_batch_size] for i in range(0, len(batch), download_batch_size)]
-            with get_context("fork").Pool(processes=os.cpu_count()*2) as pool:
-                results = pool.starmap(
-                    download_pdfs,
-                    [(args.backend, bucket_name, args.local_base_dir, pdfs, pdf_directory) for pdfs in download_batches]
-                )
-                for file_names in results:
-                    local_batch.extend(file_names)
+            batch_limit = min(BATCH_SIZE, max_files_to_process - files_processed)
+            local_batch = data_loader.download_files(
+                pdfs_dir,
+                pdf_directory,
+                max_keys=batch_limit,
+                filter_fn=lambda key: key.endswith('.pdf')
+                and (hash(key) % args.num_servers) == args.server_id,
+            )
             pipeline_times['download'] += time.time() - time_download
+            if not local_batch:
+                break
             print("len(local_batch) = ", len(local_batch))
 
-            process_pdfs(local_batch, processor, args.do_text_embedding, args.do_img_embedding, args.do_metadata_collection, pipeline_times,
-                            data_dir_s3, data_loader, local_data_dir)
+            process_pdfs(
+                local_batch,
+                processor,
+                args.do_text_embedding,
+                args.do_img_embedding,
+                args.do_metadata_collection,
+                pipeline_times,
+                data_dir_s3,
+                data_loader,
+                local_data_dir,
+            )
 
             data_loader.save_checkpoint()
+            files_processed += len(local_batch)
 
             if os.path.exists(local_data_dir):
                 if args.do_text_embedding or args.do_img_embedding:

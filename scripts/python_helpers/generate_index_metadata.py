@@ -22,35 +22,6 @@ def extract_subdomain(url):
 
 PROGRESS_PATH = "index_metadata_progress.json"
 BATCH_SIZE = 100000
-# gets metadata files from s3
-def list_metadata_files(data_loader, s3_metadata_prefix, num_pages=1):
-    metadata_files = []
-    pages_retrieved = 0
-    while True:
-        result = data_loader.list_objects(s3_metadata_prefix)
-        metadata_keys = [key for key in result.keys if key.endswith('.json')]
-        metadata_files.extend(metadata_keys)
-        pages_retrieved += 1
-        if result.is_truncated:
-            finished = False
-
-        if pages_retrieved >= num_pages:
-            finished = False
-            break
-
-        if not result.is_truncated:
-            finished = True
-            break
-    return finished, metadata_files
-
-def download_files_from_backend(backend, bucket_name, local_base_dir, s3_keys, local_path):
-    data_loader = build_data_loader(backend, bucket_name, local_base_dir)
-    for s3_key in s3_keys:
-        digest = os.path.dirname(s3_key).split('/')[-1]
-        local_file_path = os.path.join(local_path, digest, "metadata.json")
-        os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
-        data_loader.download_file(s3_key, local_file_path)
-
 def main():    
     parser = argparse.ArgumentParser(description='Process CDX files from S3.')
     parser.add_argument('--bucket_name', required=True, help='S3 bucket name')
@@ -71,10 +42,7 @@ def main():
         args.local_base_dir,
         checkpoint_path=PROGRESS_PATH,
     )
-    try:
-        data_loader.download_file(f'{args.output_prefix}/{PROGRESS_PATH}.json', PROGRESS_PATH)
-    except Exception as e:
-        print(e)
+    # Progress checkpoint is now managed by DataLoader
 
     # Download the CDX parquet file from S3
     print("Reading CDX data")
@@ -93,24 +61,28 @@ def main():
 
     # Create the metadata table
     index.build_index()
-    is_finished, metadata_files = False, []
     files_processed = 0
-    # get the pdf files from s3
-    while not is_finished and files_processed < args.num_pages_to_process*1000:
-        is_finished, metadata_files = list_metadata_files(data_loader, s3_metadata_prefix, int(BATCH_SIZE/1000))
+    max_files_to_process = args.num_pages_to_process * 1000
+    # get the metadata files from backend
+    while files_processed < max_files_to_process:
         local_metadata_path = os.path.join(args.output_dir, 'metadata_files')
         os.makedirs(local_metadata_path, exist_ok=True)
         start_time = time.time()
-        print("Downloading Metadata Files from S3")
-        download_batches = [metadata_files[i:i + 250] for i in range(0, len(metadata_files), 250)]
-        with multiprocessing.Pool(processes=64) as pool:
-            pool.starmap(download_files_from_backend, [(args.backend, bucket_name, args.local_base_dir, download_batch, local_metadata_path) for download_batch in download_batches])
+        print("Downloading Metadata Files from backend")
+        batch_limit = min(BATCH_SIZE, max_files_to_process - files_processed)
+        local_paths = data_loader.download_files(
+            s3_metadata_prefix,
+            local_metadata_path,
+            max_keys=batch_limit,
+            filter_fn=lambda key: key.endswith('.json'),
+        )
+        if not local_paths:
+            break
 
         print("Adding Metadata to Index")
         rows = []
-        for metadata_file in metadata_files:
-            digest = os.path.dirname(metadata_file).split('/')[-1]
-            filepath = os.path.join(local_metadata_path, digest, "metadata.json")
+        for filepath in local_paths:
+            digest = os.path.basename(os.path.dirname(filepath))
             try:
                 with open(filepath, 'r') as f:
                     metadata_json = json.load(f)
@@ -154,9 +126,8 @@ def main():
         data_loader.upload_file(db_path, f'{args.output_prefix}/metadata.db')
 
         data_loader.save_checkpoint()
-        data_loader.upload_file(PROGRESS_PATH, f'{args.output_prefix}/{PROGRESS_PATH}.json')
-        files_processed += len(metadata_files)
-        print("Is Finished:", is_finished, "Files Processed", files_processed, "Total Time:", time.time() - start_time)
+        files_processed += len(local_paths)
+        print("Files Processed", files_processed, "Total Time:", time.time() - start_time)
         try:
             if os.path.exists(local_metadata_path):
                 shutil.rmtree(local_metadata_path)

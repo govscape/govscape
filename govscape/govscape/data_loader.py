@@ -6,7 +6,7 @@ import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import json
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import boto3
 from botocore.config import Config
@@ -24,6 +24,8 @@ class DataLoader(ABC):
     def __init__(self, checkpoint_path: Optional[str] = None) -> None:
         self.checkpoint_path = checkpoint_path
         self._continuation_token: Optional[str] = None
+        self._checkpoint_loaded = False
+        self._checkpoint_prefix: Optional[str] = None
         self._load_checkpoint()
 
     def _load_checkpoint(self) -> None:
@@ -35,8 +37,77 @@ class DataLoader(ABC):
             token = payload.get("continuation_token")
             if token:
                 self._continuation_token = token
+            self._checkpoint_loaded = True
         except Exception:
             return
+
+    def _checkpoint_filename(self) -> Optional[str]:
+        if not self.checkpoint_path:
+            return None
+        return os.path.basename(self.checkpoint_path)
+
+    def _checkpoint_remote_path(self, prefix: str) -> Optional[str]:
+        filename = self._checkpoint_filename()
+        if not filename:
+            return None
+        normalized_prefix = prefix.rstrip("/")
+        if not normalized_prefix:
+            return filename
+        return f"{normalized_prefix}/{filename}"
+
+    def _ensure_checkpoint_loaded(self, prefix: str) -> None:
+        if not self.checkpoint_path or self._checkpoint_loaded:
+            if prefix:
+                self._checkpoint_prefix = prefix
+            return
+        if prefix:
+            self._checkpoint_prefix = prefix
+        self._load_checkpoint()
+        if self._checkpoint_loaded:
+            return
+        self._load_checkpoint_from_remote(prefix)
+        self._checkpoint_loaded = True
+
+    def _load_checkpoint_from_remote(self, prefix: str) -> None:
+        return
+
+    def _save_checkpoint_to_remote(self, prefix: str) -> None:
+        return
+
+    @staticmethod
+    def _build_local_path(prefix: str, remote_path: str, local_dir: str) -> str:
+        rel_path = remote_path
+        if prefix and remote_path.startswith(prefix):
+            rel_path = remote_path[len(prefix) :]
+        rel_path = rel_path.lstrip("/")
+        if not rel_path:
+            rel_path = os.path.basename(remote_path)
+        return os.path.join(local_dir, rel_path)
+
+    def download_files(
+        self,
+        prefix: str,
+        local_dir: str,
+        max_keys: int = 1000,
+        filter_fn: Optional[Callable[[str], bool]] = None,
+    ) -> List[str]:
+        downloaded_paths: List[str] = []
+        remaining = max_keys
+        while remaining > 0:
+            result = self.list_objects(prefix, max_keys=min(1000, remaining))
+            keys = result.keys
+            if filter_fn:
+                keys = [key for key in keys if filter_fn(key)]
+            for key in keys:
+                local_path = self._build_local_path(prefix, key, local_dir)
+                self.download_file(key, local_path)
+                downloaded_paths.append(local_path)
+                remaining = max_keys - len(downloaded_paths)
+                if remaining <= 0:
+                    break
+            if not result.is_truncated:
+                break
+        return downloaded_paths
 
     @abstractmethod
     def list_objects(
@@ -100,8 +171,7 @@ class S3DataLoader(DataLoader):
         prefix: str,
         max_keys: int = 1000,
     ) -> ListResult:
-        if self._continuation_token is None:
-            self._load_checkpoint()
+        self._ensure_checkpoint_loaded(prefix)
         kwargs = {
             "Bucket": self.bucket_name,
             "Prefix": prefix,
@@ -112,6 +182,9 @@ class S3DataLoader(DataLoader):
         result = self.s3.list_objects_v2(**kwargs)
         contents = result.get("Contents", [])
         keys = [obj["Key"] for obj in contents]
+        checkpoint_remote = self._checkpoint_remote_path(prefix)
+        if checkpoint_remote:
+            keys = [key for key in keys if key != checkpoint_remote]
         self._continuation_token = result.get("NextContinuationToken")
         return ListResult(
             keys=keys,
@@ -173,6 +246,30 @@ class S3DataLoader(DataLoader):
             os.makedirs(checkpoint_dir, exist_ok=True)
         with open(self.checkpoint_path, "w") as f:
             json.dump({"continuation_token": self._continuation_token}, f)
+        if self._checkpoint_prefix:
+            self._save_checkpoint_to_remote(self._checkpoint_prefix)
+
+    def _load_checkpoint_from_remote(self, prefix: str) -> None:
+        remote_path = self._checkpoint_remote_path(prefix)
+        if not remote_path or not self.checkpoint_path:
+            return
+        try:
+            checkpoint_dir = os.path.dirname(self.checkpoint_path)
+            if checkpoint_dir:
+                os.makedirs(checkpoint_dir, exist_ok=True)
+            self.s3.download_file(self.bucket_name, remote_path, self.checkpoint_path)
+            self._load_checkpoint()
+        except Exception:
+            return
+
+    def _save_checkpoint_to_remote(self, prefix: str) -> None:
+        remote_path = self._checkpoint_remote_path(prefix)
+        if not remote_path or not self.checkpoint_path:
+            return
+        try:
+            self.s3.upload_file(self.checkpoint_path, self.bucket_name, remote_path)
+        except Exception:
+            return
 
 
 class LocalDataLoader(DataLoader):
@@ -188,8 +285,7 @@ class LocalDataLoader(DataLoader):
         prefix: str,
         max_keys: int = 1000,
     ) -> ListResult:
-        if self._continuation_token is None:
-            self._load_checkpoint()
+        self._ensure_checkpoint_loaded(prefix)
         start_index = int(self._continuation_token) if self._continuation_token else 0
         base_path = self._resolve(prefix)
         keys: List[str] = []
@@ -199,6 +295,9 @@ class LocalDataLoader(DataLoader):
                     abs_path = os.path.join(root, filename)
                     rel_path = os.path.relpath(abs_path, self.base_dir)
                     keys.append(rel_path.replace("\\", "/"))
+        checkpoint_remote = self._checkpoint_remote_path(prefix)
+        if checkpoint_remote:
+            keys = [key for key in keys if key != checkpoint_remote]
         keys.sort()
         slice_keys = keys[start_index : start_index + max_keys]
         next_index = start_index + max_keys
@@ -261,6 +360,35 @@ class LocalDataLoader(DataLoader):
             os.makedirs(checkpoint_dir, exist_ok=True)
         with open(self.checkpoint_path, "w") as f:
             json.dump({"continuation_token": self._continuation_token}, f)
+        if self._checkpoint_prefix:
+            self._save_checkpoint_to_remote(self._checkpoint_prefix)
+
+    def _load_checkpoint_from_remote(self, prefix: str) -> None:
+        remote_path = self._checkpoint_remote_path(prefix)
+        if not remote_path or not self.checkpoint_path:
+            return
+        remote_abs = self._resolve(remote_path)
+        if not os.path.exists(remote_abs):
+            return
+        try:
+            checkpoint_dir = os.path.dirname(self.checkpoint_path)
+            if checkpoint_dir:
+                os.makedirs(checkpoint_dir, exist_ok=True)
+            shutil.copy2(remote_abs, self.checkpoint_path)
+            self._load_checkpoint()
+        except Exception:
+            return
+
+    def _save_checkpoint_to_remote(self, prefix: str) -> None:
+        remote_path = self._checkpoint_remote_path(prefix)
+        if not remote_path or not self.checkpoint_path:
+            return
+        try:
+            remote_abs = self._resolve(remote_path)
+            os.makedirs(os.path.dirname(remote_abs), exist_ok=True)
+            shutil.copy2(self.checkpoint_path, remote_abs)
+        except Exception:
+            return
 
 
 def build_data_loader(
