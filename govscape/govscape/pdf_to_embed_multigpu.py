@@ -15,67 +15,6 @@ logging.basicConfig(
     format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
 )
 
-# global vars
-GPU_BATCH_SIZE = 16
-BATCH_SIZE = 128
-
-class EmbeddingModel(ABC):
-    @abstractmethod
-    def encode_text(self, text):
-        pass
-
-    @abstractmethod
-    def encode_image(self, jpg_path):
-        pass
-
-def get_least_used_cuda():
-        pynvml.nvmlInit()
-        device_count = pynvml.nvmlDeviceGetCount()
-        min_used_mem = float("inf")
-        best_device = "cuda:0"
-        for i in range(device_count):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            if meminfo.used < min_used_mem:
-                min_used_mem = meminfo.used
-                best_device = f"cuda:{i}"
-        pynvml.nvmlShutdown()
-        return best_device
-
-class ST_TextEmbeddingModel(EmbeddingModel):
-    def __init__(self):
-        self.device = get_least_used_cuda() if torch.cuda.is_available() else "cpu"
-        self.model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2') 
-        self.d = self.model.get_sentence_embedding_dimension()
-    
-    def encode_text(self, text, is_query=False):
-        if self.model.device != self.device:
-            self.model.to(self.device)
-        with torch.no_grad():
-            embedding = self.model.encode(text, batch_size=GPU_BATCH_SIZE, device=self.device)
-        return embedding
-    
-    def encode_image(self, jpg_path):
-        raise NotImplementedError("TextEmbeddingModel does not support image encoding.")
-    
-class BGE_TextEmbeddingModel(EmbeddingModel):
-    def __init__(self):
-        self.device = get_least_used_cuda() if torch.cuda.is_available() else "cpu"
-        self.model = SentenceTransformer('BAAI/bge-base-en-v1.5') 
-        self.d = self.model.get_sentence_embedding_dimension()
-    
-    def encode_text(self, text, is_query=False):
-        if self.model.device != self.device:
-            self.model.to(self.device)
-        if is_query:
-            text = "Represent this sentence for searching relevant passages:" + text
-        with torch.no_grad():
-            embedding = self.model.encode(text, batch_size=GPU_BATCH_SIZE, device=self.device)
-        return embedding
-    
-    def encode_image(self, jpg_path):
-        raise NotImplementedError("TextEmbeddingModel does not support image encoding.")
-    
 # for sorting file names with page numbers to ensure consistency when batching between txt and npy files (OS could 
     # order file names differently)
 def natural_key(s):
