@@ -9,7 +9,7 @@ import numpy as np
 GPU_BATCH_SIZE = 16
 BATCH_SIZE = 128
     
-class EmbeddingModel(ABC):
+class TextEmbeddingModel(ABC):
     @abstractmethod
     def encode_text(self, text):
         pass
@@ -18,11 +18,7 @@ class EmbeddingModel(ABC):
     def encode_text_batch(self, texts):
         pass
 
-    @abstractmethod
-    def encode_image(self, jpg_path):
-        pass
-
-class ST_TextEmbeddingModel(EmbeddingModel):
+class ST_TextEmbeddingModel(TextEmbeddingModel):
     def __init__(self):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2') 
@@ -45,7 +41,7 @@ class ST_TextEmbeddingModel(EmbeddingModel):
     def encode_image(self, jpg_path):
         raise NotImplementedError("TextEmbeddingModel does not support image encoding.")
     
-class BGE_TextEmbeddingModel(EmbeddingModel):
+class BGE_TextEmbeddingModel(TextEmbeddingModel):
     def __init__(self):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.model = SentenceTransformer('BAAI/bge-base-en-v1.5') 
@@ -72,7 +68,7 @@ class BGE_TextEmbeddingModel(EmbeddingModel):
     def encode_image(self, jpg_path):
         raise NotImplementedError("TextEmbeddingModel does not support image encoding.")
 
-class BGESmall_TextEmbeddingModel(EmbeddingModel):
+class BGESmall_TextEmbeddingModel(TextEmbeddingModel):
     def __init__(self):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.model = SentenceTransformer('BAAI/bge-small-en-v1.5') 
@@ -99,7 +95,7 @@ class BGESmall_TextEmbeddingModel(EmbeddingModel):
     def encode_image(self, jpg_path):
         raise NotImplementedError("TextEmbeddingModel does not support image encoding.")
 
-class Naive_TextEmbeddingModel(EmbeddingModel):
+class Naive_TextEmbeddingModel(TextEmbeddingModel):
     def __init__(self):
         self.d = 128
     
