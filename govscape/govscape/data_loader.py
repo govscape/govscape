@@ -120,13 +120,7 @@ class DataLoader(ABC):
         if not pairs:
             return []
         if num_workers is None:
-            num_workers = min(32, (os.cpu_count() or 1) * 5)
-        if num_workers <= 1 or len(pairs) == 1:
-            downloaded: List[str] = []
-            for remote_path, local_path in pairs:
-                self.download_file(remote_path, local_path)
-                downloaded.append(local_path)
-            return downloaded
+            num_workers = min(10, (os.cpu_count() or 1) * 5)
 
         max_workers = min(num_workers, len(pairs))
         downloaded: List[str] = []
@@ -190,7 +184,7 @@ class S3DataLoader(DataLoader):
     def __init__(
         self,
         bucket_name: str,
-        config: Optional[Config] = None,
+        config: Optional[Config] = Config(max_pool_connections=60),
         s3_client: Optional[object] = None,
         checkpoint_path: Optional[str] = None,
     ) -> None:
@@ -435,11 +429,14 @@ def build_data_loader(
         if not local_base_dir:
             raise ValueError("local_base_dir is required for local backend")
         return LocalDataLoader(local_base_dir, checkpoint_path=checkpoint_path)
-    if not bucket_name:
-        raise ValueError("bucket_name is required for s3 backend")
-    return S3DataLoader(
-        bucket_name=bucket_name,
-        config=config,
-        s3_client=s3_client,
-        checkpoint_path=checkpoint_path,
-    )
+    elif backend == "s3":
+        if not bucket_name:
+            raise ValueError("bucket_name is required for s3 backend")
+        return S3DataLoader(
+            bucket_name=bucket_name,
+            config=config,
+            s3_client=s3_client,
+            checkpoint_path=checkpoint_path,
+        )
+    else:
+        raise ValueError(f"Unsupported backend: {backend}")

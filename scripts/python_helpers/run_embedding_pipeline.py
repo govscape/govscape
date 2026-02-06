@@ -16,7 +16,7 @@ def upload_directory_to_backend(data_loader, local_dir, remote_dir):
 
 # processing the pdfs: running through embedding pipeline and uploading to s3
 def process_pdfs(pdf_files, processor, do_text_embedding, do_img_embedding, do_metadata_collection, pipeline_times,
-                    data_dir_s3, data_loader, local_data_dir):
+                    data_dir_backend, data_loader, local_data_dir):
     print("Do_Text_embedding: ", do_text_embedding)
     print("Do_Img_embedding: ", do_img_embedding)
     print("Do_Metadata_collection: ", do_metadata_collection)
@@ -40,18 +40,18 @@ def process_pdfs(pdf_files, processor, do_text_embedding, do_img_embedding, do_m
     time1 = time.time()
     # UPLOADING EMBEDDINGS, TXTS, IMAGES TO S3 HERE 
     if do_text_embedding or do_img_embedding:
-        upload_directory_to_backend(data_loader, txt_directory, data_dir_s3)
+        upload_directory_to_backend(data_loader, txt_directory, data_dir_backend)
         print("finished uploading txt")
-        upload_directory_to_backend(data_loader, image_directory, data_dir_s3)
+        upload_directory_to_backend(data_loader, image_directory, data_dir_backend)
         print("finished uploading img")
     if do_text_embedding:
-        upload_directory_to_backend(data_loader, embeddings_directory, data_dir_s3)
+        upload_directory_to_backend(data_loader, embeddings_directory, data_dir_backend)
         print("finished uploading embeddings")
     if do_img_embedding:
-        upload_directory_to_backend(data_loader, embeddings_img_pg_directory, data_dir_s3)
+        upload_directory_to_backend(data_loader, embeddings_img_pg_directory, data_dir_backend)
         print("finished uploading embed img pg")
     if do_metadata_collection:
-        upload_directory_to_backend(data_loader, metadata_dir, data_dir_s3)
+        upload_directory_to_backend(data_loader, metadata_dir, data_dir_backend)
         print("finished uploading metadata")
 
     time2 = time.time()
@@ -80,25 +80,25 @@ if __name__ == '__main__':
         parser = argparse.ArgumentParser(description="S3 EC2 Embedding Pipeline")
         parser.add_argument('--num_pages_to_process', type=int, default=100, help='Number of pages to process from S3')
         parser.add_argument('--batch_size', type=int, default=1000, help='Number of pdfs to process at a time')
-        parser.add_argument('--bucket_name', type=str, help='S3 Bucket Name')
-        parser.add_argument('--pdf_dir', type=str, help='S3 Directory containing PDFs')
-        parser.add_argument('--data_dir', type=str, help='S3 Directory for output data')
-        parser.add_argument('--model_type', type=str, help='The model type to use for embedding', default='ST')
+        parser.add_argument('--text_model_type', type=str, help='The model type to use for text embedding', default='ST')
+        parser.add_argument('--visual_model_type', type=str, help='The model type to use for visual embedding', default='CLIP')
         parser.add_argument('--num_servers', type=int, help='The number of servers to use for embedding', default=1)
         parser.add_argument('--server_id', type=int, help='The ID of the current server', default=0)
         parser.add_argument('--do_text_embedding', type=str2bool, help='Whether to do text embedding', default=True)
         parser.add_argument('--do_img_embedding', type=str2bool, help='Whether to do image embedding', default=True)
         parser.add_argument('--do_metadata_collection', type=str2bool, help='Whether to do metadata collection', default=True)
         parser.add_argument('--backend', choices=['s3', 'local'], default='s3', help='Data backend to use')
+        parser.add_argument('--bucket_name', type=str, help='S3 Bucket Name')
         parser.add_argument('--local_base_dir', type=str, default='data', help='Base directory for local backend')
+        parser.add_argument('--pdf_dir', type=str, help='Directory containing PDFs')
+        parser.add_argument('--data_dir', type=str, help='Directory for output data')
         args = parser.parse_args()
         NUM_PAGES_TO_PROCESS = args.num_pages_to_process
         BATCH_SIZE = args.batch_size
 
-        # s3://bcgl-public-bucket/2008_EOT_PDFs/PDFs/
         bucket_name = args.bucket_name # 'bcgl-public-bucket'
-        pdfs_dir = args.pdf_dir # 'archive/2020/PDFs/'# INPUT DATA DIR IN S3 HERE 
-        data_dir_s3 = args.data_dir # 'prod-serving/' # OUTPUT OVERALL DATA DIR IN S3 HERE 
+        pdfs_dir = args.pdf_dir # 'archive/2020/PDFs/'# INPUT DATA DIR HERE 
+        data_dir_backend = args.data_dir # 'prod-serving/' # OUTPUT OVERALL DATA DIR HERE 
 
         PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
         local_data_dir = os.path.join(PROJECT_ROOT, 'data', 'prod')
@@ -115,20 +115,7 @@ if __name__ == '__main__':
             checkpoint_path=progress_path,
         )
 
-        if args.model_type == "ST":
-            text_model = gs.ST_TextEmbeddingModel()
-        elif args.model_type == "BGE":
-            text_model = gs.BGE_TextEmbeddingModel()
-        else:
-            raise ValueError("Unsupported model type")
-
-        devices = []
-        for i in range(torch.cuda.device_count()):
-            devices.append("cuda:" + str(i))
-            print(f"CUDA Device {i}: {torch.cuda.get_device_name(i)}")
-
-        model_pool = text_model.model.start_multi_process_pool(target_devices=devices)
-        processor = gs.PDFsToEmbeddings(pdf_directory, local_data_dir, text_model, model_pool)
+        processor = gs.PDFsToEmbeddings(pdf_directory, local_data_dir, args.text_model_type, args.visual_model_type)
         
         overall_start_time = time.time()
 
@@ -160,11 +147,12 @@ if __name__ == '__main__':
                 args.do_img_embedding,
                 args.do_metadata_collection,
                 pipeline_times,
-                data_dir_s3,
+                data_dir_backend,
                 data_loader,
                 local_data_dir,
             )
 
+            data_loader.save_checkpoint()
             data_loader.save_checkpoint()
             files_processed += len(local_batch)
 
@@ -191,7 +179,7 @@ if __name__ == '__main__':
                 json.dump(pipeline_times, f, indent=2)
 
             # Upload the performance JSON to S3
-            data_loader.upload_file(perf_path, os.path.join(data_dir_s3, perf_filename))
+            data_loader.upload_file(perf_path, os.path.join(data_dir_backend, perf_filename))
         
         
         # After all batches are processed, clean up the directories
@@ -208,6 +196,5 @@ if __name__ == '__main__':
         print("TOTAL TIME img -> embed time:", pipeline_times['img_embed_time'])
         print("TOTAL TIME metadata time:", pipeline_times['metadata_time'])
         print("TOTAL TIME uploading data:", pipeline_times['upload'])
-        text_model.model.stop_multi_process_pool(model_pool)
 
     main()

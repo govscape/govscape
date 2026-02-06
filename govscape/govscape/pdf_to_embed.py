@@ -15,8 +15,8 @@ import shutil
 import pypdfium2
 
 from .pdf_to_embed_multigpu import compute_text_embeddings
-from .text_embedding_models import BGE_TextEmbeddingModel, BGESmall_TextEmbeddingModel, ST_TextEmbeddingModel, Naive_TextEmbeddingModel
-from .visual_embedding_models import CLIPEmbeddingModel
+from .text_embedding_models import BGE_TextEmbeddingModel, BGESmall_TextEmbeddingModel, Dummy_TextEmbeddingModel, ST_TextEmbeddingModel
+from .visual_embedding_models import CLIP_VisualEmbeddingModel, Dummy_VisualEmbeddingModel
 
 # global vars *******************************************************************************************************
 GPU_BATCH_SIZE = 2
@@ -33,7 +33,7 @@ def natural_key(s):
             for text in re.split(r'(\d+)', s)]
 
 class PDFsToEmbeddings:
-    def __init__(self, pdf_directory, data_dir, model_type):
+    def __init__(self, pdf_directory, data_dir, text_model_type, visual_model_type):
         self.pdfs_path = pdf_directory
         self.txts_path = data_dir + "/txt"
         self.img_path = data_dir + "/img"
@@ -43,16 +43,23 @@ class PDFsToEmbeddings:
         self.embeddings_img_e_path = data_dir + "/embeddings_img_extracted"
         self.index_keyword_directory = data_dir + "/index_keyword"
         self.metadata_dir = data_dir + "/metadata"
-        self.cpu_count = os.cpu_count() // 2
+        self.cpu_count = os.cpu_count()
 
-        if model_type == "ST":
+        if text_model_type == "ST":
             self.text_model = ST_TextEmbeddingModel()
-        elif model_type == "BGE":
+        elif text_model_type == "BGE":
             self.text_model = BGE_TextEmbeddingModel()
-        elif model_type == "BGESmall":
+        elif text_model_type == "BGESmall":
             self.text_model = BGESmall_TextEmbeddingModel()
-        elif model_type == "Naive":
-            self.text_model = Naive_TextEmbeddingModel()
+        elif text_model_type == "Dummy":
+            self.text_model = Dummy_TextEmbeddingModel()
+        else:
+            raise ValueError("Unsupported model type")
+        
+        if visual_model_type == "CLIP":
+            self.visual_model = CLIP_VisualEmbeddingModel()
+        elif visual_model_type == "Dummy":
+            self.visual_model = Dummy_VisualEmbeddingModel()
         else:
             raise ValueError("Unsupported model type")
 
@@ -255,7 +262,7 @@ class PDFsToEmbeddings:
                         embedding_paths.append(os.path.join(self.embeddings_img_path,  img_subdir.name, os.path.splitext(img_file)[0] + '.npy'))
 
             print("Embedding this many images: ", len(img_paths))
-            img_model = CLIPEmbeddingModel()
+            img_model = CLIP_VisualEmbeddingModel()
             emb = img_model.encode_images(img_paths)
 
             print("Embeddings computed. Shape:", emb.shape)

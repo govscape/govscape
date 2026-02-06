@@ -2,7 +2,7 @@
 from abc import ABC, abstractmethod
 import math
 import os
-from tkinter import Image
+from PIL import Image
 import torch
 from transformers import CLIPProcessor, CLIPModel, CLIPImageProcessor, CLIPTokenizer
 import numpy as np
@@ -10,15 +10,58 @@ import multiprocessing as mp
 
 
 class VisualEmbeddingModel(ABC):
+
+    @property
+    @abstractmethod
+    def d(self):
+        pass
+    
     @abstractmethod
     def encode_text(self, text):
+        pass
+
+    @abstractmethod
+    def encode_texts(self, texts):
         pass
 
     @abstractmethod
     def encode_image(self, jpg_path):
         pass
 
-class CLIPEmbeddingModel(VisualEmbeddingModel):
+    @abstractmethod
+    def encode_images(self, jpg_paths):
+        pass
+
+
+class Dummy_VisualEmbeddingModel(VisualEmbeddingModel):
+
+
+    @property
+    def d(self):
+        return 128
+    
+    def __init__(self):
+        pass
+
+    def encode_text(self, text):
+        return np.random.rand(128).astype(np.float32)
+    
+    def encode_texts(self, texts):
+        return np.random.rand(len(texts), 128).astype(np.float32)
+
+    def encode_image(self, jpg_path):
+        return np.random.rand(128).astype(np.float32)
+
+    def encode_images(self, jpg_paths):
+        return np.random.rand(len(jpg_paths), 128).astype(np.float32)
+
+
+class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
+
+    @property
+    def d(self):
+        return 512
+
     def __init__(self):
         image_processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-base-patch32", use_fast=True)  # online
         tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")  # online
@@ -26,7 +69,6 @@ class CLIPEmbeddingModel(VisualEmbeddingModel):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(self.device)  # online
         self.model.eval()
-        self.d = 512
 
     def encode_text(self, text):  #note: not doing encode_texts version of this yet because currently not in use. 
         #tokenize text        image_processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-base-patch32", use_fast=True)  # online
@@ -55,6 +97,10 @@ class CLIPEmbeddingModel(VisualEmbeddingModel):
         final_embedding = torch.mean(torch.stack(embeddings), dim=0).to("cpu").numpy()
 
         return final_embedding
+    
+
+    def encode_texts(self, texts):
+        return [self.encode_text(txt) for txt in texts]
 
     def encode_image(self, jpg_path):
         image = Image.open(jpg_path).convert("RGB")

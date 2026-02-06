@@ -10,6 +10,12 @@ GPU_BATCH_SIZE = 16
 BATCH_SIZE = 128
     
 class TextEmbeddingModel(ABC):
+
+    @property
+    @abstractmethod
+    def d(self):
+        pass
+
     @abstractmethod
     def encode_text(self, text):
         pass
@@ -69,10 +75,14 @@ class BGE_TextEmbeddingModel(TextEmbeddingModel):
         raise NotImplementedError("TextEmbeddingModel does not support image encoding.")
 
 class BGESmall_TextEmbeddingModel(TextEmbeddingModel):
+
+    @property
+    def d(self):
+        return self.model.get_sentence_embedding_dimension()
+    
     def __init__(self):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.model = SentenceTransformer('BAAI/bge-small-en-v1.5') 
-        self.d = self.model.get_sentence_embedding_dimension()
+        self.model = SentenceTransformer('BAAI/bge-small-en-v1.5')
     
     def encode_text(self, text, is_query=False):
         if self.model.device != self.device:
@@ -95,9 +105,14 @@ class BGESmall_TextEmbeddingModel(TextEmbeddingModel):
     def encode_image(self, jpg_path):
         raise NotImplementedError("TextEmbeddingModel does not support image encoding.")
 
-class Naive_TextEmbeddingModel(TextEmbeddingModel):
+class Dummy_TextEmbeddingModel(TextEmbeddingModel):
+
+    @property
+    def d(self):
+        return 128
+    
     def __init__(self):
-        self.d = 128
+        pass
     
     def encode_text(self, texts, is_query=False):
         return np.random.rand(self.d)  # Return a random embedding for testing purposes

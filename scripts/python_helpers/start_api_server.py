@@ -22,11 +22,17 @@ def _build_app_from_args(args):
         text_model = gs.ST_TextEmbeddingModel()
     elif args.text_model == 'BGE':
         text_model = gs.BGE_TextEmbeddingModel()
+    elif args.text_model == 'BGESmall':
+        text_model = gs.BGESmall_TextEmbeddingModel()
+    elif args.text_model == 'Dummy':
+        text_model = gs.Dummy_TextEmbeddingModel()
     else:
         raise ValueError(f"Unsupported text model: {args.text_model}")
         
     if args.visual_model == 'CLIP':
-        visual_model = gs.CLIPEmbeddingModel()
+        visual_model = gs.CLIP_VisualEmbeddingModel()
+    elif args.visual_model == 'Dummy':
+        visual_model = gs.Dummy_VisualEmbeddingModel()
     else:
         raise ValueError(f"Unsupported visual model: {args.visual_model}")
 
