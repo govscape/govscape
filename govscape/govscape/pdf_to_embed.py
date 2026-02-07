@@ -255,7 +255,7 @@ class PDFsToEmbeddings:
             for txt_file in txt_files:
                 txt_path = os.path.join(txt_subdir_path, txt_file)
                 text = read_txt_file(txt_path)
-                output_path = os.path.join(embedding_dir, txt_file)
+                output_path = os.path.join(embedding_dir, txt_file.replace('.txt', '.npy'))
                 text_batch.append(text)
                 file_batch.append(output_path)
         
@@ -265,9 +265,7 @@ class PDFsToEmbeddings:
     @staticmethod
     def convert_embedding_to_files(embeddings, embed_file_paths):
         for embedding, output_path in zip(embeddings, embed_file_paths):
-            file_name = output_path.replace('.txt', '.npy')
-            # print(f"file_name: {file_name} has been saved.")
-            np.save(file_name, embedding)
+            np.save(output_path, embedding)
 
 
     # text_model should have started the process pool already

@@ -229,6 +229,7 @@ class S3DataLoader(DataLoader):
         self.s3.put_object(Bucket=self.bucket_name, Key=remote_path, Body=data)
 
     def upload_directory(self, local_dir: str, remote_prefix: str) -> None:
+        normalized_local_dir = local_dir.rstrip("/") + "/"
         normalized_prefix = remote_prefix.rstrip("/") + "/"
         subprocess.run(
             [
@@ -238,7 +239,7 @@ class S3DataLoader(DataLoader):
                 "--log",
                 "error",
                 "cp",
-                local_dir,
+                normalized_local_dir,
                 f"s3://{self.bucket_name}/{normalized_prefix}",
             ],
             check=True,
