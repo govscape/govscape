@@ -3,7 +3,9 @@ import os
 
 def _get_env(key: str, default: str) -> str:
     value = os.getenv(key)
-    return value if value not in (None, "") else default
+    if value is not None:
+        return value
+    return default
 
 bind = _get_env("GUNICORN_BIND", "127.0.0.1:8080")
 workers = int(_get_env("GUNICORN_WORKERS", "24"))

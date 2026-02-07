@@ -12,7 +12,7 @@ from typing import Callable, List, Optional
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
-
+from botocore.client import BaseClient as S3Client
 
 @dataclass
 class ListResult:
@@ -185,12 +185,12 @@ class S3DataLoader(DataLoader):
         self,
         bucket_name: str,
         config: Optional[Config] = Config(max_pool_connections=60),
-        s3_client: Optional[object] = None,
+        s3_client: Optional[S3Client] = None,
         checkpoint_path: Optional[str] = None,
     ) -> None:
         super().__init__(checkpoint_path=checkpoint_path)
         self.bucket_name = bucket_name
-        self.s3 = s3_client or boto3.client("s3", config=config)
+        self.s3 : S3Client = s3_client or boto3.client("s3", config=config)
 
     def list_objects(
         self,
@@ -424,7 +424,7 @@ def build_data_loader(
     local_base_dir: Optional[str] = None,
     checkpoint_path: Optional[str] = None,
     config: Optional[Config] = None,
-    s3_client: Optional[object] = None,
+    s3_client: Optional[S3Client] = None,
 ) -> DataLoader:
     if backend == "local":
         if not local_base_dir:

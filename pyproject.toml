@@ -19,8 +19,16 @@ scipy = "^1.13"
 npm = "^0.1.1"
 awscli = "^1.42.66"
 botocore = {extras = ["crt"], version = "^1.42.39"}
+mypy = "^1.19.1"
 
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "types-requests (>=2.32.4.20260107,<3.0.0.0)",
+    "pandas-stubs (>=3.0.0.260204,<4.0.0.0)",
+    "types-flask-cors (>=6.0.0.20250809,<7.0.0.0)"
+]

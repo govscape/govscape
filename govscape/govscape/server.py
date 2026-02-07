@@ -9,7 +9,7 @@ import time
 import math
 from .api import init_api
 from .filter import Filter
-from .indexing import DiskANNIndex, FAISSIndex, LanceDBKeywordIndex, SQLiteKeywordIndex, WhooshKeywordIndex, SQLiteMetadataIndex
+from .indexing import AbstractKeywordIndex, DiskANNIndex, FAISSIndex, LanceDBKeywordIndex, SQLiteKeywordIndex, WhooshKeywordIndex, SQLiteMetadataIndex
 
 # basic pipeline developed:
 # 1. accept a query until EOF detected
@@ -44,10 +44,7 @@ class Server:
         self.visual_model = config.visual_model
         self.visual_d = config.visual_d
 
-        if self.vector_index_type == 'Disk':
-            self.text_index = DiskANNIndex(self.embedding_directory, self.index_directory)
-            self.visual_index = DiskANNIndex(self.embedding_directory, self.index_img_pg_directory)
-        elif self.vector_index_type == 'Memory':
+        if self.vector_index_type == 'Memory':
             self.text_index = FAISSIndex(self.index_directory)
             self.visual_index = FAISSIndex(self.index_img_pg_directory)
         else:
@@ -56,7 +53,7 @@ class Server:
         self.visual_index.load_index()
 
         if self.keyword_index_type == 'LanceDB':
-            self.keyword_index = LanceDBKeywordIndex(self.index_keyword_directory)
+            self.keyword_index : AbstractKeywordIndex = LanceDBKeywordIndex(self.index_keyword_directory)
         elif self.keyword_index_type == 'SQLite':
             self.keyword_index = SQLiteKeywordIndex(self.index_keyword_directory)
         elif self.keyword_index_type == 'Whoosh':
@@ -92,7 +89,7 @@ class Server:
             print("Serving index.html")
             return self.app.send_static_file("index.html")
 
-        self.app.server = self
+        self.app.server = self # type: ignore
         self.api = init_api(self.app)
 
     @staticmethod

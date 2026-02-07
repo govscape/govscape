@@ -38,8 +38,7 @@ import sqlite3
 class AbstractVectorIndex(ABC):
 
     @abstractmethod
-    def __init__(self, config : IndexConfig):
-        self.d = config.embedding_dim  # Assuming the embedding dimension is provided in the config
+    def __init__(self):
         pass
 
     @abstractmethod

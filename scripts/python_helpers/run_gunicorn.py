@@ -2,7 +2,7 @@ import os
 import shlex
 import subprocess
 import sys
-from start_api_server import _get_arg_parser
+from .start_api_server import _get_arg_parser
 
 def main():
     if '--' in sys.argv:
