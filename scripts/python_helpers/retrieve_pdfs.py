@@ -6,15 +6,17 @@ import pandas as pd
 import requests
 import shutil
 import multiprocessing
-import boto3
 import time
 import io 
+from govscape.data_loader import build_data_loader
 
 def main():
     parser = argparse.ArgumentParser(description='Retrieve PDFs from S3 & store them.')
     parser.add_argument('--bucket', required=True, help='S3 bucket name')
     parser.add_argument('--cdx_parquet', required=True, help='File containing paths to CDX files in S3')
     parser.add_argument('--output_dir', required=True, help='Directory to save output files')
+    parser.add_argument('--backend', choices=['s3', 'local'], default='s3', help='Data backend to use')
+    parser.add_argument('--local_base_dir', type=str, default='data', help='Base directory for local backend')
     args = parser.parse_args()
 
     df = pd.read_parquet(args.cdx_parquet)
@@ -23,13 +25,13 @@ def main():
     num_processes = multiprocessing.cpu_count() * 4
     batch_size = len(df) // num_processes + 1
     print(df)
-    batches = [(df[i:i + batch_size], idx, output_bucket_name, output_directory_base, num_processes) for idx, i in enumerate(range(0, len(df), batch_size))]
+    batches = [(df[i:i + batch_size], idx, output_bucket_name, output_directory_base, num_processes, args.backend, args.local_base_dir) for idx, i in enumerate(range(0, len(df), batch_size))]
     df = None
     with multiprocessing.get_context('fork').Pool(processes=num_processes) as pool:
         pool.starmap(retrieve_and_store_pdfs, batches)
 
-def retrieve_and_store_pdfs(file_batch, idx, output_bucket_name, output_directory, num_processes):
-    s3 = boto3.client('s3')
+def retrieve_and_store_pdfs(file_batch, idx, output_bucket_name, output_directory, num_processes, backend, local_base_dir):
+    data_loader = build_data_loader(backend, output_bucket_name, local_base_dir)
     valid_pdfs = 0
     invalid_pdfs = 0
     start_time = time.time()
@@ -53,10 +55,9 @@ def retrieve_and_store_pdfs(file_batch, idx, output_bucket_name, output_director
 
         output_digest = digest.replace("sha1:", "")
         try:    
-            s3.head_object(Bucket=output_bucket_name, Key=os.path.join(output_directory, output_digest + '.pdf'))
-            object_exists = True
-        except Exception as e:
-            pass  # Object does not exist, continue to download
+            object_exists = data_loader.exists(os.path.join(output_directory, output_digest + '.pdf'))
+        except Exception:
+            object_exists = False  # Object does not exist, continue to download
 
         if object_exists:
            invalid_pdfs += 1
@@ -75,10 +76,9 @@ def retrieve_and_store_pdfs(file_batch, idx, output_bucket_name, output_director
                     if not is_valid_pdf:
                         invalid_pdfs += 1
                         continue
-                    s3.put_object(
-                        Bucket=output_bucket_name,
-                        Key=os.path.join(output_directory, output_digest + '.pdf'),
-                        Body=record.content_stream().read()
+                    data_loader.upload_bytes(
+                        record.content_stream().read(),
+                        os.path.join(output_directory, output_digest + '.pdf')
                     )
                     valid_pdfs += 1
                         
