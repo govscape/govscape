@@ -180,6 +180,8 @@ class FAISSIndex(AbstractVectorIndex):
             return
         index = pkl.load(open(self.index_directory + '/faiss_index.pkl', 'rb'))
         self.faiss_index = index.faiss_index
+        self.train_batch = index.train_batch
+        self.is_trained = index.is_trained
         self.pdf_names = index.pdf_names
         self.pdf_pages = index.pdf_pages
         self.d = index.faiss_index.d
@@ -342,15 +344,6 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
     def add_batch(self, texts, pdf_names, pages):
         if self.conn is None:
             self.load_index()
-        # perhaps change generate_index_keyword to build index first?
-        self.cursor.execute("""
-            SELECT name 
-            FROM sqlite_master 
-            WHERE type='table' AND name='fts_txt';
-        """)
-        exists = self.cursor.fetchone() is not None
-        if not exists:
-            self.build_index()
         self.cursor.execute("BEGIN TRANSACTION;")
         for text, pdf_name, page in zip(texts, pdf_names, pages):
           self.cursor.execute("INSERT INTO fts_txt (text, pdf_name, page_count) VALUES (?, ?, ?)", [text, pdf_name, page])
@@ -358,6 +351,8 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
 
     def load_index(self):
         os.makedirs(self.index_keyword_directory, exist_ok=True)
+        if not os.path.exists(self.db_path):
+            self.build_index()
         self.conn = sqlite3.connect(self.db_path)
         self.cursor = self.conn.cursor()
         if self._total_entries == -1:
