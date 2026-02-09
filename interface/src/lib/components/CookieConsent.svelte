@@ -1,19 +1,19 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
   import { fade, scale } from 'svelte/transition';
-  
+
   const dispatch = createEventDispatcher();
-  
+
   export let show = false;
-  
+
   let dialog;
   let isOver18 = false;
-  
+
   function handleConsent() {
     dispatch('consent', { accepted: true });
     show = false;
   }
-  
+
   function handleDecline() {
     dispatch('consent', { accepted: false });
     show = false;
@@ -22,7 +22,7 @@
 
 {#if show}
   <div class="modal-backdrop" transition:fade={{ duration: 200 }}>
-    <div 
+    <div
       class="modal-content"
       transition:scale={{ duration: 200, start: 0.95 }}
       on:click|stopPropagation

@@ -48,7 +48,7 @@
       masonry.destroy();
     }
   });
-  
+
   $: onPageChange = (() => {
     if (typeof window === 'undefined') return;
     if (previousPage !== undefined && currentPage !== previousPage && gridElement) {
@@ -71,12 +71,12 @@
     const pdfId = pdf.split('/').pop();
 
     try {
-      userTracker.logPdfClick({ 
-        id: pdfId, 
-        page, 
-        subDomain, 
-        crawlUrl, 
-        crawlDate 
+      userTracker.logPdfClick({
+        id: pdfId,
+        page,
+        subDomain,
+        crawlUrl,
+        crawlDate
       });
     } catch (e) {}
 
@@ -93,7 +93,7 @@
     }
 
     const newUrl = params.toString() ? `/search?${params.toString()}` : '/search';
-    
+
     goto(newUrl, { replaceState: true, noScroll: true });
   }
 
@@ -144,14 +144,14 @@
     </button>
   </div>
   {/if}
-  
+
   <div class="masonry-wrapper" bind:this={gridElement}>
     {#each results as result (result.pdf + result.page)}
     <div class="grid-item">
       <div class="result-card" on:click={() => handlePDFSelect(result.pdf, result.page, result.crawlDate, result.crawlUrl, result.subDomain)}>
         <div class="image-container">
-          <img 
-            src={result.jpeg} 
+          <img
+            src={result.jpeg}
             alt={`PDF Page ${result.page}`}
             loading="lazy"
           />

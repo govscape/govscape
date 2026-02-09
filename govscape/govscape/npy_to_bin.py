@@ -1,6 +1,8 @@
-import numpy as np
 import os
 import struct
+
+import numpy as np
+
 
 class NpyToBin:
     # pass in bin file
@@ -18,7 +20,10 @@ class NpyToBin:
                 file.write(struct.pack("i", 0))
                 file.write(struct.pack("i", 0))
 
-        with open(bin_path, "r+b") as file, open(page_indices_path, "a+b") as index_file:
+        with (
+            open(bin_path, "r+b") as file,
+            open(page_indices_path, "a+b") as index_file,
+        ):
             file.seek(0)
             total_points = struct.unpack("i", file.read(4))[0]
             dimension = struct.unpack("i", file.read(4))[0]
@@ -36,17 +41,24 @@ class NpyToBin:
                     total_points += data_points
 
                     # 114 bytes for pdf name, 4 bytes for page number
-                    index_file.write(page[0:113].encode('utf-8'))
+                    index_file.write(page[0:113].encode("utf-8"))
                     # if img file take out '_img'
                     if page.endswith("_img", len(page) - 8, len(page) - 4):
-                        index_file.write(struct.pack("i", int(page[114:(len(page) - 8)])))
+                        index_file.write(
+                            struct.pack("i", int(page[114 : (len(page) - 8)]))
+                        )
                     else:
-                        index_file.write(struct.pack("i", int(page[114:(len(page) - 4)])))
+                        index_file.write(
+                            struct.pack("i", int(page[114 : (len(page) - 4)]))
+                        )
 
                     if dimension == 0:
                         dimension = data_dimension
                     elif dimension != data_dimension:
-                        raise ValueError("dimension of vector in file does not match dimension of data")
+                        raise ValueError(
+                            "dimension of vector in file does not match "
+                            "dimension of data"
+                        )
             file.seek(0)
             file.write(struct.pack("i", total_points))
             file.write(struct.pack("i", dimension))

@@ -1,10 +1,10 @@
 import shutil
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from govscape.pdf_to_embed import PDFsToEmbeddings
+
 
 @pytest.fixture()
 def sample_pipeline(tmp_path):

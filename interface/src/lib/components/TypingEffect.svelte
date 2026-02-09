@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  
+
   export let words = [];
   export let typingSpeed = 100;
   export let deletingSpeed = 50;

@@ -1,0 +1,47 @@
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+    - id: end-of-file-fixer
+      exclude: |
+        (?x)(
+            ^govscape/tests/test_data/ |
+            ^govscape/tests/test_files/
+        )
+
+    - id: trailing-whitespace
+      exclude: |
+        (?x)(
+            ^govscape/tests/test_data/ |
+            ^govscape/tests/test_files/
+        )
+
+    - id: mixed-line-ending
+      exclude: |
+        (?x)(
+            ^govscape/tests/test_data/ |
+            ^govscape/tests/test_files/
+        )
+
+    - id: name-tests-test
+      args: ["--pytest-test-first"]
+      exclude: |
+        (?x)(
+            ^govscape/tests/test_data/ |
+            ^govscape/tests/test_files/
+        )
+
+    - id: no-commit-to-branch
+
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.14.14
+  hooks:
+    - id: ruff-check
+      args: [--fix, --config=pyproject.toml]
+      files: "\\.pyi?$"
+    - id: ruff-format
+      args: [--config=pyproject.toml]
+      files: "\\.pyi?$"
+
+ci:
+  autofix_prs: false

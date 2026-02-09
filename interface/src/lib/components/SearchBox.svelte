@@ -123,7 +123,7 @@
       </button>
     {/each}
   </div>
-  
+
   <div class="flexbox">
     <div class="suggestions-dropdown-wrapper">
       <form on:submit|preventDefault={handleSearch}>
@@ -139,11 +139,11 @@
             on:blur={handleInputBlur}
             aria-label="Search input"
           />
-          <button 
-            type="button" 
-            on:click={handleFilterToggle} 
-            class="filter-toggle-button" 
-            class:active={$searchStore.showFilters} 
+          <button
+            type="button"
+            on:click={handleFilterToggle}
+            class="filter-toggle-button"
+            class:active={$searchStore.showFilters}
             aria-label="Toggle advanced search filters"
             aria-pressed={$searchStore.showFilters}
           >
