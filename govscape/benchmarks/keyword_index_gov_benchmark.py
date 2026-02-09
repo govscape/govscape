@@ -28,9 +28,7 @@ from govscape.indexing import (
     AbstractKeywordIndex,
     LanceDBKeywordIndex,
     SQLiteKeywordIndex,
-    WhooshKeywordIndex,
-    LuceneKeywordIndex,
-    MeilisearchKeywordIndex
+    WhooshKeywordIndex
 )
 
 # Registry of available keyword index implementations
@@ -49,6 +47,18 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pylint: disable=broad-except
     pass
 
+try:  # pragma: no cover - optional dependency
+    from govscape.indexing import LuceneKeywordIndex  # type: ignore
+
+    INDEX_REGISTRY["lucene"] = LuceneKeywordIndex
+except Exception:  # pylint: disable=broad-except
+    pass
+
+try:  # pragma: no cover - optional dependency
+    from govscape.indexing import MeilisearchKeywordIndex  # type: ignore
+    INDEX_REGISTRY["meilisearch"] = MeilisearchKeywordIndex
+except Exception:  # pylint: disable=broad-except
+    pass
 
 def _resolve_workers(requested: int | None, items: int) -> int:
     """Resolve the number of worker processes to use."""
