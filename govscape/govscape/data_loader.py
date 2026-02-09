@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -23,6 +24,7 @@ class ListResult:
 
 
 class DataLoader(ABC):
+    @abstractmethod
     def __init__(self) -> None:
         pass
 
@@ -214,10 +216,8 @@ class LocalDataLoader(DataLoader):
         shutil.copy2(source_abs, dest_abs)
 
     def delete_object(self, remote_path: str) -> None:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.remove(self._resolve(remote_path))
-        except FileNotFoundError:
-            pass
 
     def exists(self, remote_path: str) -> bool:
         return os.path.exists(self._resolve(remote_path))
@@ -230,8 +230,10 @@ def build_data_loader(
     backend: str,
     bucket_name: str | None = None,
     local_base_dir: str | None = None,
-    config: Config = Config(max_pool_connections=60),
+    config: Config | None = None,
 ) -> DataLoader:
+    if config is None:
+        config = Config(max_pool_connections=60)
     if backend == "local":
         if not local_base_dir:
             raise ValueError("local_base_dir is required for local backend")
@@ -341,12 +343,9 @@ class RemoteDirectoryIterator:
             num_workers = min(10, (os.cpu_count() or 1) * 5)
 
         max_workers = min(num_workers, len(pairs))
-        downloaded: list[str] = []
         remote_paths = [pair[0] for pair in pairs]
         local_paths = [pair[1] for pair in pairs]
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for local_path in executor.map(
-                self.data_loader.download_file, remote_paths, local_paths
-            ):
-                downloaded.append(local_path)
-        return downloaded
+            return list(
+                executor.map(self.data_loader.download_file, remote_paths, local_paths)
+            )

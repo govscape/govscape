@@ -39,19 +39,19 @@ class Dummy_VisualEmbeddingModel(VisualEmbeddingModel):
         return 128
 
     def __init__(self):
-        pass
+        self._rng = np.random.default_rng()
 
     def encode_text(self, text):
-        return np.random.rand(128).astype(np.float32)
+        return self._rng.random(128).astype(np.float32)
 
     def encode_texts(self, texts):
-        return np.random.rand(len(texts), 128).astype(np.float32)
+        return self._rng.random((len(texts), 128)).astype(np.float32)
 
     def encode_image(self, jpg_path):
-        return np.random.rand(128).astype(np.float32)
+        return self._rng.random(128).astype(np.float32)
 
     def encode_images(self, jpg_paths):
-        return np.random.rand(len(jpg_paths), 128).astype(np.float32)
+        return self._rng.random((len(jpg_paths), 128)).astype(np.float32)
 
 
 class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
@@ -78,11 +78,12 @@ class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
     def encode_text(
         self, text
     ):  # note: not doing encode_texts version of this yet because currently not in use.
-        # tokenize text        image_processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-base-patch32", use_fast=True)  # online
+        # tokenize text
         inputs = self.processor(text=text, return_tensors="pt").to(self.device)
         tokenized_text = inputs["input_ids"][0]
 
-        # CLIP token limit = 77 so we have to divide into chunks and get embeddings for each of those
+        # CLIP token limit = 77 so we have to divide into chunks and get
+        # embeddings for each of those
         max_chunk_len = 77
         text_chunks = []
         for i in range(0, len(tokenized_text), max_chunk_len):
@@ -93,9 +94,7 @@ class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
                 text_chunks.append(tokenized_text[i : i + max_chunk_len])
 
         # stack them all into a single batch so we can compute them all at the same time
-        chunk_tensors = []
-        for chunk in text_chunks:
-            chunk_tensors.append(chunk.unsqueeze(0))
+        chunk_tensors = [chunk.unsqueeze(0) for chunk in text_chunks]
         batch_input_ids = torch.cat(chunk_tensors, dim=0)
         batch_attention_mask = torch.ones_like(batch_input_ids)
 
@@ -106,9 +105,7 @@ class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
         embeddings = batch_embeddings.split(1, dim=0)
 
         # decision: average embedding to create one embedding per PDF
-        final_embedding = torch.mean(torch.stack(embeddings), dim=0).to("cpu").numpy()
-
-        return final_embedding
+        return torch.mean(torch.stack(embeddings), dim=0).to("cpu").numpy()
 
     def encode_texts(self, texts):
         return [self.encode_text(txt) for txt in texts]
@@ -128,25 +125,31 @@ class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
 
     # single GPU version using self.model (created in __init__)
     @staticmethod
+    def _safe_load_image(path, processor):
+        try:
+            with Image.open(path) as img:
+                img = img.convert("RGB")
+            return processor(images=img, return_tensors="pt")["pixel_values"]
+        except (OSError, ValueError) as e:
+            print(f"Failed to load/process {path}: {e}")
+            return None
+
+    # single GPU version using self.model (created in __init__)
+    @staticmethod
     def _load_and_process_image(image_paths, processor):
         tensors = []
         for path in image_paths:
-            try:
-                with Image.open(path) as img:
-                    img = img.convert("RGB")
-                pv = processor(images=img, return_tensors="pt")[
-                    "pixel_values"
-                ]  # shape [1,3,H,W]
-                tensors.append(pv)
-            except Exception as e:
-                print(f"Failed to load/process {path}: {e}")
+            pv = CLIP_VisualEmbeddingModel._safe_load_image(path, processor)
+            if pv is not None:
+                tensors.append(pv)  # shape [1,3,H,W]
         if not tensors:
             return None
         return torch.cat(tensors, dim=0)  # shape [N,3,H,W]
 
     def encode_images(self, jpg_paths):
         """
-        Load and preprocess images in parallel (CPU workers) then run batched single-GPU forward passes.
+        Load and preprocess images in parallel (CPU workers) then run batched
+        single-GPU forward passes.
         """
         if not jpg_paths:
             return np.empty((0, self.d), dtype=np.float32)

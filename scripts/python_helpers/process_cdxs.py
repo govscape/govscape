@@ -15,7 +15,9 @@ def extract_date_from_crawl_string(crawl_string):
     Extract the date string (YYYYMMDD format) from a crawl data string.
 
     Args:
-        crawl_string (str): String like "crawl-data/EOT-2020/segments/IA-000/warc/EOT20-20201009165744-crawl812_EOT20-20201009165744-00001.warc.gz"
+        crawl_string (str): String like
+            "crawl-data/EOT-2020/segments/IA-000/warc/"
+            "EOT20-20201009165744-crawl812_EOT20-20201009165744-00001.warc.gz"
 
     Returns:
         str: Date string in YYYYMMDD format (e.g., "20201009") or None if not found
@@ -47,7 +49,7 @@ class CDXProcessor:
             self.output_dir, f"cdx_data_{self.processor_id}_{self.cdx_file_idx}.gz"
         )
         self.data_loader.download_file(cdx_path, self.local_cdx_path)
-        self.file_handle = gzip.open(self.local_cdx_path, "rb")
+        self.file_handle = gzip.open(self.local_cdx_path, "rb")  # noqa: SIM115
         return self.file_handle
 
     def get_next_pdf_entry(self):

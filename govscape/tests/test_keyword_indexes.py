@@ -69,7 +69,9 @@ def test_keyword_indexes_round_trip(tmp_path, index_cls, sample_documents):
     assert reloaded_index.total_entries() == len(texts)
 
     expected_term_hits = [
-        name for text, name in zip(texts, pdf_names) if "resilience" in text.lower()
+        name
+        for text, name in zip(texts, pdf_names, strict=False)
+        if "resilience" in text.lower()
     ]
     scores, found_pdfs, found_pages = reloaded_index.search("resilience", k=5)
 

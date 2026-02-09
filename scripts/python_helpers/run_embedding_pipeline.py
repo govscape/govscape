@@ -8,9 +8,9 @@ from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 
 import govscape as gs
 
-# ****************************************************************************************************
+# ---------------------------------------------------------------------------
 # to run this file: poetry run python s3_ec2_embedding_pipeline.py
-# ****************************************************************************************************
+# ---------------------------------------------------------------------------
 
 
 # uploads dir of files to s3
@@ -103,9 +103,10 @@ def str2bool(v):
 
 
 if __name__ == "__main__":
-    # overall method that gets the files in batches and runs them through the pipeline
+    # overall method that gets the files in batches and runs them through the
+    # pipeline
     def main():
-        # FIELDS TO SET **************************************************************************************
+        # FIELDS TO SET --------------------------------------------------------
         parser = argparse.ArgumentParser(description="S3 EC2 Embedding Pipeline")
         parser.add_argument(
             "--num_pages_to_process",
@@ -177,7 +178,7 @@ if __name__ == "__main__":
         NUM_PAGES_TO_PROCESS = args.num_pages_to_process
         BATCH_SIZE = args.batch_size
 
-        # *********************************************************************************************
+        # ---------------------------------------------------------------------------
         BUCKET_NAME = args.bucket_name
         REMOTE_PDF_DIR = args.pdf_dir  # e.g. "archive/2020/PDFs/"
         REMOTE_DATA_DIR = args.data_dir  # e.g. "prod-serving"
@@ -209,19 +210,28 @@ if __name__ == "__main__":
             LOCAL_DATA_DIR,
             "Checkpoints",
             f"checkpoint_embedding_pipeline_{args.server_id}.json",
-        )  # e.g. "govscape/data/prod/Checkpoints/checkpoint_embedding_pipeline_0.json"
-        REMOTE_CHECKPOINT_PATH = f"{REMOTE_DATA_DIR}/Checkpoints/checkpoint_embedding_pipeline_{args.server_id}.json"  # e.g. "prod-serving/Checkpoints/checkpoint_embedding_pipeline_0.json"
+        )
+        # e.g. "govscape/data/prod/Checkpoints/checkpoint_embedding_pipeline_0.json"
+        REMOTE_CHECKPOINT_PATH = (
+            f"{REMOTE_DATA_DIR}/Checkpoints/"
+            f"checkpoint_embedding_pipeline_{args.server_id}.json"
+        )
+        # e.g. "prod-serving/Checkpoints/checkpoint_embedding_pipeline_0.json"
         LOCAL_PERF_PATH = os.path.join(
             LOCAL_DATA_DIR, "Performance", f"performance_{args.server_id}.json"
-        )  # e.g. "govscape/data/prod/Performance/performance_0.json"
-        REMOTE_PERF_PATH = f"{REMOTE_DATA_DIR}/Performance/performance_{args.server_id}.json"  # e.g. "prod-serving/Performance/performance_0.json"
+        )
+        # e.g. "govscape/data/prod/Performance/performance_0.json"
+        REMOTE_PERF_PATH = (
+            f"{REMOTE_DATA_DIR}/Performance/performance_{args.server_id}.json"
+        )
+        # e.g. "prod-serving/Performance/performance_0.json"
 
         os.makedirs(LOCAL_DATA_DIR, exist_ok=True)
         os.makedirs(LOCAL_PDF_DIR, exist_ok=True)
         os.makedirs(os.path.dirname(LOCAL_CHECKPOINT_PATH), exist_ok=True)
         os.makedirs(os.path.dirname(LOCAL_PERF_PATH), exist_ok=True)
 
-        # ****************************************************************************************************
+        # ---------------------------------------------------------------------------
         pipeline_times = {
             "list": 0,
             "download": 0,
@@ -231,7 +241,8 @@ if __name__ == "__main__":
             "metadata_time": 0,
             "upload": 0,
             "pdfs_processed": 0,
-        }  # to keep track of the time it takes for each step in the pipeline
+        }
+        # to keep track of the time it takes for each step in the pipeline
 
         data_loader = build_data_loader(
             args.backend,
@@ -256,13 +267,9 @@ if __name__ == "__main__":
         max_files_to_process = NUM_PAGES_TO_PROCESS * 1000
         files_processed = 0
         while files_processed < max_files_to_process:
-            print(
-                "*****************************************************************************************************"
-            )
+            print("-" * 93)
             print("FILES PROCESSED: ", files_processed)
-            print(
-                "*****************************************************************************************************"
-            )
+            print("-" * 93)
             time_download = time.time()
             os.makedirs(LOCAL_PDF_DIR, exist_ok=True)
             batch_limit = min(BATCH_SIZE, max_files_to_process - files_processed)
@@ -297,15 +304,14 @@ if __name__ == "__main__":
                         shutil.rmtree(LOCAL_TXT_DIR)
                     if os.path.exists(LOCAL_IMG_DIR):
                         shutil.rmtree(LOCAL_IMG_DIR)
-                if args.do_text_embedding:
-                    if os.path.exists(LOCAL_EMBEDDINGS_DIR):
-                        shutil.rmtree(LOCAL_EMBEDDINGS_DIR)
-                if args.do_img_embedding:
-                    if os.path.exists(LOCAL_EMBEDDINGS_IMG_PG_DIR):
-                        shutil.rmtree(LOCAL_EMBEDDINGS_IMG_PG_DIR)
-                if args.do_metadata_collection:
-                    if os.path.exists(LOCAL_METADATA_DIR):
-                        shutil.rmtree(LOCAL_METADATA_DIR)
+                if args.do_text_embedding and os.path.exists(LOCAL_EMBEDDINGS_DIR):
+                    shutil.rmtree(LOCAL_EMBEDDINGS_DIR)
+                if args.do_img_embedding and os.path.exists(
+                    LOCAL_EMBEDDINGS_IMG_PG_DIR
+                ):
+                    shutil.rmtree(LOCAL_EMBEDDINGS_IMG_PG_DIR)
+                if args.do_metadata_collection and os.path.exists(LOCAL_METADATA_DIR):
+                    shutil.rmtree(LOCAL_METADATA_DIR)
                 os.makedirs(LOCAL_DATA_DIR, exist_ok=True)
 
             if os.path.exists(LOCAL_PDF_DIR):

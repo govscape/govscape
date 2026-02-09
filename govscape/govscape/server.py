@@ -23,7 +23,8 @@ from .indexing import (
 # basic pipeline developed:
 # 1. accept a query until EOF detected
 # 2. run an embedding model on the query
-# 3. return a list of files that are most similar to the query - utilize FAISS to do this
+# 3. return a list of files that are most similar to the query - utilize
+#    FAISS to do this
 class Server:
     # obtain all the setup information from configuration
     def __init__(self, config: ServerConfig):
@@ -106,7 +107,7 @@ class Server:
             print("Serving index.html")
             return self.app.send_static_file("index.html")
 
-        self.app.server = self  # type: ignore
+        self.app.server = self  # type: ignore[attr-defined]
         self.api = init_api(self.app)
 
     @staticmethod
@@ -115,7 +116,7 @@ class Server:
         unique_distances = []
         unique_names = []
         unique_pages = []
-        for distance, name, page in zip(D, names, pages):
+        for distance, name, page in zip(D, names, pages, strict=False):
             if name not in seen:
                 seen.add(name)
                 unique_distances.append(distance)
@@ -153,14 +154,18 @@ class Server:
 
             print(f"Index Search took {time.time() - start} seconds")
             print(
-                f"Search type: {search_type}, current_k: {current_k}, results found: {len(D)}"
+                "Search type: "
+                f"{search_type}, current_k: {current_k}, "
+                f"results found: {len(D)}"
             )
             pdf_metadata = self.metadata_index.search(pdf_names, filters)
             print(
-                f"Search type: {search_type}, current_k: {current_k}, results found after filtering: {len(pdf_metadata)}"
+                "Search type: "
+                f"{search_type}, current_k: {current_k}, results found "
+                f"after filtering: {len(pdf_metadata)}"
             )
             search_results = []
-            for distance, name, page_num in zip(D, pdf_names, pdf_pages):
+            for distance, name, page_num in zip(D, pdf_names, pdf_pages, strict=False):
                 metadata = pdf_metadata.get(name, None)
                 if metadata:
                     metadata = metadata[0]  # TODO: Handle multiple crawl dates
@@ -186,7 +191,9 @@ class Server:
                         }
                     )
             if current_k > min(100000, index.total_entries()):
-                break  # TODO: If we have to expand beyond 100k, we should simply do the filtering first
+                # TODO: If we have to expand beyond 100k, we should simply do
+                # the filtering first.
+                break
 
             if len(search_results) >= results_needed_for_page:
                 break  # If we have enough results for our target page, we can stop.
@@ -218,7 +225,8 @@ class Server:
     def pdf_pages(self, pdf_id):
         """
         Get all page images and metadata for a PDF by pdf_id.
-        Returns dict with 'images', 'crawl_url', 'crawl_date', 'sub_domain' keys or error message.
+        Returns dict with 'images', 'crawl_url', 'crawl_date', 'sub_domain'
+        keys or error message.
         """
         if not pdf_id:
             return {"error": "Missing 'pdf_id' parameter"}, 400

@@ -74,8 +74,7 @@ def _build_app_from_args(args):
     server_config = gs.ServerConfig(
         index_config, text_model, visual_model, k=args.top_k
     )
-    server = gs.Server(server_config)
-    return server
+    return gs.Server(server_config)
 
 
 def create_app():

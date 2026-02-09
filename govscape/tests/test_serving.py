@@ -101,7 +101,6 @@ def server_fixture(tmp_path, monkeypatch):
     (data_dir / "total_pdfs.txt").write_text("0")
 
     monkeypatch.setattr("govscape.server.FAISSIndex", DummyVectorIndex)
-    monkeypatch.setattr("govscape.server.DiskANNIndex", DummyVectorIndex)
     monkeypatch.setattr("govscape.server.LanceDBKeywordIndex", DummyKeywordIndex)
     monkeypatch.setattr("govscape.server.SQLiteKeywordIndex", DummyKeywordIndex)
     monkeypatch.setattr("govscape.server.WhooshKeywordIndex", DummyKeywordIndex)

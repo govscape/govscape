@@ -9,7 +9,6 @@ from govscape.indexing import DiskANNIndex, FAISSIndex
 
 @pytest.fixture(params=["faiss", "diskann"], ids=["faiss", "diskann"])
 def vector_index_case(request, tmp_path, monkeypatch):
-    embedding_dim = 4
     embeddings = np.array(
         [
             [0.1, 0.2, 0.3, 0.4],

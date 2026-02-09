@@ -38,7 +38,9 @@ INDEX_REGISTRY: dict[str, type[AbstractKeywordIndex]] = {
 }
 
 try:  # pragma: no cover - optional dependency
-    from govscape.indexing import ElasticsearchKeywordIndex  # type: ignore
+    from govscape.indexing import (
+        ElasticsearchKeywordIndex,  # type: ignore[import-not-found]
+    )
 
     INDEX_REGISTRY["elasticsearch"] = ElasticsearchKeywordIndex
 except Exception:  # pylint: disable=broad-except
@@ -127,10 +129,7 @@ def _query_chunk(
     limit = min(terms_per_query, len(vocabulary))
     for idx in range(start, end):
         rng = random.Random(seed + idx)
-        if limit == 0:
-            terms = []
-        else:
-            terms = rng.sample(vocabulary, k=limit)
+        terms = [] if limit == 0 else rng.sample(vocabulary, k=limit)
         queries.append(" ".join(terms))
     return queries
 
@@ -281,7 +280,8 @@ def select_indexes(requested: Sequence[str]) -> dict[str, type[AbstractKeywordIn
         lowered = key.lower()
         if lowered not in INDEX_REGISTRY:
             raise ValueError(
-                f"Unknown keyword index implementation '{key}'. Options: {sorted(INDEX_REGISTRY)}"
+                "Unknown keyword index implementation "
+                f"'{key}'. Options: {sorted(INDEX_REGISTRY)}"
             )
         selected[lowered] = INDEX_REGISTRY[lowered]
     return selected
@@ -293,11 +293,12 @@ def format_results(results: Iterable[BenchmarkResult]) -> str:
         f"{'Queries/s':>12} {'Avg Latency (ms)':>18}"
     )
     lines = [header, "-" * len(header)]
-    for res in results:
-        lines.append(
-            f"{res.name:<18} {res.documents:>8} {res.add_seconds:>12.4f} {res.ingest_docs_per_sec:>12.2f} "
-            f"{res.queries_per_sec:>12.2f} {res.avg_query_latency_ms:>18.2f}"
-        )
+    lines.extend(
+        f"{res.name:<18} {res.documents:>8} {res.add_seconds:>12.4f} "
+        f"{res.ingest_docs_per_sec:>12.2f} {res.queries_per_sec:>12.2f} "
+        f"{res.avg_query_latency_ms:>18.2f}"
+        for res in results
+    )
     return "\n".join(lines)
 
 
@@ -349,7 +350,9 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         "--processes",
         type=int,
         default=None,
-        help="Worker processes for generating documents and queries (default: cpu count)",
+        help=(
+            "Worker processes for generating documents and queries (default: cpu count)"
+        ),
     )
     parser.add_argument(
         "--zipf-s",
@@ -358,6 +361,32 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         help="Zipf exponent used when sampling words for documents",
     )
     return parser.parse_args(argv)
+
+
+def try_benchmark(
+    name: str,
+    index_cls: type[AbstractKeywordIndex],
+    texts: Sequence[str],
+    pdf_names: Sequence[str],
+    pages: Sequence[int],
+    queries: Sequence[str],
+    k: int,
+    index_root: Path,
+) -> BenchmarkResult | None:
+    try:
+        return benchmark_index(
+            name=name,
+            index_cls=index_cls,
+            texts=texts,
+            pdf_names=pdf_names,
+            pages=pages,
+            queries=queries,
+            k=k,
+            index_root=index_root,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        print(f"[WARN] Skipping {name} due to error: {exc}", file=sys.stderr)
+        return None
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -390,20 +419,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     selected = select_indexes(args.indexes or [])
     results: list[BenchmarkResult] = []
     for name, index_cls in selected.items():
-        try:
-            result = benchmark_index(
-                name=name,
-                index_cls=index_cls,
-                texts=texts,
-                pdf_names=pdf_names,
-                pages=pages,
-                queries=queries,
-                k=args.k,
-                index_root=index_root,
-            )
+        result = try_benchmark(
+            name=name,
+            index_cls=index_cls,
+            texts=texts,
+            pdf_names=pdf_names,
+            pages=pages,
+            queries=queries,
+            k=args.k,
+            index_root=index_root,
+        )
+        if result is not None:
             results.append(result)
-        except Exception as exc:  # pylint: disable=broad-except
-            print(f"[WARN] Skipping {name} due to error: {exc}", file=sys.stderr)
 
     if not results:
         print("No successful benchmarks were recorded.", file=sys.stderr)

@@ -3,6 +3,7 @@
 import contextlib
 import os
 import pickle as pkl
+import sqlite3
 import sys
 from abc import ABC, abstractmethod
 
@@ -12,7 +13,7 @@ import diskannpy as dap
 import pyarrow as pa
 from lancedb import connect
 from lancedb.query import MatchQuery, PhraseQuery
-from whoosh.fields import *
+from whoosh.fields import ID, NUMERIC, TEXT, Schema
 from whoosh.filedb.filestore import FileStorage
 from whoosh.index import create_in
 from whoosh.qparser import QueryParser
@@ -35,7 +36,6 @@ def suppress_output():
 
 with suppress_output():
     import faiss
-import sqlite3
 
 
 class AbstractVectorIndex(ABC):
@@ -87,18 +87,26 @@ class DiskANNIndex(AbstractVectorIndex):
         if not os.path.exists(self.index_directory):
             os.makedirs(self.index_directory)
         embedding = os.path.join(self.embedding_directory, "embeddings.bin")
-        dap.build_disk_index(  # comments from DiskANN repo
+        # Comments below are adapted from the DiskANN repo.
+        # Can also be cosine, especially if you don't normalize your vectors.
+        # Higher complexity considers more candidate points when ranking.
+        # Higher graph degree increases quality but takes longer to build.
+        # Memory values are in GB.
+        # 0 means use all available threads.
+        # ann is the default prefix; files are generated like f"{index_prefix}_".
+        # Product quantization can improve recall at lower latency; skip for now.
+        dap.build_disk_index(
             data=embedding,
-            distance_metric="l2",  # can also be cosine, especially if you don't normalize your vectors like above
+            distance_metric="l2",
             index_directory=self.index_directory,
-            complexity=128,  # the larger this is, the more candidate points we consider when ranking
-            graph_degree=64,  # the beauty of a vamana index is it's ability to shard and be able to transfer long distances across the grpah without navigating the whole thing. the larger this value is, the higher quality your results, but the longer it will take to build
-            search_memory_maximum=16.0,  # a floating point number to represent how much memory in GB we want to optimize for @ query time
-            build_memory_maximum=100.0,  # a floating point number to represent how much memory in GB we are allocating for the index building process
-            num_threads=0,  # 0 means use all available threads - but if you are in a shared environment you may need to restrict how greedy you are
+            complexity=128,
+            graph_degree=64,
+            search_memory_maximum=16.0,
+            build_memory_maximum=100.0,
+            num_threads=0,
             vector_dtype=np.float32,
-            index_prefix="ann",  # ann is the default anyway. all files generated will have the prefix `ann_`, in the form of `f"{index_prefix}_"`
-            pq_disk_bytes=0,  # using product quantization of your vectors can still achieve excellent recall characteristics at a fraction of the latency, but we'll do it without PQ for now
+            index_prefix="ann",
+            pq_disk_bytes=0,
         )
 
     def save_index(self, filepath):
@@ -123,7 +131,8 @@ class DiskANNIndex(AbstractVectorIndex):
         return distances, internal_indices
 
     def total_entries(self):
-        return 0  # TODO: Implement this method to return the total number of embeddings in the index.
+        # TODO: Implement this method to return the total number of embeddings.
+        return 0
 
 
 class FAISSIndex(AbstractVectorIndex):
@@ -165,7 +174,8 @@ class FAISSIndex(AbstractVectorIndex):
 
         if embeddings.shape[1] != self.d:
             raise ValueError(
-                f"Embedding dimension mismatch: expected {self.d}, got {embeddings.shape[1]}"
+                "Embedding dimension mismatch: "
+                f"expected {self.d}, got {embeddings.shape[1]}"
             )
         self.faiss_index.add(embeddings)
         self.pdf_names.extend(pdf_names)
@@ -176,14 +186,18 @@ class FAISSIndex(AbstractVectorIndex):
 
     def save_index(self):
         os.makedirs(self.index_directory, exist_ok=True)
-        pkl.dump(self, open(self.index_directory + "/faiss_index.pkl", "wb"))
+        index_path = os.path.join(self.index_directory, "faiss_index.pkl")
+        with open(index_path, "wb") as handle:
+            pkl.dump(self, handle)
         print(f"Index saved to {self.index_directory}/faiss_index.pkl")
         return
 
     def load_index(self):
-        if not os.path.exists(self.index_directory + "/faiss_index.pkl"):
+        index_path = os.path.join(self.index_directory, "faiss_index.pkl")
+        if not os.path.exists(index_path):
             return
-        index = pkl.load(open(self.index_directory + "/faiss_index.pkl", "rb"))
+        with open(index_path, "rb") as handle:
+            index = pkl.load(handle)
         self.faiss_index = index.faiss_index
         self.train_batch = index.train_batch
         self.is_trained = index.is_trained
@@ -198,18 +212,18 @@ class FAISSIndex(AbstractVectorIndex):
             query_embedding = query_embedding[np.newaxis, :]
         if query_embedding.ndim != 2:
             raise ValueError("Query embedding must be a 2D array.")
-        D, I = self.faiss_index.search(query_embedding, k)
-        D = D[0]
-        I = I[0]
+        distances, indices = self.faiss_index.search(query_embedding, k)
+        distances = distances[0]
+        indices = indices[0]
         name_results = []
         page_results = []
-        for i in range(I.shape[0]):
+        for i in range(indices.shape[0]):
             # parse file information for page
-            pdf_name = self.pdf_names[I[i]]
-            pdf_page = self.pdf_pages[I[i]]
+            pdf_name = self.pdf_names[indices[i]]
+            pdf_page = self.pdf_pages[indices[i]]
             name_results.append(pdf_name)
             page_results.append(pdf_page)
-        return D, name_results, page_results
+        return distances, name_results, page_results
 
     def total_entries(self):
         return self.faiss_index.ntotal
@@ -285,7 +299,7 @@ class LanceDBKeywordIndex(AbstractKeywordIndex):
             self.build_index()
         rows = [
             {"text": text, "pdf_name": pdf, "page": int(page)}
-            for text, pdf, page in zip(texts, pdf_names, pages)
+            for text, pdf, page in zip(texts, pdf_names, pages, strict=False)
         ]
         if rows:
             self.table.add(rows)
@@ -353,16 +367,22 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
             os.makedirs(self.index_keyword_directory)
         self.conn = sqlite3.connect(self.db_path)
         self.cursor = self.conn.cursor()
-        self.cursor.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS fts_txt USING fts5 (text, pdf_name, page_count);
-        """)
+        self.cursor.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS fts_txt USING fts5 (
+                text,
+                pdf_name,
+                page_count
+            );
+            """
+        )
         self.conn.commit()
 
     def add_batch(self, texts, pdf_names, pages):
         if self.conn is None:
             self.load_index()
         self.cursor.execute("BEGIN TRANSACTION;")
-        for text, pdf_name, page in zip(texts, pdf_names, pages):
+        for text, pdf_name, page in zip(texts, pdf_names, pages, strict=False):
             self.cursor.execute(
                 "INSERT INTO fts_txt (text, pdf_name, page_count) VALUES (?, ?, ?)",
                 [text, pdf_name, page],
@@ -413,22 +433,18 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
         query = self._clean_query(query)
         if not self.cursor:
             self.load_index()
+        search_query = (
+            "SELECT *, rank FROM fts_txt WHERE fts_txt MATCH ? ORDER BY rank LIMIT ?"
+        )
         try:
-            self.cursor.execute(
-                f"SELECT *, rank FROM fts_txt WHERE fts_txt MATCH '{query}' ORDER BY rank LIMIT {k}"
-            )
+            self.cursor.execute(search_query, (query, k))
         except sqlite3.ProgrammingError:
             self.load_index()
-            self.cursor.execute(
-                f"SELECT *, rank FROM fts_txt WHERE fts_txt MATCH '{query}' ORDER BY rank LIMIT {k}"
-            )
+            self.cursor.execute(search_query, (query, k))
         distances = []
         pdf_names = []
         pages = []
-        rows = self.cursor.execute(
-            "SELECT *, rank FROM fts_txt WHERE fts_txt MATCH ? ORDER BY rank LIMIT ?",
-            (query, k),
-        ).fetchall()
+        rows = self.cursor.execute(search_query, (query, k)).fetchall()
         for row in rows:
             pdf_names.append(row[1])
             pages.append(str(row[2]))
@@ -457,10 +473,11 @@ class WhooshKeywordIndex(AbstractKeywordIndex):
     def add_batch(self, texts, pdf_names, pages):
         if self.index is None:
             self.build_index()
-        # Whoosh's multi-process writer is prone to finish_subsegment races when the caller
-        # exits or crashes early, so stick with a single-process writer for stability.
+        # Whoosh's multi-process writer is prone to finish_subsegment races when the
+        # caller exits or crashes early, so stick with a single-process writer for
+        # stability.
         writer = self.index.writer(procs=12, limitmb=512)
-        for text, pdf_name, page in zip(texts, pdf_names, pages):
+        for text, pdf_name, page in zip(texts, pdf_names, pages, strict=False):
             writer.add_document(text=text, pdf_name=pdf_name, page=page)
         writer.commit()
 
@@ -588,7 +605,9 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             for md in metadata_dicts
         ]
         self.cursor.executemany(
-            "INSERT INTO metadata (crawl_url, crawl_date, pdf_name, sub_domain, page_count, s3_url) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO metadata ("
+            "crawl_url, crawl_date, pdf_name, sub_domain, page_count, s3_url"
+            ") VALUES (?, ?, ?, ?, ?, ?)",
             to_insert,
         )
         self.conn.commit()
@@ -616,15 +635,18 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
 
     def search(self, pdf_names, filter=None):
         placeholders = ",".join(f"'{name}'" for name in pdf_names)
-        query = f"SELECT crawl_url, crawl_date, pdf_name, sub_domain, s3_url, page_count FROM metadata WHERE pdf_name IN ({placeholders})"
+        query = (
+            "SELECT crawl_url, crawl_date, pdf_name, sub_domain, s3_url, page_count "
+            f"FROM metadata WHERE pdf_name IN ({placeholders})"
+        )
         if filter:
             for key, value in filter.items():
-                if key == "sub_domain" and value != None:
+                if key == "sub_domain" and value is not None:
                     query += f" AND sub_domain='{value}'"
-                elif key == "crawled_after" and value != None:
+                elif key == "crawled_after" and value is not None:
                     date = value.replace("-", "")
                     query += f" AND crawl_date>='{date}'"
-                elif key == "crawled_before" and value != None:
+                elif key == "crawled_before" and value is not None:
                     date = (
                         value.replace("-", "") + "999999"
                     )  # Pad out time to capture all times on that date
@@ -633,7 +655,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         cursor = conn.cursor()
         cursor.execute(query)
         rows = cursor.fetchall()
-        metadata = dict()
+        metadata = {}
         for row in rows:
             pdf_name = row[2]
             row_dict = {
@@ -647,7 +669,8 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
                 metadata[pdf_name] = [row_dict]
             else:
                 metadata[pdf_name].append(row_dict)
-        # Return as a dict with lists of dicts representing every time the pdf was crawled
+        # Return as a dict with lists of dicts representing every time the pdf was
+        # crawled.
         return metadata
 
     def total_entries(self):

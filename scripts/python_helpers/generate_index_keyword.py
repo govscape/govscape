@@ -8,12 +8,12 @@ from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 
 import govscape as gs
 
-# ****************************************************************************************************
+# ---------------------------------------------------------------------------
 # to run this file: poetry run python s3_ec2_embedding_pipeline.py
-# ****************************************************************************************************
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # FIELDS TO SET **************************************************************************************
+    # FIELDS TO SET --------------------------------------------------------
     parser = argparse.ArgumentParser(description="S3 EC2 Embedding Pipeline")
     parser.add_argument(
         "--num_pages_to_process",
@@ -51,15 +51,13 @@ if __name__ == "__main__":
     BATCH_SIZE = args.batch_size
     INDEX_TYPE = args.keyword_index_type  # 'LanceDB', 'SQLite' or 'Whoosh'
 
-    # ****************************************************************************************************
+    # ---------------------------------------------------------------------------
     BUCKET_NAME = args.bucket_name  # 'bcgl-public-bucket'
     PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
     LOCAL_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "prod")
     REMOTE_TXT_DIR = args.in_data_dir + "/txt"
     LOCAL_TXT_DIR = os.path.join(LOCAL_DATA_DIR, "txt")
-    REMOTE_DATA_DIR = (
-        args.out_data_dir
-    )  # 'prod-serving/' # OUTPUT OVERALL DATA DIR IN S3 HERE
+    REMOTE_DATA_DIR = args.out_data_dir  # 'prod-serving/'
     REMOTE_INDEX_PREFIX = "index_keyword"
     REMOTE_INDEX_DIR = REMOTE_DATA_DIR + "/" + REMOTE_INDEX_PREFIX
     LOCAL_INDEX_DIR = os.path.join(LOCAL_DATA_DIR, REMOTE_INDEX_PREFIX)
@@ -83,7 +81,7 @@ if __name__ == "__main__":
     os.makedirs(os.path.dirname(LOCAL_CHECKPOINT_PATH), exist_ok=True)
     os.makedirs(os.path.dirname(LOCAL_PERFORMANCE_PATH), exist_ok=True)
 
-    # ****************************************************************************************************
+    # ---------------------------------------------------------------------------
     pipeline_times = {
         "list": 0,
         "download": 0,
@@ -116,10 +114,8 @@ if __name__ == "__main__":
     def upload_directory_to_backend(local_dir, remote_dir):
         data_loader.upload_directory(local_dir, remote_dir)
 
-    # processing the pdfs: running through embedding pipeline and uploading to s3
+    # process txts: update index and upload to backend
     def process_txt_files(txt_files):
-        start_time = time.time()
-
         time_index_start = time.time()
         if INDEX_TYPE == "LanceDB":
             index = gs.LanceDBKeywordIndex(LOCAL_INDEX_DIR)
@@ -150,12 +146,6 @@ if __name__ == "__main__":
         index.add_batch(txts, names, pages)
         index.save_index()
 
-        end_time = time.time()
-        duration = end_time - start_time
-        if duration > 0:
-            throughput = len(txt_files) / duration
-        else:
-            throughput = 0
         pipeline_times["keyword_indexing_time"] += time.time() - time_index_start
 
         time1 = time.time()
@@ -167,7 +157,8 @@ if __name__ == "__main__":
         pipeline_times["upload"] += time2 - time1
         pipeline_times["pdfs_processed"] += len(txt_files)
 
-    # overall method that gets the files in batches and runs them through the pipeline
+    # overall method that gets the files in batches and runs them through the
+    # pipeline
     def batched_file_download(BATCH_SIZE):
         try:
             data_loader.download_file(REMOTE_PERFORMANCE_PATH, LOCAL_PERFORMANCE_PATH)
@@ -181,13 +172,9 @@ if __name__ == "__main__":
         files_processed = 0
         max_files_to_process = NUM_PAGES_TO_PROCESS * 1000
         while files_processed < max_files_to_process:
-            print(
-                "*****************************************************************************************************"
-            )
+            print("-" * 93)
             print("FILES PROCESSED: ", files_processed)
-            print(
-                "*****************************************************************************************************"
-            )
+            print("-" * 93)
 
             time_download = time.time()
             batch_limit = min(BATCH_SIZE, max_files_to_process - files_processed)
@@ -210,7 +197,6 @@ if __name__ == "__main__":
             remote_iter.save_checkpoint()
 
             # Write pipeline_times to a JSON file
-            # Write pipeline_times to a JSON file
             with open(LOCAL_PERFORMANCE_PATH, "w") as f:
                 json.dump(pipeline_times, f, indent=2)
 
@@ -220,7 +206,8 @@ if __name__ == "__main__":
             print("pipeline times: ", pipeline_times)
             files_processed += len(local_paths)
 
-            # delete the directories except for the indices which will continue to be updated
+            # delete the directories except for the indices which will continue to be
+            # updated
             if os.path.exists(LOCAL_TXT_DIR):
                 shutil.rmtree(LOCAL_TXT_DIR)
                 os.makedirs(LOCAL_TXT_DIR, exist_ok=True)

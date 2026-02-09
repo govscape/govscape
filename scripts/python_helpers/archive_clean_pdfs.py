@@ -8,30 +8,43 @@ import numpy as np
 
 from govscape.data_loader import build_data_loader
 
-# ****************************************************************************************************
+# ---------------------------------------------------------------------------
 # to run this file: poetry run python s3_ec2_embedding_pipeline.py
-# ****************************************************************************************************
+# ---------------------------------------------------------------------------
+
+
+def _copy_digest(data_loader, dirty_prefix, clean_prefix, digest):
+    try:
+        clean_digest = digest.replace("sha1:", "")
+        clean_file = os.path.join(clean_prefix, clean_digest + ".pdf")
+        dirty_file = os.path.join(dirty_prefix, digest + ".pdf")
+        data_loader.copy_object(dirty_file, clean_file)
+        return True
+    except Exception:
+        return False
 
 
 def copy_to_clean(backend, bucket, local_base_dir, dirty_prefix, clean_prefix, digests):
     data_loader = build_data_loader(backend, bucket, local_base_dir)
     copied_properly = 0
     for digest in digests:
-        try:
-            clean_digest = digest.replace("sha1:", "")
-            clean_file = os.path.join(clean_prefix, clean_digest + ".pdf")
-            dirty_file = os.path.join(dirty_prefix, digest + ".pdf")
-            data_loader.copy_object(dirty_file, clean_file)
+        if _copy_digest(data_loader, dirty_prefix, clean_prefix, digest):
             copied_properly += 1
-        except Exception:
-            pass
 
     print(f"Copied {copied_properly} files to clean directory.")
     return digests
 
 
+def _safe_future_result(future):
+    try:
+        return future.result()
+    except Exception as exc:
+        print(f"Error downloading {future}: {exc}")
+        return []
+
+
 if __name__ == "__main__":
-    # FIELDS TO SET **************************************************************************************
+    # FIELDS TO SET --------------------------------------------------------
     parser = argparse.ArgumentParser(description="S3 EC2 Embedding Pipeline")
     parser.add_argument(
         "--num_pages_to_process",
@@ -78,14 +91,15 @@ if __name__ == "__main__":
         args.dirty_data_prefix
     )  # 'prod-serving/' # OUTPUT OVERALL DATA DIR IN S3 HERE
 
-    # ****************************************************************************************************
+    # ---------------------------------------------------------------------------
     PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
     DATA_DIR = os.path.join(PROJECT_ROOT, "data", "prod")
 
     txt_directory = os.path.join(DATA_DIR, "txt")
     index_keyword_directory = os.path.join(DATA_DIR, "index_keyword")
 
-    progress_path = "clean_copy_progress.json"  # Token to track of which pages have already been processed
+    # Token to track of which pages have already been processed.
+    progress_path = "clean_copy_progress.json"
 
     data_loader = build_data_loader(
         args.backend,
@@ -108,8 +122,8 @@ if __name__ == "__main__":
             ]
             digests.extend(digest_batch)
             pdfs_retrieved += 1
-            #                with open(progress_path, 'w') as f:
-            #                    json.dump({'continuation_token': continuation_token}, f)
+            # with open(progress_path, "w") as f:
+            #     json.dump({"continuation_token": continuation_token}, f)
             print(contents)
             if not result.is_truncated:
                 return digests, False
@@ -122,22 +136,19 @@ if __name__ == "__main__":
     def batched_file_download(BATCH_SIZE):
         # result = s3.list_objects_v2(Bucket=bucket_name, Prefix=pdfs_dir)
         # # get list of pdf file names
-        # pdf_files = [obj['Key'] for obj in result.get('Contents', []) if obj['Key'].endswith('.pdf')]  # note this only returns 1000
+        # pdf_files = [obj["Key"] for obj in result.get("Contents", [])
+        #              if obj["Key"].endswith(".pdf")]  # note this only returns 1000
 
         overall_start_time = time.time()
-        for i in range(1, math.ceil(NUM_PAGES_TO_PROCESS / 1000)):
+        for _i in range(1, math.ceil(NUM_PAGES_TO_PROCESS / 1000)):
             # get the pdf files from s3
             digests, is_finished = list_digests(1000)
             print("Now starting with total number of PDF files: ", len(digests))
 
             for j in range(0, len(digests), BATCH_SIZE):
-                print(
-                    "*****************************************************************************************************"
-                )
+                print("-" * 93)
                 print("WE ARE ON BATCH: ", j)
-                print(
-                    "*****************************************************************************************************"
-                )
+                print("-" * 93)
                 batch = digests[j : j + BATCH_SIZE]
                 num_workers = 512
                 worker_batches = np.array_split(
@@ -158,11 +169,7 @@ if __name__ == "__main__":
                         for worker_batch in worker_batches
                     ]
                     for future in as_completed(futures):
-                        try:
-                            file_name = future.result()
-                            local_batch.extend(file_name)
-                        except Exception as e:
-                            print(f"Error downloading {futures[future]}: {e}")
+                        local_batch.extend(_safe_future_result(future))
             data_loader.save_checkpoint()
             if is_finished:
                 break

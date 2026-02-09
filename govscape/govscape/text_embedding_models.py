@@ -35,19 +35,17 @@ class ST_TextEmbeddingModel(TextEmbeddingModel):
         if self.model.device != self.device:
             self.model.to(self.device)
         with torch.no_grad():
-            embedding = self.model.encode(
+            return self.model.encode(
                 text, batch_size=GPU_BATCH_SIZE, device=self.device
             )
-        return embedding
 
     def encode_text_batch(self, texts, is_query=False):
         if self.model.device != self.device:
             self.model.to(self.device)
         with torch.no_grad():
-            embedding = self.model.encode(
+            return self.model.encode(
                 texts, batch_size=GPU_BATCH_SIZE, device=self.device
             )
-        return embedding
 
     def encode_image(self, jpg_path):
         raise NotImplementedError("TextEmbeddingModel does not support image encoding.")
@@ -65,10 +63,9 @@ class BGE_TextEmbeddingModel(TextEmbeddingModel):
         if is_query:
             text = "Represent this sentence for searching relevant passages:" + text
         with torch.no_grad():
-            embedding = self.model.encode(
+            return self.model.encode(
                 text, batch_size=GPU_BATCH_SIZE, device=self.device
             )
-        return embedding
 
     def encode_text_batch(self, texts, is_query=False):
         if self.model.device != self.device:
@@ -79,10 +76,9 @@ class BGE_TextEmbeddingModel(TextEmbeddingModel):
                 for text in texts
             ]
         with torch.no_grad():
-            embedding = self.model.encode(
+            return self.model.encode(
                 texts, batch_size=GPU_BATCH_SIZE, device=self.device
             )
-        return embedding
 
     def encode_image(self, jpg_path):
         raise NotImplementedError("TextEmbeddingModel does not support image encoding.")
@@ -103,10 +99,9 @@ class BGESmall_TextEmbeddingModel(TextEmbeddingModel):
         if is_query:
             text = "Represent this sentence for searching relevant passages:" + text
         with torch.no_grad():
-            embedding = self.model.encode(
+            return self.model.encode(
                 text, batch_size=GPU_BATCH_SIZE, device=self.device
             )
-        return embedding
 
     def encode_text_batch(self, texts, is_query=False):
         if self.model.device != self.device:
@@ -117,10 +112,9 @@ class BGESmall_TextEmbeddingModel(TextEmbeddingModel):
                 for text in texts
             ]
         with torch.no_grad():
-            embedding = self.model.encode(
+            return self.model.encode(
                 texts, batch_size=GPU_BATCH_SIZE, device=self.device
             )
-        return embedding
 
     def encode_image(self, jpg_path):
         raise NotImplementedError("TextEmbeddingModel does not support image encoding.")
@@ -132,14 +126,16 @@ class Dummy_TextEmbeddingModel(TextEmbeddingModel):
         return 128
 
     def __init__(self):
-        pass
+        self._rng = np.random.default_rng()
 
     def encode_text(self, texts, is_query=False):
-        return np.random.rand(self.d)  # Return a random embedding for testing purposes
+        return self._rng.random(
+            self.d
+        )  # Return a random embedding for testing purposes
 
     def encode_text_batch(self, texts, is_query=False):
-        return np.random.rand(
-            len(texts), self.d
+        return self._rng.random(
+            (len(texts), self.d)
         )  # Return a random embedding for testing purposes
 
     def encode_image(self, jpg_path):

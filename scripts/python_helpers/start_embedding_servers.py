@@ -20,7 +20,8 @@ git pull >> /home/ubuntu/govscape/log.txt && \
 rm /home/ubuntu/govscape/progress.json || true && \
 /home/ubuntu/.local/bin/poetry lock >> /home/ubuntu/govscape/log.txt && \
 /home/ubuntu/.local/bin/poetry install >> /home/ubuntu/govscape/log.txt && \
-/home/ubuntu/.local/bin/poetry run python scripts/python_helpers/s3_embedding_pipeline.py \
+/home/ubuntu/.local/bin/poetry run python \
+    scripts/python_helpers/s3_embedding_pipeline.py \
     --num_pages_to_process {num_pages} \
     --batch_size 100000 \
     --bucket_name 'bcgl-public-bucket' \
@@ -32,7 +33,8 @@ rm /home/ubuntu/govscape/progress.json || true && \
     --do_text_embedding 0 \
     --do_img_embedding 0 \
     --do_metadata_collection 1 >> /home/ubuntu/govscape/log.txt && \
-    echo 'Embedding server {server_id} completed processing.' >> /home/ubuntu/govscape/log.txt && \
+    echo 'Embedding server {server_id} completed processing.' \
+        >> /home/ubuntu/govscape/log.txt && \
     sudo shutdown now -h
 "
 """

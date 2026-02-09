@@ -24,6 +24,8 @@ import numpy as np
 
 from govscape.indexing import AbstractVectorIndex, DiskANNIndex, FAISSIndex
 
+IndexFactory = Callable[[Path], AbstractVectorIndex]
+
 
 class BenchmarkDiskANNIndex(DiskANNIndex):
     """DiskANNIndex variant with a concrete add_batch implementation."""
@@ -174,13 +176,17 @@ def benchmark_index(
 
 
 def format_results(results: Iterable[BenchmarkResult]) -> str:
-    header = f"{'Index':<12} {'Embeddings':>12} {'Dim':>6} {'Ingest (s)':>12} {'Emb/s':>12} {'Queries/s':>12} {'Avg Latency (ms)':>18}"
+    header = (
+        f"{'Index':<12} {'Embeddings':>12} {'Dim':>6} {'Ingest (s)':>12} "
+        f"{'Emb/s':>12} {'Queries/s':>12} {'Avg Latency (ms)':>18}"
+    )
     lines = [header, "-" * len(header)]
-    for res in results:
-        lines.append(
-            f"{res.name:<12} {res.embeddings:>12} {res.dimension:>6} {res.ingest_seconds:>12.4f} "
-            f"{res.ingest_embeddings_per_sec:>12.2f} {res.queries_per_sec:>12.2f} {res.avg_latency_ms:>18.2f}"
-        )
+    lines.extend(
+        f"{res.name:<12} {res.embeddings:>12} {res.dimension:>6} "
+        f"{res.ingest_seconds:>12.4f} {res.ingest_embeddings_per_sec:>12.2f} "
+        f"{res.queries_per_sec:>12.2f} {res.avg_latency_ms:>18.2f}"
+        for res in results
+    )
     return "\n".join(lines)
 
 
@@ -222,6 +228,32 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def try_benchmark(
+    name: str,
+    factory: IndexFactory,
+    embeddings: np.ndarray,
+    pdf_names: Sequence[str],
+    pdf_pages: Sequence[int],
+    queries: np.ndarray,
+    k: int,
+    index_root: Path,
+) -> BenchmarkResult | None:
+    try:
+        return benchmark_index(
+            name,
+            factory,
+            embeddings,
+            pdf_names,
+            pdf_pages,
+            queries,
+            k,
+            index_root,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        print(f"[WARN] Skipping {name} due to error: {exc}", file=sys.stderr)
+        return None
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
     if args.embeddings <= 0:
@@ -249,13 +281,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     k = max(1, min(args.k, args.embeddings))
     results: list[BenchmarkResult] = []
     for name, factory in selected.items():
-        try:
-            result = benchmark_index(
-                name, factory, embeddings, pdf_names, pdf_pages, queries, k, index_root
-            )
+        result = try_benchmark(
+            name,
+            factory,
+            embeddings,
+            pdf_names,
+            pdf_pages,
+            queries,
+            k,
+            index_root,
+        )
+        if result is not None:
             results.append(result)
-        except Exception as exc:  # pylint: disable=broad-except
-            print(f"[WARN] Skipping {name} due to error: {exc}", file=sys.stderr)
 
     if not results:
         print("No vector index benchmarks completed successfully.", file=sys.stderr)

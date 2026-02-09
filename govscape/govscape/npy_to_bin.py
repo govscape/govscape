@@ -56,7 +56,8 @@ class NpyToBin:
                         dimension = data_dimension
                     elif dimension != data_dimension:
                         raise ValueError(
-                            "dimension of vector in file does not match dimension of data"
+                            "dimension of vector in file does not match "
+                            "dimension of data"
                         )
             file.seek(0)
             file.write(struct.pack("i", total_points))

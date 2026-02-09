@@ -1,11 +1,7 @@
-import os
-
-from PIL import Image, ImageFile
-
-ImageFile.LOAD_TRUNCATED_IMAGES = True
 import io
 import json
 import logging
+import os
 import re
 import shutil
 import time
@@ -16,6 +12,7 @@ import numpy as np
 
 import fitz
 import pypdfium2
+from PIL import Image, ImageFile
 from sentence_transformers import LoggingHandler
 
 from .text_embedding_models import (
@@ -30,10 +27,12 @@ from .visual_embedding_models import (
     Dummy_VisualEmbeddingModel,
 )
 
-# global vars *******************************************************************************************************
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+# global vars ---------------------------------------------------------------
 GPU_BATCH_SIZE = 2
 BATCH_SIZE = 64
-# *******************************************************************************************************************
+# ---------------------------------------------------------------------------
 
 logging.basicConfig(
     format="%(asctime)s - %(message)s",
@@ -116,7 +115,8 @@ class PDFsToEmbeddings:
             image = images[page_num]
             image.save(img_file_path, format="JPEG")
 
-    # converts dir of pdfs -> dir of subdirs of txt files of each page AKA OVERALL PDFS -> TXTS
+    # converts dir of pdfs -> dir of subdirs of txt files of each page
+    # AKA OVERALL PDFS -> TXTS
     def convert_pdfs_to_txt_and_img(self, pdf_files):
         self.ensure_dir(self.txts_path)
         ctx = get_context("forkserver")
@@ -129,13 +129,14 @@ class PDFsToEmbeddings:
                 ],
             )
 
-    # *******************************************************************************************************************
-    # 1. this is the dir pdf -> dir img (of entire page) -> dir embed (of entire page) shared with og embed dir
-    # *******************************************************************************************************************
+    # ----------------------------------------
+    # 1. dir pdf -> dir img (entire page) -> dir embed (entire page) shared with og
+    #    embed dir
+    # ----------------------------------------
     @staticmethod
     def _convert_img_embedding_to_files_batch(embed_and_paths):
         embed, embed_file_paths = embed_and_paths
-        for output_path, embedding in zip(embed_file_paths, embed):
+        for output_path, embedding in zip(embed_file_paths, embed, strict=False):
             np.save(output_path, embedding)
 
     def convert_img_embedding_to_files(self, embed, embed_file_paths):
@@ -158,12 +159,13 @@ class PDFsToEmbeddings:
         with ctx.Pool(processes=self.cpu_count) as pool:
             pool.map(
                 self._convert_img_embedding_to_files_batch,
-                zip(chunks, chunk_embed_file_paths),
+                zip(chunks, chunk_embed_file_paths, strict=False),
             )
 
-    # *******************************************************************************************************************
-    # dir pdf --> dir img (extracted) -> dir embed (extracted) shared with og embed dir
-    # *******************************************************************************************************************
+    # ----------------------------------------
+    # dir pdf -> dir img (extracted) -> dir embed (extracted) shared with og
+    # embed dir
+    # ----------------------------------------
 
     # single pdf -> extracted img, extracted img embedding (using og embed dir)
     # multi gpu extract images below
@@ -235,9 +237,9 @@ class PDFsToEmbeddings:
                 ],
             )
 
-    # *******************************************************************************************************************
+    # ----------------------------------------
     # pdf --> dir metadata (json) for each pdf
-    # *******************************************************************************************************************
+    # ----------------------------------------
     def create_metadata_jsons(self, pdf_files):
         os.makedirs(self.metadata_dir, exist_ok=True)
         pdf_file_batches = [pdf_files[i : i + 50] for i in range(0, len(pdf_files), 50)]
@@ -251,12 +253,13 @@ class PDFsToEmbeddings:
     @staticmethod
     def create_metadata_jsons_worker(pdf_files, metadata_dir):
         for pdf_file in pdf_files:
-            json_data = dict()
+            json_data = {}
             pdf_path = os.path.join(pdf_file)
             try:
                 pdf = pypdfium2.PdfDocument(pdf_path)
                 num_pages = len(pdf)
-                # pypdfium2 does not provide metadata directly, so set as Unknown or use another lib if needed
+                # pypdfium2 does not provide metadata directly, so set as Unknown or
+                # use another lib if needed
                 gov_name = pdf.get_metadata_value("Title")
                 timestamp = pdf.get_metadata_value("CreationDate")
                 if len(gov_name) == 0:
@@ -288,10 +291,11 @@ class PDFsToEmbeddings:
         if not os.path.exists(embed_path):
             os.makedirs(embed_path)
 
-        txt_subdirs_paths = []
-        for txt_subdir in os.scandir(txt_path):
-            if txt_subdir.is_dir():
-                txt_subdirs_paths.append(txt_subdir.path)
+        txt_subdirs_paths = [
+            txt_subdir.path
+            for txt_subdir in os.scandir(txt_path)
+            if txt_subdir.is_dir()
+        ]
 
         text_batch = []
         file_batch = []
@@ -316,10 +320,11 @@ class PDFsToEmbeddings:
 
         return text_batch, file_batch
 
-    # given an embedding, output each embedding into their respective embedding file paths
+    # given an embedding, output each embedding into their respective embedding file
+    # paths
     @staticmethod
     def convert_embedding_to_files(embeddings, embed_file_paths):
-        for embedding, output_path in zip(embeddings, embed_file_paths):
+        for embedding, output_path in zip(embeddings, embed_file_paths, strict=False):
             np.save(output_path, embedding)
 
     # text_model should have started the process pool already
@@ -335,9 +340,9 @@ class PDFsToEmbeddings:
         # put them into embedding files
         self.convert_embedding_to_files(embeddings, all_embed_file_paths)
 
-    # *******************************************************************************************************************
+    # ----------------------------------------
     # overall pipeline
-    # *******************************************************************************************************************
+    # ----------------------------------------
 
     def pdfs_to_embeddings(
         self, pdf_files, do_text_embedding, do_img_embedding, do_metadata_collection
@@ -401,9 +406,9 @@ class PDFsToEmbeddings:
 
         return pdf_to_txt_img, text_embed_time, img_embed_time, metadata_time
 
-    # *******************************************************************************************************************
+    # ----------------------------------------
     # helper functions
-    # *******************************************************************************************************************
+    # ----------------------------------------
 
     # makes sure that the directory specified is created
     @staticmethod

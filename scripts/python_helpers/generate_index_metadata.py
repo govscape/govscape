@@ -56,7 +56,7 @@ def main():
     BUCKET_NAME = args.bucket_name
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process
 
-    # *********************************************************************************************
+    # ---------------------------------------------------------------------------
     LOCAL_DATA_DIR = args.output_dir
     REMOTE_METADATA_DIR = args.metadata_prefix
     OUT_DATA_DIR = args.output_prefix
@@ -73,7 +73,7 @@ def main():
     os.makedirs(LOCAL_METADATA_DIR, exist_ok=True)
     os.makedirs(os.path.dirname(LOCAL_CHECKPOINT_PATH), exist_ok=True)
 
-    # *********************************************************************************************
+    # ---------------------------------------------------------------------------
     data_loader = build_data_loader(
         args.backend,
         BUCKET_NAME,
@@ -125,20 +125,9 @@ def main():
         print("Adding Metadata to Index")
         rows = []
         for filepath in local_paths:
-            digest = os.path.basename(os.path.dirname(filepath))
-            try:
-                with open(filepath) as f:
-                    metadata_json = json.load(f)
-                digest_val = os.path.dirname(filepath).split("/")[-1]
-                rows.append(
-                    {
-                        "digest": digest_val,
-                        "num_pages": metadata_json.get("num_pages", None),
-                    }
-                )
-                os.remove(filepath)  # Clean up the file after reading
-            except Exception as e:
-                print(f"Error reading {filepath}: {e}")
+            row = _read_metadata_row(filepath)
+            if row is not None:
+                rows.append(row)
 
         digest_to_pagecount = pd.DataFrame(rows, columns=["digest", "num_pages"])
         metadata_df = digest_to_pagecount.merge(cdx_df, on="digest")
@@ -188,6 +177,21 @@ def main():
 
     print("Uploading Index")
     data_loader.upload_file(LOCAL_INDEX_PATH, REMOTE_INDEX_PATH)
+
+
+def _read_metadata_row(filepath):
+    try:
+        with open(filepath) as f:
+            metadata_json = json.load(f)
+        digest_val = os.path.dirname(filepath).split("/")[-1]
+        os.remove(filepath)  # Clean up the file after reading
+        return {
+            "digest": digest_val,
+            "num_pages": metadata_json.get("num_pages", None),
+        }
+    except Exception as exc:
+        print(f"Error reading {filepath}: {exc}")
+        return None
 
 
 main()

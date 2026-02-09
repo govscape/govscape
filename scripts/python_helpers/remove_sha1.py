@@ -8,9 +8,27 @@ import numpy as np
 
 from govscape.data_loader import build_data_loader
 
-# ****************************************************************************************************
+# ---------------------------------------------------------------------------
 # to run this file: poetry run python s3_ec2_embedding_pipeline.py
-# ****************************************************************************************************
+# ---------------------------------------------------------------------------
+
+
+def _copy_and_delete(data_loader, sha1_key):
+    clean_key = sha1_key.replace("sha1:", "")
+    if clean_key == sha1_key:
+        return False, False
+    try:
+        data_loader.copy_object(sha1_key, clean_key)
+        copied = True
+    except Exception:
+        return False, False
+    try:
+        data_loader.delete_object(sha1_key)
+        deleted = True
+    except Exception as exc:
+        print(f"Error deleting {sha1_key}: {exc}")
+        deleted = False
+    return copied, deleted
 
 
 def remove_sha1(backend, bucket, local_base_dir, sha1_keys):
@@ -18,30 +36,27 @@ def remove_sha1(backend, bucket, local_base_dir, sha1_keys):
     copied_properly = 0
     deleted_properly = 0
     for sha1_key in sha1_keys:
-        clean_key = sha1_key.replace("sha1:", "")
-        if clean_key == sha1_key:
-            continue
-        correctly_copied = False
-        try:
-            data_loader.copy_object(sha1_key, clean_key)
+        copied, deleted = _copy_and_delete(data_loader, sha1_key)
+        if copied:
             copied_properly += 1
-            correctly_copied = True
-        except Exception:
-            pass
-        if correctly_copied:
-            try:
-                data_loader.delete_object(sha1_key)
-                deleted_properly += 1
-            except Exception as e:
-                print(f"Error deleting {sha1_key}: {e}")
+        if deleted:
+            deleted_properly += 1
 
     print(f"Copied {copied_properly} files to clean key.")
     print(f"Deleted {deleted_properly} files from directory.")
     return sha1_keys
 
 
+def _safe_future_result(future):
+    try:
+        return future.result()
+    except Exception as exc:
+        print(f"Error downloading {future}: {exc}")
+        return []
+
+
 if __name__ == "__main__":
-    # FIELDS TO SET **************************************************************************************
+    # FIELDS TO SET --------------------------------------------------------
     parser = argparse.ArgumentParser(description="S3 EC2 Embedding Pipeline")
     parser.add_argument(
         "--num_pages_to_process",
@@ -76,14 +91,15 @@ if __name__ == "__main__":
     bucket_name = args.bucket_name  # 'bcgl-public-bucket'
     data_prefix = args.data_prefix  # 'prod-serving/'# INPUT DATA DIR IN S3 HERE
 
-    # ****************************************************************************************************
+    # ---------------------------------------------------------------------------
     PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
     DATA_DIR = os.path.join(PROJECT_ROOT, "data", "prod")
 
     txt_directory = os.path.join(DATA_DIR, "txt")
     index_keyword_directory = os.path.join(DATA_DIR, "index_keyword")
 
-    progress_path = "sha1_clean_progress.json"  # Token to track of which pages have already been processed
+    # Token to track of which pages have already been processed.
+    progress_path = "sha1_clean_progress.json"
 
     data_loader = build_data_loader(
         args.backend,
@@ -111,24 +127,17 @@ if __name__ == "__main__":
 
     # overall method that gets the files in batches and runs them through the pipeline
     def batched_file_download(BATCH_SIZE):
-        # result = s3.list_objects_v2(Bucket=bucket_name, Prefix=pdfs_dir)
-        # # get list of pdf file names
-        # pdf_files = [obj['Key'] for obj in result.get('Contents', []) if obj['Key'].endswith('.pdf')]  # note this only returns 1000
         batch_size = 100
         overall_start_time = time.time()
-        for i in range(math.ceil(NUM_PAGES_TO_PROCESS / batch_size)):
+        for _i in range(math.ceil(NUM_PAGES_TO_PROCESS / batch_size)):
             # get the pdf files from s3
             digests, is_finished = list_digests(batch_size)
             print("Now starting with total number of PDF files: ", len(digests))
 
             for j in range(0, len(digests), BATCH_SIZE):
-                print(
-                    "*****************************************************************************************************"
-                )
+                print("-" * 93)
                 print("WE ARE ON BATCH: ", j)
-                print(
-                    "*****************************************************************************************************"
-                )
+                print("-" * 93)
                 batch = digests[j : j + BATCH_SIZE]
                 num_workers = 64
                 worker_batches = np.array_split(
@@ -147,11 +156,7 @@ if __name__ == "__main__":
                         for worker_batch in worker_batches
                     ]
                     for future in as_completed(futures):
-                        try:
-                            file_name = future.result()
-                            local_batch.extend(file_name)
-                        except Exception as e:
-                            print(f"Error downloading {future}: {e}")
+                        local_batch.extend(_safe_future_result(future))
                 data_loader.save_checkpoint()
             if is_finished:
                 break

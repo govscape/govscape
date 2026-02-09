@@ -67,7 +67,6 @@ def retrieve_and_store_pdfs(
     start_time = time.time()
     for i in range(1, len(file_batch)):
         filename = file_batch.iloc[i]["filename"]
-        url = file_batch.iloc[i]["url"]
         digest = file_batch.iloc[i]["digest"]
         length = int(file_batch.iloc[i]["length"])
         offset = int(file_batch.iloc[i]["offset"])
@@ -79,13 +78,15 @@ def retrieve_and_store_pdfs(
             print(f"Heartbeat: {idx}")
             if idx == 0:
                 print(
-                    f"Processed {valid_pdfs} PDFs in {time.time() - start_time:.4f} seconds"
+                    "Processed "
+                    f"{valid_pdfs} PDFs in {time.time() - start_time:.4f} seconds"
                 )
                 pdf_per_second = (valid_pdfs + invalid_pdfs) / (
                     time.time() - start_time
                 )
                 print(
-                    f"Time Remaining: {(len(file_batch) - i) / pdf_per_second:.4f} seconds"
+                    "Time Remaining: "
+                    f"{(len(file_batch) - i) / pdf_per_second:.4f} seconds"
                 )
                 print(f"Time per PDF: {1 / pdf_per_second:.4f} seconds")
 
