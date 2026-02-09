@@ -17,10 +17,10 @@ import shutil
 import statistics
 import sys
 import time
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence, Tuple, Type
 
 from govscape.indexing import (
     AbstractKeywordIndex,
@@ -31,7 +31,7 @@ from govscape.indexing import (
 
 # Optional imports live behind try/except so the benchmark still runs even if a
 # dependency is unavailable in the active environment.
-INDEX_REGISTRY: Dict[str, Type[AbstractKeywordIndex]] = {
+INDEX_REGISTRY: dict[str, type[AbstractKeywordIndex]] = {
     "lancedb": LanceDBKeywordIndex,
     "sqlite": SQLiteKeywordIndex,
     "whoosh": WhooshKeywordIndex,
@@ -47,11 +47,11 @@ except Exception:  # pylint: disable=broad-except
 ALPHABET = "abcdefghijklmnopqrstuvwxyz"
 
 
-def generate_vocabulary(size: int, seed: int) -> List[str]:
+def generate_vocabulary(size: int, seed: int) -> list[str]:
     if size <= 0:
         raise ValueError("Vocabulary size must be positive")
     rng = random.Random(seed)
-    vocab: List[str] = []
+    vocab: list[str] = []
     for idx in range(size):
         length = rng.randint(4, 12)
         token = "".join(rng.choices(ALPHABET, k=length))
@@ -66,7 +66,7 @@ def _resolve_workers(requested: int | None, items: int) -> int:
     return max(1, requested)
 
 
-def _chunk_ranges(total: int, chunks: int) -> Iterable[Tuple[int, int]]:
+def _chunk_ranges(total: int, chunks: int) -> Iterable[tuple[int, int]]:
     if total == 0:
         return []
     chunk_size = max(1, total // (chunks * 4 or 1))
@@ -80,7 +80,7 @@ def _chunk_ranges(total: int, chunks: int) -> Iterable[Tuple[int, int]]:
     return ranges
 
 
-def generate_zipf_weights(size: int, exponent: float) -> List[float]:
+def generate_zipf_weights(size: int, exponent: float) -> list[float]:
     if size <= 0:
         raise ValueError("Vocabulary size must be positive for Zipf weights")
     if exponent <= 0:
@@ -97,14 +97,14 @@ def _doc_chunk(
     seed: int,
     vocabulary: Sequence[str],
     weights: Sequence[float],
-) -> Tuple[List[str], List[str], List[int]]:
+) -> tuple[list[str], list[str], list[int]]:
     if not vocabulary:
         raise ValueError("Vocabulary must contain at least one token")
     if not weights:
         raise ValueError("Zipf weights are required for document generation")
-    texts: List[str] = []
-    names: List[str] = []
-    pages: List[int] = []
+    texts: list[str] = []
+    names: list[str] = []
+    pages: list[int] = []
     for idx in range(start, end):
         rng = random.Random(seed + idx)
         words = rng.choices(vocabulary, weights=weights, k=words_per_doc)
@@ -120,10 +120,10 @@ def _query_chunk(
     terms_per_query: int,
     seed: int,
     vocabulary: Sequence[str],
-) -> List[str]:
+) -> list[str]:
     if not vocabulary:
         raise ValueError("Vocabulary must contain at least one token")
-    queries: List[str] = []
+    queries: list[str] = []
     limit = min(terms_per_query, len(vocabulary))
     for idx in range(start, end):
         rng = random.Random(seed + idx)
@@ -146,7 +146,7 @@ class BenchmarkResult:
     queries_per_sec: float
     avg_query_latency_ms: float
 
-    def as_row(self) -> Tuple[str, int, float, float, float, float]:
+    def as_row(self) -> tuple[str, int, float, float, float, float]:
         return (
             self.name,
             self.documents,
@@ -164,7 +164,7 @@ def generate_documents(
     vocabulary: Sequence[str],
     weights: Sequence[float],
     processes: int | None = None,
-) -> Tuple[List[str], List[str], List[int]]:
+) -> tuple[list[str], list[str], list[int]]:
     workers = _resolve_workers(processes, num_docs)
     ranges = list(_chunk_ranges(num_docs, workers))
     if workers == 1 or len(ranges) == 1:
@@ -181,9 +181,9 @@ def generate_documents(
                     for start, end in ranges
                 ],
             )
-    texts: List[str] = []
-    names: List[str] = []
-    pages: List[int] = []
+    texts: list[str] = []
+    names: list[str] = []
+    pages: list[int] = []
     for chunk_texts, chunk_names, chunk_pages in chunks:
         texts.extend(chunk_texts)
         names.extend(chunk_names)
@@ -197,7 +197,7 @@ def generate_queries(
     seed: int,
     vocabulary: Sequence[str],
     processes: int | None = None,
-) -> List[str]:
+) -> list[str]:
     workers = _resolve_workers(processes, num_queries)
     ranges = list(_chunk_ranges(num_queries, workers))
     if workers == 1 or len(ranges) == 1:
@@ -214,7 +214,7 @@ def generate_queries(
                     for start, end in ranges
                 ],
             )
-    queries: List[str] = []
+    queries: list[str] = []
     for chunk in chunks:
         queries.extend(chunk)
     return queries
@@ -222,7 +222,7 @@ def generate_queries(
 
 def benchmark_index(
     name: str,
-    index_cls: Type[AbstractKeywordIndex],
+    index_cls: type[AbstractKeywordIndex],
     texts: Sequence[str],
     pdf_names: Sequence[str],
     pages: Sequence[int],
@@ -242,19 +242,23 @@ def benchmark_index(
     index.add_batch(texts, pdf_names, pages)
     index.save_index()
     ingest_duration = time.perf_counter() - start_ingest
-    ingest_docs_per_sec = len(texts) / ingest_duration if ingest_duration else float("inf")
+    ingest_docs_per_sec = (
+        len(texts) / ingest_duration if ingest_duration else float("inf")
+    )
 
     # Re-load the index to simulate real usage.
     index = index_cls(index_dir.as_posix())
     index.load_index()
 
-    query_latencies: List[float] = []
+    query_latencies: list[float] = []
     for query in queries:
         q_start = time.perf_counter()
         index.search(query, k)
         query_latencies.append(time.perf_counter() - q_start)
     total_query_time = sum(query_latencies)
-    queries_per_sec = len(queries) / total_query_time if total_query_time else float("inf")
+    queries_per_sec = (
+        len(queries) / total_query_time if total_query_time else float("inf")
+    )
     avg_latency_ms = statistics.mean(query_latencies) * 1000 if query_latencies else 0.0
 
     return BenchmarkResult(
@@ -269,14 +273,16 @@ def benchmark_index(
     )
 
 
-def select_indexes(requested: Sequence[str]) -> Dict[str, Type[AbstractKeywordIndex]]:
+def select_indexes(requested: Sequence[str]) -> dict[str, type[AbstractKeywordIndex]]:
     if not requested:
         return INDEX_REGISTRY
-    selected: Dict[str, Type[AbstractKeywordIndex]] = {}
+    selected: dict[str, type[AbstractKeywordIndex]] = {}
     for key in requested:
         lowered = key.lower()
         if lowered not in INDEX_REGISTRY:
-            raise ValueError(f"Unknown keyword index implementation '{key}'. Options: {sorted(INDEX_REGISTRY)}")
+            raise ValueError(
+                f"Unknown keyword index implementation '{key}'. Options: {sorted(INDEX_REGISTRY)}"
+            )
         selected[lowered] = INDEX_REGISTRY[lowered]
     return selected
 
@@ -296,12 +302,28 @@ def format_results(results: Iterable[BenchmarkResult]) -> str:
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Benchmark keyword index implementations")
-    parser.add_argument("--documents", type=int, default=1000, help="Number of synthetic documents to generate")
-    parser.add_argument("--words-per-document", type=int, default=100, help="Words per synthetic document")
-    parser.add_argument("--queries", type=int, default=200, help="Number of random queries to execute")
+    parser = argparse.ArgumentParser(
+        description="Benchmark keyword index implementations"
+    )
+    parser.add_argument(
+        "--documents",
+        type=int,
+        default=1000,
+        help="Number of synthetic documents to generate",
+    )
+    parser.add_argument(
+        "--words-per-document",
+        type=int,
+        default=100,
+        help="Words per synthetic document",
+    )
+    parser.add_argument(
+        "--queries", type=int, default=200, help="Number of random queries to execute"
+    )
     parser.add_argument("--query-terms", type=int, default=3, help="Terms per query")
-    parser.add_argument("--k", type=int, default=5, help="Number of results to request per query")
+    parser.add_argument(
+        "--k", type=int, default=5, help="Number of results to request per query"
+    )
     parser.add_argument(
         "--index-root",
         type=Path,
@@ -320,7 +342,9 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         default=512,
         help="Size of the synthetic vocabulary used for docs/queries",
     )
-    parser.add_argument("--seed", type=int, default=13, help="PRNG seed for reproducibility")
+    parser.add_argument(
+        "--seed", type=int, default=13, help="PRNG seed for reproducibility"
+    )
     parser.add_argument(
         "--processes",
         type=int,
@@ -364,7 +388,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     selected = select_indexes(args.indexes or [])
-    results: List[BenchmarkResult] = []
+    results: list[BenchmarkResult] = []
     for name, index_cls in selected.items():
         try:
             result = benchmark_index(

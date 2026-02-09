@@ -5,31 +5,30 @@ repos:
     - id: end-of-file-fixer
       exclude: |
         (?x)(
-            ^tests/reference/|
-            ^src/finchlite/codegen/stc/
+            ^govscape/tests/test_data/ |
+            ^govscape/tests/test_files/
         )
 
     - id: trailing-whitespace
       exclude: |
         (?x)(
-            ^tests/reference/|
-            ^src/finchlite/codegen/stc/
+            ^govscape/tests/test_data/ |
+            ^govscape/tests/test_files/
         )
 
     - id: mixed-line-ending
       exclude: |
         (?x)(
-            ^tests/reference/|
-            ^src/finchlite/codegen/stc/
+            ^govscape/tests/test_data/ |
+            ^govscape/tests/test_files/
         )
 
     - id: name-tests-test
       args: ["--pytest-test-first"]
       exclude: |
         (?x)(
-            ^tests/reference/|
-            ^tests/scripts/|
-            ^src/finchlite/codegen/stc/
+            ^govscape/tests/test_data/ |
+            ^govscape/tests/test_files/
         )
 
     - id: no-commit-to-branch

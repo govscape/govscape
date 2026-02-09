@@ -1,24 +1,25 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
 from abc import ABC, abstractmethod
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-import json
-from typing import Callable, List, Optional
 
 import boto3
+from botocore.client import BaseClient as S3Client
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from botocore.client import BaseClient as S3Client
+
 
 @dataclass
 class ListResult:
-    keys: List[str]
+    keys: list[str]
     is_truncated: bool
-    continuation_token: Optional[str]
+    continuation_token: str | None
 
 
 class DataLoader(ABC):
@@ -30,7 +31,7 @@ class DataLoader(ABC):
         self,
         prefix: str,
         max_keys: int = 1000,
-        continuation_token: Optional[str] = None,
+        continuation_token: str | None = None,
     ) -> ListResult:
         raise NotImplementedError
 
@@ -66,21 +67,22 @@ class DataLoader(ABC):
     def to_uri(self, remote_path: str) -> str:
         raise NotImplementedError
 
+
 class S3DataLoader(DataLoader):
     def __init__(
         self,
         bucket_name: str,
         config: Config,
-        s3_client: Optional[S3Client] = None,
+        s3_client: S3Client | None = None,
     ) -> None:
         self.bucket_name = bucket_name
-        self.s3 : S3Client = s3_client or boto3.client("s3", config=config)
+        self.s3: S3Client = s3_client or boto3.client("s3", config=config)
 
     def list_objects(
         self,
         prefix: str,
         max_keys: int = 1000,
-        continuation_token: Optional[str] = None,
+        continuation_token: str | None = None,
     ) -> ListResult:
         kwargs = {
             "Bucket": self.bucket_name,
@@ -159,11 +161,11 @@ class LocalDataLoader(DataLoader):
         self,
         prefix: str,
         max_keys: int = 1000,
-        continuation_token: Optional[str] = None,
+        continuation_token: str | None = None,
     ) -> ListResult:
         start_index = int(continuation_token) if continuation_token else 0
         base_path = self._resolve(prefix)
-        keys: List[str] = []
+        keys: list[str] = []
         if os.path.exists(base_path):
             for root, _, files in os.walk(base_path):
                 for filename in files:
@@ -223,36 +225,37 @@ class LocalDataLoader(DataLoader):
     def to_uri(self, remote_path: str) -> str:
         return f"file://{self._resolve(remote_path)}"
 
+
 def build_data_loader(
     backend: str,
-    bucket_name: Optional[str] = None,
-    local_base_dir: Optional[str] = None,
+    bucket_name: str | None = None,
+    local_base_dir: str | None = None,
     config: Config = Config(max_pool_connections=60),
 ) -> DataLoader:
     if backend == "local":
         if not local_base_dir:
             raise ValueError("local_base_dir is required for local backend")
         return LocalDataLoader(base_dir=local_base_dir)
-    elif backend == "s3":
+    if backend == "s3":
         if not bucket_name:
             raise ValueError("bucket_name is required for s3 backend")
         return S3DataLoader(
             bucket_name=bucket_name,
             config=config,
         )
-    else:
-        raise ValueError(f"Unsupported backend: {backend}")
-
+    raise ValueError(f"Unsupported backend: {backend}")
 
 
 class RemoteDirectoryIterator:
-    def __init__(self, 
-                 data_loader: DataLoader, 
-                 prefix: str, 
-                 remote_checkpoint_path: str, 
-                 local_checkpoint_path: str,
-                 local_dir: str = None,
-                 batch_size: int = 1000) -> None:
+    def __init__(
+        self,
+        data_loader: DataLoader,
+        prefix: str,
+        remote_checkpoint_path: str,
+        local_checkpoint_path: str,
+        local_dir: str = None,
+        batch_size: int = 1000,
+    ) -> None:
         self.data_loader = data_loader
         self.prefix = prefix
         self.remote_checkpoint_path = remote_checkpoint_path
@@ -260,13 +263,15 @@ class RemoteDirectoryIterator:
         self.local_checkpoint_path = local_checkpoint_path
         self.batch_size = batch_size
         self.finished: bool = False
-        self._continuation_token: Optional[str] = None
+        self._continuation_token: str | None = None
         self._load_checkpoint_from_remote()
 
     def _load_checkpoint_from_remote(self) -> None:
         if self.data_loader.exists(self.remote_checkpoint_path):
-            self.data_loader.download_file(self.remote_checkpoint_path, self.local_checkpoint_path)
-            with open(self.local_checkpoint_path, "r") as f:
+            self.data_loader.download_file(
+                self.remote_checkpoint_path, self.local_checkpoint_path
+            )
+            with open(self.local_checkpoint_path) as f:
                 checkpoint_data = json.load(f)
                 self._continuation_token = checkpoint_data.get("continuation_token")
         else:
@@ -277,7 +282,9 @@ class RemoteDirectoryIterator:
         os.makedirs(checkpoint_dir, exist_ok=True)
         with open(self.local_checkpoint_path, "w") as f:
             json.dump({"continuation_token": self._continuation_token}, f)
-        self.data_loader.upload_file(self.local_checkpoint_path, self.remote_checkpoint_path)
+        self.data_loader.upload_file(
+            self.local_checkpoint_path, self.remote_checkpoint_path
+        )
 
     @staticmethod
     def _build_local_path(prefix: str, remote_path: str, local_dir: str) -> str:
@@ -292,21 +299,28 @@ class RemoteDirectoryIterator:
     def download_batch(
         self,
         max_keys: int = 1000,
-        filter_fn: Optional[Callable[[str], bool]] = None,
-        num_workers: Optional[int] = None,
-    ) -> List[str]:
+        filter_fn: Callable[[str], bool] | None = None,
+        num_workers: int | None = None,
+    ) -> list[str]:
         if self.finished:
             return []
-        downloaded_paths: List[str] = []
+        downloaded_paths: list[str] = []
         remaining = max_keys
         while remaining > 0:
-            result = self.data_loader.list_objects(self.prefix, max_keys=min(1000, remaining), continuation_token=self._continuation_token)
+            result = self.data_loader.list_objects(
+                self.prefix,
+                max_keys=min(1000, remaining),
+                continuation_token=self._continuation_token,
+            )
             self._continuation_token = result.continuation_token
             keys = result.keys
             if filter_fn:
                 keys = [key for key in keys if filter_fn(key)]
             if keys:
-                pairs = [(key, self._build_local_path(self.prefix, key, self.local_dir)) for key in keys]
+                pairs = [
+                    (key, self._build_local_path(self.prefix, key, self.local_dir))
+                    for key in keys
+                ]
                 downloaded_paths.extend(
                     self._download_files_parallel(pairs, num_workers=num_workers)
                 )
@@ -320,18 +334,19 @@ class RemoteDirectoryIterator:
 
     def _download_files_parallel(
         self,
-        pairs: List[tuple[str, str]],
-        num_workers: Optional[int] = None,
-    ) -> List[str]:
+        pairs: list[tuple[str, str]],
+        num_workers: int | None = None,
+    ) -> list[str]:
         if num_workers is None:
             num_workers = min(10, (os.cpu_count() or 1) * 5)
 
         max_workers = min(num_workers, len(pairs))
-        downloaded: List[str] = []
+        downloaded: list[str] = []
         remote_paths = [pair[0] for pair in pairs]
         local_paths = [pair[1] for pair in pairs]
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for local_path in executor.map(self.data_loader.download_file, remote_paths, local_paths):
+            for local_path in executor.map(
+                self.data_loader.download_file, remote_paths, local_paths
+            ):
                 downloaded.append(local_path)
         return downloaded
-        

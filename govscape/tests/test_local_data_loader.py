@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 from govscape.data_loader import LocalDataLoader, RemoteDirectoryIterator
@@ -22,11 +21,13 @@ def test_local_data_loader_continuation_token(tmp_path: Path) -> None:
         _touch(base_dir / prefix / f"file_{i}.txt")
 
     loader = LocalDataLoader(base_dir=str(base_dir))
-    remote_iter = RemoteDirectoryIterator(loader, 
-                                            prefix, 
-                                            str(checkpoint_path), 
-                                            str(local_checkpoint_path),
-                                            local_dir=str(download_dir))
+    remote_iter = RemoteDirectoryIterator(
+        loader,
+        prefix,
+        str(checkpoint_path),
+        str(local_checkpoint_path),
+        local_dir=str(download_dir),
+    )
 
     # First page
     result1 = remote_iter.download_batch(max_keys=2)
@@ -39,17 +40,16 @@ def test_local_data_loader_continuation_token(tmp_path: Path) -> None:
     remote_iter.save_checkpoint()
 
     # New iter should resume from checkpoint
-    remote_iter2 = RemoteDirectoryIterator(loader, 
-                                            prefix, 
-                                            str(checkpoint_path), 
-                                            str(local_checkpoint_path),
-                                            local_dir=str(download_dir))
+    remote_iter2 = RemoteDirectoryIterator(
+        loader,
+        prefix,
+        str(checkpoint_path),
+        str(local_checkpoint_path),
+        local_dir=str(download_dir),
+    )
     result3 = remote_iter2.download_batch(max_keys=2)
     assert len(result3) == 1
 
     # No more files to download
     result4 = remote_iter2.download_batch(max_keys=2)
     assert len(result4) == 0
-
-
-    

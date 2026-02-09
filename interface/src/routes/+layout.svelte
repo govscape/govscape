@@ -38,7 +38,7 @@
       GovScape is a project by the University of Washington & Boston University (learn more at our FAQ <a href="/faq">here</a>)
     </div>
   </footer>
-  <CookieConsent 
+  <CookieConsent
     show={showCookieConsent}
     on:consent={handleCookieConsent}
   />

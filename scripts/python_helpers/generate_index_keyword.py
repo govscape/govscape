@@ -1,47 +1,79 @@
-import os
 import argparse
-import time
-import govscape as gs
-import shutil
 import json
+import os
+import shutil
+import time
+
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 
+import govscape as gs
+
 # ****************************************************************************************************
-# to run this file: poetry run python s3_ec2_embedding_pipeline.py 
+# to run this file: poetry run python s3_ec2_embedding_pipeline.py
 # ****************************************************************************************************
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # FIELDS TO SET **************************************************************************************
     parser = argparse.ArgumentParser(description="S3 EC2 Embedding Pipeline")
-    parser.add_argument('--num_pages_to_process', type=int, default=100, help='Number of pages to process from S3')
-    parser.add_argument('--batch_size', type=int, default=100000, help='Number of pages to process at a time')
-    parser.add_argument('--bucket_name', type=str, help='S3 Bucket Name')
-    parser.add_argument('--in_data_dir', type=str, help='S3 Directory for input data')
-    parser.add_argument('--out_data_dir', type=str, help='S3 Directory for output data')
-    parser.add_argument('--keyword_index_type', type=str, default='LanceDB', help='Type of keyword index to use: LanceDB, SQLite or Whoosh')
-    parser.add_argument('--backend', choices=['s3', 'local'], default='s3', help='Data backend to use')
-    parser.add_argument('--local_base_dir', type=str, default='data', help='Base directory for local backend')
+    parser.add_argument(
+        "--num_pages_to_process",
+        type=int,
+        default=100,
+        help="Number of pages to process from S3",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=100000,
+        help="Number of pages to process at a time",
+    )
+    parser.add_argument("--bucket_name", type=str, help="S3 Bucket Name")
+    parser.add_argument("--in_data_dir", type=str, help="S3 Directory for input data")
+    parser.add_argument("--out_data_dir", type=str, help="S3 Directory for output data")
+    parser.add_argument(
+        "--keyword_index_type",
+        type=str,
+        default="LanceDB",
+        help="Type of keyword index to use: LanceDB, SQLite or Whoosh",
+    )
+    parser.add_argument(
+        "--backend", choices=["s3", "local"], default="s3", help="Data backend to use"
+    )
+    parser.add_argument(
+        "--local_base_dir",
+        type=str,
+        default="data",
+        help="Base directory for local backend",
+    )
     args = parser.parse_args()
 
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process
     BATCH_SIZE = args.batch_size
-    INDEX_TYPE = args.keyword_index_type # 'LanceDB', 'SQLite' or 'Whoosh'
+    INDEX_TYPE = args.keyword_index_type  # 'LanceDB', 'SQLite' or 'Whoosh'
 
     # ****************************************************************************************************
-    BUCKET_NAME = args.bucket_name # 'bcgl-public-bucket'
-    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
-    LOCAL_DATA_DIR = os.path.join(PROJECT_ROOT, 'data', 'prod')
+    BUCKET_NAME = args.bucket_name  # 'bcgl-public-bucket'
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+    LOCAL_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "prod")
     REMOTE_TXT_DIR = args.in_data_dir + "/txt"
-    LOCAL_TXT_DIR = os.path.join(LOCAL_DATA_DIR, 'txt')
-    REMOTE_DATA_DIR = args.out_data_dir # 'prod-serving/' # OUTPUT OVERALL DATA DIR IN S3 HERE
+    LOCAL_TXT_DIR = os.path.join(LOCAL_DATA_DIR, "txt")
+    REMOTE_DATA_DIR = (
+        args.out_data_dir
+    )  # 'prod-serving/' # OUTPUT OVERALL DATA DIR IN S3 HERE
     REMOTE_INDEX_PREFIX = "index_keyword"
     REMOTE_INDEX_DIR = REMOTE_DATA_DIR + "/" + REMOTE_INDEX_PREFIX
     LOCAL_INDEX_DIR = os.path.join(LOCAL_DATA_DIR, REMOTE_INDEX_PREFIX)
-    REMOTE_CHECKPOINT_PATH = REMOTE_DATA_DIR + '/Checkpoints/checkpoint_text_index.json'
-    LOCAL_CHECKPOINT_PATH = os.path.join(LOCAL_DATA_DIR, 'Checkpoints', 'checkpoint_text_index.json')
-    REMOTE_PERFORMANCE_PATH = REMOTE_DATA_DIR + '/Performance/performance_keyword_index.json'
-    LOCAL_PERFORMANCE_PATH = os.path.join(LOCAL_DATA_DIR, 'Performance', 'performance_keyword_index.json')
-    
+    REMOTE_CHECKPOINT_PATH = REMOTE_DATA_DIR + "/Checkpoints/checkpoint_text_index.json"
+    LOCAL_CHECKPOINT_PATH = os.path.join(
+        LOCAL_DATA_DIR, "Checkpoints", "checkpoint_text_index.json"
+    )
+    REMOTE_PERFORMANCE_PATH = (
+        REMOTE_DATA_DIR + "/Performance/performance_keyword_index.json"
+    )
+    LOCAL_PERFORMANCE_PATH = os.path.join(
+        LOCAL_DATA_DIR, "Performance", "performance_keyword_index.json"
+    )
+
     if os.path.isdir(LOCAL_DATA_DIR):
         shutil.rmtree(LOCAL_DATA_DIR, ignore_errors=True)
 
@@ -51,8 +83,14 @@ if __name__ == '__main__':
     os.makedirs(os.path.dirname(LOCAL_CHECKPOINT_PATH), exist_ok=True)
     os.makedirs(os.path.dirname(LOCAL_PERFORMANCE_PATH), exist_ok=True)
 
-    # **************************************************************************************************** 
-    pipeline_times = {'list' : 0, 'download' : 0, 'keyword_indexing_time' : 0, 'upload' : 0, 'pdfs_processed' : 0}
+    # ****************************************************************************************************
+    pipeline_times = {
+        "list": 0,
+        "download": 0,
+        "keyword_indexing_time": 0,
+        "upload": 0,
+        "pdfs_processed": 0,
+    }
 
     data_loader = build_data_loader(
         args.backend,
@@ -70,7 +108,9 @@ if __name__ == '__main__':
 
     remote_existing_idx_files = data_loader.list_objects(REMOTE_INDEX_DIR)
     for remote_file in remote_existing_idx_files.keys:
-        data_loader.download_file(remote_file, os.path.join(LOCAL_INDEX_DIR, os.path.basename(remote_file)))
+        data_loader.download_file(
+            remote_file, os.path.join(LOCAL_INDEX_DIR, os.path.basename(remote_file))
+        )
 
     # uploads dir of files to backend
     def upload_directory_to_backend(local_dir, remote_dir):
@@ -88,8 +128,10 @@ if __name__ == '__main__':
         elif INDEX_TYPE == "Whoosh":
             index = gs.WhooshKeywordIndex(LOCAL_INDEX_DIR)
         else:
-            raise ValueError("index_type must be either 'LanceDB', 'SQLite', or 'Whoosh'")
-        
+            raise ValueError(
+                "index_type must be either 'LanceDB', 'SQLite', or 'Whoosh'"
+            )
+
         index.load_index()
         names = []
         pages = []
@@ -100,8 +142,8 @@ if __name__ == '__main__':
                 print(f"File {txt_file_path} does not exist. Skipping.")
                 continue
             names.append(os.path.basename(os.path.dirname(txt_file_path)))
-            pages.append(txt_file_path.replace(".txt", "").rpartition('_')[2])
-            txt = None 
+            pages.append(txt_file_path.replace(".txt", "").rpartition("_")[2])
+            txt = None
             with open(txt_file_path) as f:
                 txt = f.read()
             txts.append(txt)
@@ -114,25 +156,22 @@ if __name__ == '__main__':
             throughput = len(txt_files) / duration
         else:
             throughput = 0
-        pipeline_times['keyword_indexing_time'] += time.time() - time_index_start 
-        
+        pipeline_times["keyword_indexing_time"] += time.time() - time_index_start
+
         time1 = time.time()
-        # UPLOADING Indexes TO S3 HERE 
+        # UPLOADING Indexes TO S3 HERE
         data_loader.upload_directory(LOCAL_INDEX_DIR, REMOTE_INDEX_DIR)
         print("finished uploading keyword index")
         time2 = time.time()
 
-        pipeline_times['upload'] += time2-time1
-        pipeline_times['pdfs_processed'] += len(txt_files)
-        
-
-
+        pipeline_times["upload"] += time2 - time1
+        pipeline_times["pdfs_processed"] += len(txt_files)
 
     # overall method that gets the files in batches and runs them through the pipeline
     def batched_file_download(BATCH_SIZE):
         try:
             data_loader.download_file(REMOTE_PERFORMANCE_PATH, LOCAL_PERFORMANCE_PATH)
-            with open(LOCAL_PERFORMANCE_PATH, "r") as f:
+            with open(LOCAL_PERFORMANCE_PATH) as f:
                 existing_pipeline_times = json.load(f)
                 for key in pipeline_times:
                     pipeline_times[key] = existing_pipeline_times.get(key, 0)
@@ -142,18 +181,21 @@ if __name__ == '__main__':
         files_processed = 0
         max_files_to_process = NUM_PAGES_TO_PROCESS * 1000
         while files_processed < max_files_to_process:
-
-            print('*****************************************************************************************************')
+            print(
+                "*****************************************************************************************************"
+            )
             print("FILES PROCESSED: ", files_processed)
-            print('*****************************************************************************************************')
+            print(
+                "*****************************************************************************************************"
+            )
 
             time_download = time.time()
             batch_limit = min(BATCH_SIZE, max_files_to_process - files_processed)
             local_paths = remote_iter.download_batch(
                 max_keys=batch_limit,
-                filter_fn=lambda key: key.endswith('.txt'),
+                filter_fn=lambda key: key.endswith(".txt"),
             )
-            pipeline_times['download'] += time.time() - time_download
+            pipeline_times["download"] += time.time() - time_download
 
             if not local_paths:
                 break
@@ -166,7 +208,7 @@ if __name__ == '__main__':
 
             # Write continuation token to progress file
             remote_iter.save_checkpoint()
-                
+
             # Write pipeline_times to a JSON file
             # Write pipeline_times to a JSON file
             with open(LOCAL_PERFORMANCE_PATH, "w") as f:
@@ -183,7 +225,6 @@ if __name__ == '__main__':
                 shutil.rmtree(LOCAL_TXT_DIR)
                 os.makedirs(LOCAL_TXT_DIR, exist_ok=True)
 
-        
         # After all batches are processed, clean up the directories
         if os.path.exists(LOCAL_TXT_DIR):
             shutil.rmtree(LOCAL_TXT_DIR)
@@ -194,6 +235,6 @@ if __name__ == '__main__':
         print("TOTAL TIME TO LOAD IS ", (overall_end_time - overall_start_time))
 
     def main():
-        batched_file_download(BATCH_SIZE) 
+        batched_file_download(BATCH_SIZE)
 
     main()

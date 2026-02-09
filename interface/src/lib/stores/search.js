@@ -24,7 +24,7 @@ export const searchActions = {
       query
     }));
   },
-  
+
   setSearchMode: (mode) => {
     searchStore.update(store => ({
       ...store,
@@ -38,14 +38,14 @@ export const searchActions = {
       totalPages: null,
     }));
   },
-  
+
   toggleFilters: () => {
     searchStore.update(store => ({
       ...store,
       showFilters: !store.showFilters
     }));
   },
-  
+
   updateFilters: (newFilters) => {
     searchStore.update(store => ({
       ...store,
@@ -55,7 +55,7 @@ export const searchActions = {
       },
     }));
   },
-  
+
   reset: () => {
     searchStore.set({
       query: '',
@@ -72,7 +72,7 @@ export const searchActions = {
       totalPages: null,
     });
   },
-  
+
   performSearch: async () => {
     await searchActions.goToPage(1, { isNewSearch: true });
   },

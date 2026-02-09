@@ -2,29 +2,32 @@
 # starting the server and serving queries, respectively.
 import numpy as np
 
+
 class IndexConfig:
     def __init__(self, data_dir, vector_index_type, keyword_index_type):
-        self.embedding_directory = data_dir + '/embeddings'
-        self.embedding_img_pg_directory = data_dir + '/embeddings_img_pg'
-        self.index_directory = data_dir + '/index'
-        self.index_img_pg_directory = data_dir + '/index_img_pg'
-        self.index_keyword_directory = data_dir + '/index_keyword'
-        self.index_metadata_directory = data_dir + '/index_metadata'
-        self.image_directory = data_dir + '/img'
-        self.metadata_directory = data_dir + '/metadata'
-        self.stats_file = data_dir + '/total_pdfs.txt'
+        self.embedding_directory = data_dir + "/embeddings"
+        self.embedding_img_pg_directory = data_dir + "/embeddings_img_pg"
+        self.index_directory = data_dir + "/index"
+        self.index_img_pg_directory = data_dir + "/index_img_pg"
+        self.index_keyword_directory = data_dir + "/index_keyword"
+        self.index_metadata_directory = data_dir + "/index_metadata"
+        self.image_directory = data_dir + "/img"
+        self.metadata_directory = data_dir + "/metadata"
+        self.stats_file = data_dir + "/total_pdfs.txt"
         if vector_index_type not in ["Memory", "Disk"]:
             raise ValueError("vector_index_type must be either 'Memory' or 'Disk'")
         self.vector_index_type = vector_index_type
         self.keyword_index_type = keyword_index_type
         if keyword_index_type not in ["LanceDB", "SQLite", "Whoosh"]:
-            raise ValueError("keyword_index_type must be either 'LanceDB', 'SQLite', or 'Whoosh'")
+            raise ValueError(
+                "keyword_index_type must be either 'LanceDB', 'SQLite', or 'Whoosh'"
+            )
         self.dtype = np.float32
 
-        
+
 class ServerConfig:
-    def __init__(self, index_config : IndexConfig, text_model, visual_model, k=3):
-        self.index_config= index_config
+    def __init__(self, index_config: IndexConfig, text_model, visual_model, k=3):
+        self.index_config = index_config
         self.embedding_directory = index_config.embedding_directory
         self.embedding_img_pg_directory = index_config.embedding_img_pg_directory
         self.index_directory = index_config.index_directory
@@ -45,4 +48,3 @@ class ServerConfig:
         # define embedding size
         self.text_d = self.text_model.d
         self.visual_d = self.visual_model.d
-

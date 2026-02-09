@@ -11,37 +11,37 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: interface/package-lock.json
-      
+
       - name: Install dependencies
         run: |
           cd interface
           npm ci
-      
+
       - name: Build frontend
         run: |
           cd interface
           npm run build
         env:
           NODE_ENV: production
-      
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-2
-      
+
       - name: Sync to S3 (Zero-downtime deployment)
         run: |
           # Step 1: Upload all new assets first (immutable files with hash)
@@ -49,16 +49,16 @@ jobs:
           aws s3 sync interface/build/ s3://govscape-frontend-prod \
             --exclude "index.html" \
             --exclude "_app/version.json"
-          
+
           # Step 2: Upload index.html LAST (entry point)
           # This ensures all referenced assets are already available
           # Cache headers are controlled by CloudFront policies
           aws s3 cp interface/build/index.html s3://govscape-frontend-prod/index.html
-          
+
           # Step 3: Upload version.json
           # This is unecessary for statically built SvelteKit apps (consider removing later)
           aws s3 cp interface/build/_app/version.json s3://govscape-frontend-prod/_app/version.json
-      
+
       - name: Deployment summary
         run: |
           echo "Frontend deployed successfully to S3!"

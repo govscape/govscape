@@ -1,55 +1,113 @@
-import os
 import argparse
-import time
-import govscape as gs
-import shutil
 import json
+import os
+import shutil
+import time
+
 import numpy as np
-import math
+
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
+
+import govscape as gs
 
 # ****************************************************************************************************
 # to run this file: poetry run python generate_index_embedding.py
 # This file takes the output from the embedding pipeline (npy files) and creates an index using those embeddings.
 # It then uploads the index to S3. The script is designed to run on EC2 and can process files in batches.
 # It also keeps track of which files have been processed using a checkpointing system, so it can resume
-# where it left off if interrupted. 
+# where it left off if interrupted.
 # ****************************************************************************************************
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # FIELDS TO SET **************************************************************************************
     parser = argparse.ArgumentParser(description="S3 EC2 Embedding Pipeline")
-    parser.add_argument('--num_pages_to_process', type=int, default=100, help='Number of pages to process from S3')
-    parser.add_argument('--batch_size', type=int, default=350000, help='Number of pages to process at a time')
-    parser.add_argument('--bucket_name', type=str, help='S3 Bucket Name')
-    parser.add_argument('--in_data_dir', type=str, help='S3 Directory for input data')
-    parser.add_argument('--embedding_prefix', type=str, help='S3 Prefix for embedding files')
-    parser.add_argument('--out_data_dir', type=str, help='S3 Directory for output data')
-    parser.add_argument('--out_index_prefix', type=str, help='S3 Prefix for index data')
-    parser.add_argument('--index_type', type=str, choices=['FAISS'], help='Type of index to create (e.g., "FAISS")')
-    parser.add_argument('--backend', choices=['s3', 'local'], default='s3', help='Data backend to use')
-    parser.add_argument('--local_base_dir', type=str, default='data', help='Base directory for local backend')
+    parser.add_argument(
+        "--num_pages_to_process",
+        type=int,
+        default=100,
+        help="Number of pages to process from S3",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=350000,
+        help="Number of pages to process at a time",
+    )
+    parser.add_argument("--bucket_name", type=str, help="S3 Bucket Name")
+    parser.add_argument("--in_data_dir", type=str, help="S3 Directory for input data")
+    parser.add_argument(
+        "--embedding_prefix", type=str, help="S3 Prefix for embedding files"
+    )
+    parser.add_argument("--out_data_dir", type=str, help="S3 Directory for output data")
+    parser.add_argument("--out_index_prefix", type=str, help="S3 Prefix for index data")
+    parser.add_argument(
+        "--index_type",
+        type=str,
+        choices=["FAISS"],
+        help='Type of index to create (e.g., "FAISS")',
+    )
+    parser.add_argument(
+        "--backend", choices=["s3", "local"], default="s3", help="Data backend to use"
+    )
+    parser.add_argument(
+        "--local_base_dir",
+        type=str,
+        default="data",
+        help="Base directory for local backend",
+    )
     args = parser.parse_args()
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process
     BATCH_SIZE = args.batch_size
-    INDEX_TYPE = args.index_type # 'FAISS' # TYPE OF INDEX TO CREATE
-    
+    INDEX_TYPE = args.index_type  # 'FAISS' # TYPE OF INDEX TO CREATE
+
     # ****************************************************************************************************
     # All Local and Remote Paths
-    BUCKET_NAME = args.bucket_name # 'bcgl-public-bucket'
-    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')) # 'govscape/' # ROOT DIRECTORY OF THE PROJECT
-    LOCAL_DATA_DIR = os.path.join(PROJECT_ROOT, 'data', 'prod') # 'govscape/data/prod/' LOCAL BASE DIRECTORY TO STORE FILES DURING PROCESSING
-    REMOTE_EMBEDDING_DIR = args.in_data_dir + args.embedding_prefix # 'prod-serving/'# INPUT DATA DIR IN S3 HERE
-    LOCAL_EMBEDDING_DIR = os.path.join(LOCAL_DATA_DIR, args.embedding_prefix.replace('/', '')) # 'govscape/data/prod/embeddings/' # LOCAL DIRECTORY TO STORE EMBEDDING FILES DURING PROCESSING
-    REMOTE_DATA_DIR = args.out_data_dir # 'prod-serving/' # OUTPUT OVERALL DATA DIR IN S3 HERE
-    REMOTE_INDEX_PREFIX = args.out_index_prefix.rstrip('/') # 'index', 'index_img_pg' # OUTPUT INDEX PREFIX IN S3 HERE
-    REMOTE_INDEX_DIR = REMOTE_DATA_DIR + "/" + REMOTE_INDEX_PREFIX # 'prod-serving/index' # OUTPUT INDEX DIRECTORY IN S3 HERE
-    LOCAL_INDEX_DIR = os.path.join(LOCAL_DATA_DIR, REMOTE_INDEX_PREFIX) # 'govscape/data/prod/index/' # LOCAL DIRECTORY TO STORE INDEX FILES DURING PROCESSING
-    REMOTE_CHECKPOINT_PATH = REMOTE_DATA_DIR + '/Checkpoints/' + "checkpoint_" + REMOTE_INDEX_PREFIX + '.json' # 'prod-serving/Checkpoints/index_checkpoint.json' # S3 PATH FOR CHECKPOINTING
-    LOCAL_CHECKPOINT_PATH = os.path.join(LOCAL_DATA_DIR, 'Checkpoints', "checkpoint_" + REMOTE_INDEX_PREFIX + '.json') # 'govscape/data/prod/Checkpoints/checkpoint_index.json' # LOCAL PATH FOR CHECKPOINTING
-    REMOTE_PERFORMANCE_PATH = REMOTE_DATA_DIR + '/Performance/' + "performance_" + REMOTE_INDEX_PREFIX + '.json' # 'prod-serving/Performance/index_performance.json' # S3 PATH FOR PERFORMANCE METRICS
-    LOCAL_PERFORMANCE_PATH = os.path.join(LOCAL_DATA_DIR, 'Performance', "performance_" + REMOTE_INDEX_PREFIX + '.json') # 'govscape/data/prod/Performance/performance_index.json' # LOCAL PATH FOR PERFORMANCE METRICS
-    
+    BUCKET_NAME = args.bucket_name  # 'bcgl-public-bucket'
+    PROJECT_ROOT = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../../")
+    )  # 'govscape/' # ROOT DIRECTORY OF THE PROJECT
+    LOCAL_DATA_DIR = os.path.join(
+        PROJECT_ROOT, "data", "prod"
+    )  # 'govscape/data/prod/' LOCAL BASE DIRECTORY TO STORE FILES DURING PROCESSING
+    REMOTE_EMBEDDING_DIR = (
+        args.in_data_dir + args.embedding_prefix
+    )  # 'prod-serving/'# INPUT DATA DIR IN S3 HERE
+    LOCAL_EMBEDDING_DIR = os.path.join(
+        LOCAL_DATA_DIR, args.embedding_prefix.replace("/", "")
+    )  # 'govscape/data/prod/embeddings/' # LOCAL DIRECTORY TO STORE EMBEDDING FILES DURING PROCESSING
+    REMOTE_DATA_DIR = (
+        args.out_data_dir
+    )  # 'prod-serving/' # OUTPUT OVERALL DATA DIR IN S3 HERE
+    REMOTE_INDEX_PREFIX = args.out_index_prefix.rstrip(
+        "/"
+    )  # 'index', 'index_img_pg' # OUTPUT INDEX PREFIX IN S3 HERE
+    REMOTE_INDEX_DIR = (
+        REMOTE_DATA_DIR + "/" + REMOTE_INDEX_PREFIX
+    )  # 'prod-serving/index' # OUTPUT INDEX DIRECTORY IN S3 HERE
+    LOCAL_INDEX_DIR = os.path.join(
+        LOCAL_DATA_DIR, REMOTE_INDEX_PREFIX
+    )  # 'govscape/data/prod/index/' # LOCAL DIRECTORY TO STORE INDEX FILES DURING PROCESSING
+    REMOTE_CHECKPOINT_PATH = (
+        REMOTE_DATA_DIR
+        + "/Checkpoints/"
+        + "checkpoint_"
+        + REMOTE_INDEX_PREFIX
+        + ".json"
+    )  # 'prod-serving/Checkpoints/index_checkpoint.json' # S3 PATH FOR CHECKPOINTING
+    LOCAL_CHECKPOINT_PATH = os.path.join(
+        LOCAL_DATA_DIR, "Checkpoints", "checkpoint_" + REMOTE_INDEX_PREFIX + ".json"
+    )  # 'govscape/data/prod/Checkpoints/checkpoint_index.json' # LOCAL PATH FOR CHECKPOINTING
+    REMOTE_PERFORMANCE_PATH = (
+        REMOTE_DATA_DIR
+        + "/Performance/"
+        + "performance_"
+        + REMOTE_INDEX_PREFIX
+        + ".json"
+    )  # 'prod-serving/Performance/index_performance.json' # S3 PATH FOR PERFORMANCE METRICS
+    LOCAL_PERFORMANCE_PATH = os.path.join(
+        LOCAL_DATA_DIR, "Performance", "performance_" + REMOTE_INDEX_PREFIX + ".json"
+    )  # 'govscape/data/prod/Performance/performance_index.json' # LOCAL PATH FOR PERFORMANCE METRICS
+
     os.makedirs(LOCAL_DATA_DIR, exist_ok=True)
     os.makedirs(LOCAL_EMBEDDING_DIR, exist_ok=True)
     os.makedirs(LOCAL_INDEX_DIR, exist_ok=True)
@@ -57,23 +115,33 @@ if __name__ == '__main__':
     os.makedirs(os.path.dirname(LOCAL_PERFORMANCE_PATH), exist_ok=True)
 
     # ****************************************************************************************************
-    pipeline_times = {'list' : 0, 'download' : 0, 'embedding_indexing_time' : 0, 'upload' : 0, 'pdfs_processed' : 0}
+    pipeline_times = {
+        "list": 0,
+        "download": 0,
+        "embedding_indexing_time": 0,
+        "upload": 0,
+        "pdfs_processed": 0,
+    }
 
     data_loader = build_data_loader(
         args.backend,
         BUCKET_NAME,
-        local_base_dir = args.local_base_dir,
+        local_base_dir=args.local_base_dir,
     )
-    remote_iter = RemoteDirectoryIterator(data_loader,
-                                            REMOTE_EMBEDDING_DIR,
-                                            remote_checkpoint_path=REMOTE_CHECKPOINT_PATH,
-                                            local_checkpoint_path=LOCAL_CHECKPOINT_PATH,
-                                            local_dir=LOCAL_EMBEDDING_DIR)
-    
+    remote_iter = RemoteDirectoryIterator(
+        data_loader,
+        REMOTE_EMBEDDING_DIR,
+        remote_checkpoint_path=REMOTE_CHECKPOINT_PATH,
+        local_checkpoint_path=LOCAL_CHECKPOINT_PATH,
+        local_dir=LOCAL_EMBEDDING_DIR,
+    )
+
     # Download existing index files from S3 to local directory to update them with new data and re-upload
     remote_existing_idx_files = data_loader.list_objects(REMOTE_INDEX_DIR)
-    for remote_file in remote_existing_idx_files.keys:   
-            data_loader.download_file(remote_file, LOCAL_INDEX_DIR + "/" + os.path.basename(remote_file))
+    for remote_file in remote_existing_idx_files.keys:
+        data_loader.download_file(
+            remote_file, LOCAL_INDEX_DIR + "/" + os.path.basename(remote_file)
+        )
 
     # Adding Embedding Files to the Index and Uploading to S3
     def process_embedding_files(embedding_files):
@@ -89,14 +157,16 @@ if __name__ == '__main__':
                 print(f"File {embedding_file_path} does not exist. Skipping.")
                 continue
             names.append(os.path.basename(os.path.dirname(embedding_file_path)))
-            pages.append(embedding_file_path.replace(".npy", "").rpartition('_')[2])
+            pages.append(embedding_file_path.replace(".npy", "").rpartition("_")[2])
             embeddings.append(np.load(embedding_file_path))
-        print(f"Adding {len(embeddings), embeddings[0], embeddings[1]} embeddings to the index.")
+        print(
+            f"Adding {len(embeddings), embeddings[0], embeddings[1]} embeddings to the index."
+        )
         embeddings = np.asarray(embeddings)
         index.add_batch(embeddings, names, pages)
         index.save_index()
 
-        pipeline_times['embedding_indexing_time'] += time.time() - time_index_start
+        pipeline_times["embedding_indexing_time"] += time.time() - time_index_start
 
         time1 = time.time()
 
@@ -105,9 +175,9 @@ if __name__ == '__main__':
         print("finished uploading index")
         time2 = time.time()
 
-        pipeline_times['upload'] += time2-time1
-        pipeline_times['pdfs_processed'] += len(embedding_files)
-        
+        pipeline_times["upload"] += time2 - time1
+        pipeline_times["pdfs_processed"] += len(embedding_files)
+
         # Write pipeline_times to a JSON file
         with open(LOCAL_PERFORMANCE_PATH, "w") as f:
             json.dump(pipeline_times, f, indent=2)
@@ -124,23 +194,26 @@ if __name__ == '__main__':
         # pdf_files = [obj['Key'] for obj in result.get('Contents', []) if obj['Key'].endswith('.pdf')]  # note this only returns 1000
         overall_start_time = time.time()
         # Progress checkpoint is now managed by DataLoader
-            
+
         max_files_to_process = NUM_PAGES_TO_PROCESS * 1000
         files_processed = 0
         while files_processed < max_files_to_process:
-
-            print('*****************************************************************************************************')
+            print(
+                "*****************************************************************************************************"
+            )
             print("FILES PROCESSED: ", files_processed)
-            print('*****************************************************************************************************')
+            print(
+                "*****************************************************************************************************"
+            )
 
             time_download = time.time()
             batch_limit = min(BATCH_SIZE, max_files_to_process - files_processed)
             local_paths = remote_iter.download_batch(
                 max_keys=batch_limit,
-                filter_fn=lambda key: key.endswith('.npy'),
+                filter_fn=lambda key: key.endswith(".npy"),
             )
             print(len(local_paths), " files downloaded in this batch.")
-            pipeline_times['download'] += time.time() - time_download
+            pipeline_times["download"] += time.time() - time_download
             if len(local_paths) == 0:
                 break
 
@@ -154,7 +227,7 @@ if __name__ == '__main__':
             if os.path.exists(LOCAL_DATA_DIR):
                 shutil.rmtree(LOCAL_EMBEDDING_DIR)
                 os.makedirs(LOCAL_DATA_DIR, exist_ok=True)
-            
+
             files_processed += len(local_paths)
             remote_iter.save_checkpoint()
 
@@ -168,6 +241,6 @@ if __name__ == '__main__':
         print("TOTAL TIME TO LOAD IS ", (overall_end_time - overall_start_time))
 
     def main():
-        batched_file_download(BATCH_SIZE) 
+        batched_file_download(BATCH_SIZE)
 
     main()

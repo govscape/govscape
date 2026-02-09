@@ -1,15 +1,24 @@
 # This file defines the logic for serving requests to the user.
-from flask import Flask, send_from_directory
-from flask_cors import CORS
-from .config import ServerConfig
-import numpy as np
-import os
-import boto3
-import time
 import math
+import os
+import time
+
+import boto3
+from flask import Flask
+from flask_cors import CORS
+
 from .api import init_api
+from .config import ServerConfig
 from .filter import Filter
-from .indexing import AbstractKeywordIndex, DiskANNIndex, FAISSIndex, LanceDBKeywordIndex, SQLiteKeywordIndex, WhooshKeywordIndex, SQLiteMetadataIndex
+from .indexing import (
+    AbstractKeywordIndex,
+    FAISSIndex,
+    LanceDBKeywordIndex,
+    SQLiteKeywordIndex,
+    SQLiteMetadataIndex,
+    WhooshKeywordIndex,
+)
+
 
 # basic pipeline developed:
 # 1. accept a query until EOF detected
@@ -44,7 +53,7 @@ class Server:
         self.visual_model = config.visual_model
         self.visual_d = config.visual_d
 
-        if self.vector_index_type == 'Memory':
+        if self.vector_index_type == "Memory":
             self.text_index = FAISSIndex(self.index_directory)
             self.visual_index = FAISSIndex(self.index_img_pg_directory)
         else:
@@ -52,21 +61,25 @@ class Server:
         self.text_index.load_index()
         self.visual_index.load_index()
 
-        if self.keyword_index_type == 'LanceDB':
-            self.keyword_index : AbstractKeywordIndex = LanceDBKeywordIndex(self.index_keyword_directory)
-        elif self.keyword_index_type == 'SQLite':
+        if self.keyword_index_type == "LanceDB":
+            self.keyword_index: AbstractKeywordIndex = LanceDBKeywordIndex(
+                self.index_keyword_directory
+            )
+        elif self.keyword_index_type == "SQLite":
             self.keyword_index = SQLiteKeywordIndex(self.index_keyword_directory)
-        elif self.keyword_index_type == 'Whoosh':
+        elif self.keyword_index_type == "Whoosh":
             self.keyword_index = WhooshKeywordIndex(self.index_keyword_directory)
         else:
-            raise ValueError(f"Unsupported keyword index type: {self.keyword_index_type}")
+            raise ValueError(
+                f"Unsupported keyword index type: {self.keyword_index_type}"
+            )
         self.keyword_index.load_index()
 
         self.metadata_index = SQLiteMetadataIndex(self.index_metadata_directory)
         self.metadata_index.load_index()
 
         self.filt = Filter(config)
-        self.s3 = boto3.client('s3')
+        self.s3 = boto3.client("s3")
 
         # Get the absolute path to the build directory
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -82,14 +95,18 @@ class Server:
         # Initialize Flask app and API
         self.app = Flask(__name__, static_folder=build_dir, static_url_path="")
         # TODO: Remove localhost:5173 soon for security concerns
-        CORS(self.app, origins=["https://govscape.net", "http://localhost:5173"], supports_credentials=True)
+        CORS(
+            self.app,
+            origins=["https://govscape.net", "http://localhost:5173"],
+            supports_credentials=True,
+        )
 
         @self.app.route("/")
         def serve_index():
             print("Serving index.html")
             return self.app.send_static_file("index.html")
 
-        self.app.server = self # type: ignore
+        self.app.server = self  # type: ignore
         self.api = init_api(self.app)
 
     @staticmethod
@@ -106,58 +123,77 @@ class Server:
                 unique_pages.append(page)
         return unique_distances, unique_names, unique_pages
 
-    def search(self, query, search_type='textual', filters=None, page=1):
-        if search_type == 'textual':
+    def search(self, query, search_type="textual", filters=None, page=1):
+        if search_type == "textual":
             query_embedding = self.text_model.encode_text(query, is_query=True)
             index = self.text_index
-        elif search_type == 'visual':
+        elif search_type == "visual":
             query_embedding = self.visual_model.encode_text(query)
             index = self.visual_index
-        elif search_type == 'keyword':
+        elif search_type == "keyword":
             query_embedding = query
             index = self.keyword_index
         else:
             raise ValueError(f"Unsupported search type: {search_type}")
-        
+
         current_k = self.k * 2
-        results_needed_for_page = page * self.k + 1 # we need one extra result to check if there is a next page
+        results_needed_for_page = (
+            page * self.k + 1
+        )  # we need one extra result to check if there is a next page
         search_results = []
         old_results_found = -1
         while len(search_results) < results_needed_for_page:
             # Search for the k closest arrays
             start = time.time()
-            
+
             D, pdf_names, pdf_pages = index.search(query_embedding, current_k)
-            D, pdf_names, pdf_pages = self.deduplicate_responses(D, pdf_names, pdf_pages)
-            
+            D, pdf_names, pdf_pages = self.deduplicate_responses(
+                D, pdf_names, pdf_pages
+            )
+
             print(f"Index Search took {time.time() - start} seconds")
-            print(f"Search type: {search_type}, current_k: {current_k}, results found: {len(D)}")
+            print(
+                f"Search type: {search_type}, current_k: {current_k}, results found: {len(D)}"
+            )
             pdf_metadata = self.metadata_index.search(pdf_names, filters)
-            print(f"Search type: {search_type}, current_k: {current_k}, results found after filtering: {len(pdf_metadata)}")
+            print(
+                f"Search type: {search_type}, current_k: {current_k}, results found after filtering: {len(pdf_metadata)}"
+            )
             search_results = []
             for distance, name, page_num in zip(D, pdf_names, pdf_pages):
                 metadata = pdf_metadata.get(name, None)
                 if metadata:
                     metadata = metadata[0]  # TODO: Handle multiple crawl dates
-                    jpeg_file = self.image_directory + "/" + name + "/" + name + "_" + page_num + '.jpeg'
-                    search_results.append({
-                        "pdf": name, 
-                        "page": page_num,
-                        "distance": float(distance), 
-                        "jpeg": jpeg_file,
-                        "crawl_url" : metadata.get("crawl_url", ""),
-                        "crawl_date": metadata.get("crawl_date", ""),
-                        "sub_domain": metadata.get("sub_domain", ""),
-                    })
-            if current_k > min(100000, index.total_entries()): 
-                break # TODO: If we have to expand beyond 100k, we should simply do the filtering first
+                    jpeg_file = (
+                        self.image_directory
+                        + "/"
+                        + name
+                        + "/"
+                        + name
+                        + "_"
+                        + page_num
+                        + ".jpeg"
+                    )
+                    search_results.append(
+                        {
+                            "pdf": name,
+                            "page": page_num,
+                            "distance": float(distance),
+                            "jpeg": jpeg_file,
+                            "crawl_url": metadata.get("crawl_url", ""),
+                            "crawl_date": metadata.get("crawl_date", ""),
+                            "sub_domain": metadata.get("sub_domain", ""),
+                        }
+                    )
+            if current_k > min(100000, index.total_entries()):
+                break  # TODO: If we have to expand beyond 100k, we should simply do the filtering first
 
             if len(search_results) >= results_needed_for_page:
-                break # If we have enough results for our target page, we can stop.
-            
+                break  # If we have enough results for our target page, we can stop.
+
             results_found = len(search_results)
             if results_found == old_results_found and (len(filters or {}) == 0):
-                break # No more results can be found even after increasing k
+                break  # No more results can be found even after increasing k
             old_results_found = results_found
 
             current_k *= 2  # Double the k until we have enough results
@@ -187,7 +223,7 @@ class Server:
         if not pdf_id:
             return {"error": "Missing 'pdf_id' parameter"}, 400
 
-        md = (self.metadata_index.search([pdf_id]) or {})
+        md = self.metadata_index.search([pdf_id]) or {}
         first = (md.get(pdf_id) or [{}])[0]
         crawl_url = first.get("crawl_url", "")
         crawl_date = first.get("crawl_date", "")
@@ -205,20 +241,20 @@ class Server:
         }
 
     def _get_total_pdfs_count(self):
-        if (hasattr(self, '_total_pdfs_cache')):
+        if hasattr(self, "_total_pdfs_cache"):
             return self._total_pdfs_cache
-        
+
         total_pdfs_path = self.stats_file
-        
+
         if not total_pdfs_path or not os.path.exists(total_pdfs_path):
             return 0
-        
+
         try:
-            with open(total_pdfs_path, "r", encoding='utf-8') as f:
+            with open(total_pdfs_path, encoding="utf-8") as f:
                 content = f.read().strip()
-                self._total_pdfs_cache =  int(content) 
+                self._total_pdfs_cache = int(content)
                 return self._total_pdfs_cache
-                
+
         except Exception as e:
             print(f"Error reading total_pdfs.txt: {str(e)}")
             self._total_pdfs_cache = 0
