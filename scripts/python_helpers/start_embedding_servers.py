@@ -1,16 +1,18 @@
 import boto3
 
-AMI_ID = 'ami-0321559df76fad329'
-INSTANCE_TYPE = 'g4dn.4xlarge'  # Change as needed
-KEY_NAME = 'kyle-desktop'  # Replace with your EC2 key pair name
-IAM_INSTANCE_PROFILE = {'Name': 'GovScapeServerEC2Role'}
+AMI_ID = "ami-0321559df76fad329"
+INSTANCE_TYPE = "g4dn.4xlarge"  # Change as needed
+KEY_NAME = "kyle-desktop"  # Replace with your EC2 key pair name
+IAM_INSTANCE_PROFILE = {"Name": "GovScapeServerEC2Role"}
 NUM_SERVERS = 10
-SECURITY_GROUPS = [{'GroupId': 'sg-0e4b8310618ef3b7a'}]  # Replace with your security group ID
+SECURITY_GROUPS = [
+    {"GroupId": "sg-0e4b8310618ef3b7a"}
+]  # Replace with your security group ID
 NUM_PAGES_TO_PROCESS = 10000000
 
-ec2 = boto3.client('ec2', region_name='us-east-2')
+ec2 = boto3.client("ec2", region_name="us-east-2")
 
-user_data_template = '''#!/bin/bash
+user_data_template = """#!/bin/bash
 sudo -u ubuntu bash -c "
 cd /home/ubuntu/govscape && \
 git stash >> /home/ubuntu/govscape/log.txt && \
@@ -18,7 +20,8 @@ git pull >> /home/ubuntu/govscape/log.txt && \
 rm /home/ubuntu/govscape/progress.json || true && \
 /home/ubuntu/.local/bin/poetry lock >> /home/ubuntu/govscape/log.txt && \
 /home/ubuntu/.local/bin/poetry install >> /home/ubuntu/govscape/log.txt && \
-/home/ubuntu/.local/bin/poetry run python scripts/python_helpers/s3_embedding_pipeline.py \
+/home/ubuntu/.local/bin/poetry run python \
+    scripts/python_helpers/s3_embedding_pipeline.py \
     --num_pages_to_process {num_pages} \
     --batch_size 100000 \
     --bucket_name 'bcgl-public-bucket' \
@@ -30,29 +33,30 @@ rm /home/ubuntu/govscape/progress.json || true && \
     --do_text_embedding 0 \
     --do_img_embedding 0 \
     --do_metadata_collection 1 >> /home/ubuntu/govscape/log.txt && \
-    echo 'Embedding server {server_id} completed processing.' >> /home/ubuntu/govscape/log.txt && \
+    echo 'Embedding server {server_id} completed processing.' \
+        >> /home/ubuntu/govscape/log.txt && \
     sudo shutdown now -h
 "
-'''
+"""
 
 for i in range(NUM_SERVERS):
-    user_data = user_data_template.format(num_pages=NUM_PAGES_TO_PROCESS, num_servers=NUM_SERVERS, server_id=i)
+    user_data = user_data_template.format(
+        num_pages=NUM_PAGES_TO_PROCESS, num_servers=NUM_SERVERS, server_id=i
+    )
     response = ec2.run_instances(
         ImageId=AMI_ID,
         InstanceType=INSTANCE_TYPE,
         KeyName=KEY_NAME,
         IamInstanceProfile=IAM_INSTANCE_PROFILE,
-        SecurityGroupIds=[sg['GroupId'] for sg in SECURITY_GROUPS],
+        SecurityGroupIds=[sg["GroupId"] for sg in SECURITY_GROUPS],
         MinCount=1,
         MaxCount=1,
         UserData=user_data,
         TagSpecifications=[
             {
-                'ResourceType': 'instance',
-                'Tags': [
-                    {'Key': 'Name', 'Value': f'embedding-server-{i}'}
-                ]
+                "ResourceType": "instance",
+                "Tags": [{"Key": "Name", "Value": f"embedding-server-{i}"}],
             }
-        ]
+        ],
     )
     print(f"Started instance {i}: {response['Instances'][0]['InstanceId']}")

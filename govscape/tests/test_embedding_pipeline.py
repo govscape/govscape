@@ -1,20 +1,9 @@
 import shutil
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from govscape.pdf_to_embed import PDFsToEmbeddings
-
-
-class DummyTextEmbeddingModel:
-    """Lightweight stand-in for the real text embedding model used in tests."""
-
-    def encode_text(self, text: str) -> np.ndarray:
-        return np.ones(4, dtype=np.float32)
-
-    def encode_image(self, image_path: str) -> np.ndarray:
-        return np.ones(4, dtype=np.float32)
 
 
 @pytest.fixture()
@@ -24,7 +13,7 @@ def sample_pipeline(tmp_path):
     shutil.copytree(source_pdfs, pdf_dir)
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    pipeline = PDFsToEmbeddings(str(pdf_dir), str(data_dir), DummyTextEmbeddingModel(), model_pool=None)
+    pipeline = PDFsToEmbeddings(str(pdf_dir), str(data_dir), "Dummy", "Dummy")
     pdf_files = sorted(f.name for f in pdf_dir.glob("*.pdf"))
     return pipeline, pdf_files
 

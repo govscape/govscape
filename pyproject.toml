@@ -18,8 +18,48 @@ s5cmd = "^0.3.3"
 scipy = "^1.13"
 npm = "^0.1.1"
 awscli = "^1.42.66"
+botocore = {extras = ["crt"], version = "^1.42.39"}
+mypy = "^1.19.1"
+pre-commit = "^4.5.1"
 
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "types-requests (>=2.32.4.20260107,<3.0.0.0)",
+    "pandas-stubs (>=3.0.0.260204,<4.0.0.0)",
+    "types-flask-cors (>=6.0.0.20250809,<7.0.0.0)"
+]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "B", "UP", "YTT", "BLE", "C4", "T10", "ISC", "ICN", "PIE", "PYI", "RSE", "RET", "SIM", "PGH", "FLY", "NPY", "PERF", "RUF022"]
+ignore = ["PYI024", "BLE001"]
+
+[tool.ruff.lint.isort.sections]
+numpy = ["numpy", "numpy.*", "scipy", "scipy.*"]
+pytest = ["pytest", "pytest.*"]
+
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
+
+[tool.ruff.lint.isort]
+section-order = [
+    "future",
+    "standard-library",
+    "pytest",
+    "numpy",
+    "third-party",
+    "first-party",
+    "local-folder",
+]
+
+[tool.mypy]
+ignore_missing_imports = true
+exclude = ["tests/reference", "src/finchlite/codegen/stc"]

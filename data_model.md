@@ -19,7 +19,7 @@ The pdf_metadata.parquet file has the following columns:
 * crawl_date : The date that the pdf was crawled as an 8 digit number (YYYYMMDD)
 * digest : The hash digest of the pdf as a 32 character string
 * filename : The prefix within the eotarchive bucket where the pdf's warc file can be found.
-* offset : The pdf's offset into the warc file 
+* offset : The pdf's offset into the warc file
 * length : The number of bytes corresponding to the pdf's warc record.
 
 The metadata.db database has a table with the columns:

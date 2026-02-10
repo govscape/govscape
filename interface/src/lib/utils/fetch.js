@@ -98,7 +98,7 @@ export async function apiFetch(endpoint, options = {}) {
 
         if (!response.ok) {
             const contentType = response.headers.get('content-type');
-            
+
             if (response.status >= 500) {
                 const errorMessages = {
                     502: 'The service is temporarily unavailable. Please try again in a moment.',
@@ -107,13 +107,13 @@ export async function apiFetch(endpoint, options = {}) {
                 };
                 throw new Error(errorMessages[response.status] || 'Server error. Please try again later.');
             }
-            
+
             // For client errors (4xx), try to get the error message
             // But check if response is HTML (which we don't want to display)
             if (contentType && contentType.includes('text/html')) {
                 throw new Error(`Request failed with status ${response.status}. Please try again.`);
             }
-            
+
             // For JSON or plain text errors, get the actual error message
             const errorText = await response.text();
             throw new Error(errorText || `HTTP error! status: ${response.status}`);

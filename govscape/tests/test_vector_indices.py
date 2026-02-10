@@ -1,14 +1,14 @@
 from pathlib import Path
 
-import numpy as np
 import pytest
+
+import numpy as np
 
 from govscape.indexing import DiskANNIndex, FAISSIndex
 
 
 @pytest.fixture(params=["faiss", "diskann"], ids=["faiss", "diskann"])
 def vector_index_case(request, tmp_path, monkeypatch):
-    embedding_dim = 4
     embeddings = np.array(
         [
             [0.1, 0.2, 0.3, 0.4],
@@ -67,7 +67,9 @@ def vector_index_case(request, tmp_path, monkeypatch):
 
     index = TestDiskANNIndex(embedding_dir.as_posix(), index_dir.as_posix())
 
-    normalized_embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+    normalized_embeddings = embeddings / np.linalg.norm(
+        embeddings, axis=1, keepdims=True
+    )
     normalized_query = query_vector / np.linalg.norm(query_vector)
 
     return {

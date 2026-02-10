@@ -1,6 +1,10 @@
 import pytest
 
-from govscape.indexing import LanceDBKeywordIndex, SQLiteKeywordIndex, WhooshKeywordIndex
+from govscape.indexing import (
+    LanceDBKeywordIndex,
+    SQLiteKeywordIndex,
+    WhooshKeywordIndex,
+)
 
 
 @pytest.fixture
@@ -66,7 +70,7 @@ def test_keyword_indexes_round_trip(tmp_path, index_cls, sample_documents):
 
     expected_term_hits = [
         name
-        for text, name in zip(texts, pdf_names)
+        for text, name in zip(texts, pdf_names, strict=False)
         if "resilience" in text.lower()
     ]
     scores, found_pdfs, found_pages = reloaded_index.search("resilience", k=5)
