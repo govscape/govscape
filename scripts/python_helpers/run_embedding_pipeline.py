@@ -208,23 +208,23 @@ if __name__ == "__main__":
         )  # e.g. "govscape/data/prod/metadata"
         LOCAL_CHECKPOINT_PATH = os.path.join(
             LOCAL_DATA_DIR,
-            "Checkpoints",
+            "checkpoints",
             f"checkpoint_embedding_pipeline_{args.server_id}.json",
         )
-        # e.g. "govscape/data/prod/Checkpoints/checkpoint_embedding_pipeline_0.json"
+        # e.g. "govscape/data/prod/checkpoints/checkpoint_embedding_pipeline_0.json"
         REMOTE_CHECKPOINT_PATH = (
-            f"{REMOTE_DATA_DIR}/Checkpoints/"
+            f"{REMOTE_DATA_DIR}/checkpoints/"
             f"checkpoint_embedding_pipeline_{args.server_id}.json"
         )
-        # e.g. "prod-serving/Checkpoints/checkpoint_embedding_pipeline_0.json"
+        # e.g. "prod-serving/checkpoints/checkpoint_embedding_pipeline_0.json"
         LOCAL_PERF_PATH = os.path.join(
-            LOCAL_DATA_DIR, "Performance", f"performance_{args.server_id}.json"
+            LOCAL_DATA_DIR, "performance", f"performance_{args.server_id}.json"
         )
-        # e.g. "govscape/data/prod/Performance/performance_0.json"
+        # e.g. "govscape/data/prod/performance/performance_0.json"
         REMOTE_PERF_PATH = (
-            f"{REMOTE_DATA_DIR}/Performance/performance_{args.server_id}.json"
+            f"{REMOTE_DATA_DIR}/performance/performance_{args.server_id}.json"
         )
-        # e.g. "prod-serving/Performance/performance_0.json"
+        # e.g. "prod-serving/performance/performance_0.json"
 
         os.makedirs(LOCAL_DATA_DIR, exist_ok=True)
         os.makedirs(LOCAL_PDF_DIR, exist_ok=True)

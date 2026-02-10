@@ -82,27 +82,27 @@ if __name__ == "__main__":
     # 'govscape/data/prod/index/'
     REMOTE_CHECKPOINT_PATH = (
         REMOTE_DATA_DIR
-        + "/Checkpoints/"
+        + "/checkpoints/"
         + "checkpoint_"
         + REMOTE_INDEX_PREFIX
         + ".json"
-    )  # 'prod-serving/Checkpoints/index_checkpoint.json'
+    )  # 'prod-serving/checkpoints/index_checkpoint.json'
     LOCAL_CHECKPOINT_PATH = os.path.join(
-        LOCAL_DATA_DIR, "Checkpoints", "checkpoint_" + REMOTE_INDEX_PREFIX + ".json"
+        LOCAL_DATA_DIR, "checkpoints", "checkpoint_" + REMOTE_INDEX_PREFIX + ".json"
     )
-    # 'govscape/data/prod/Checkpoints/checkpoint_index.json'
+    # 'govscape/data/prod/checkpoints/checkpoint_index.json'
     REMOTE_PERFORMANCE_PATH = (
         REMOTE_DATA_DIR
-        + "/Performance/"
+        + "/performance/"
         + "performance_"
         + REMOTE_INDEX_PREFIX
         + ".json"
     )
-    # 'prod-serving/Performance/index_performance.json'
+    # 'prod-serving/performance/index_performance.json'
     LOCAL_PERFORMANCE_PATH = os.path.join(
-        LOCAL_DATA_DIR, "Performance", "performance_" + REMOTE_INDEX_PREFIX + ".json"
+        LOCAL_DATA_DIR, "performance", "performance_" + REMOTE_INDEX_PREFIX + ".json"
     )
-    # 'govscape/data/prod/Performance/performance_index.json'
+    # 'govscape/data/prod/performance/performance_index.json'
 
     os.makedirs(LOCAL_DATA_DIR, exist_ok=True)
     os.makedirs(LOCAL_EMBEDDING_DIR, exist_ok=True)

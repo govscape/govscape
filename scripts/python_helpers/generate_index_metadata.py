@@ -64,9 +64,9 @@ def main():
     LOCAL_PARQUET_PATH = os.path.join(LOCAL_DATA_DIR, "cdx_metadata.parquet")
     LOCAL_INDEX_PATH = os.path.join(LOCAL_DATA_DIR, "metadata.db")
     REMOTE_INDEX_PATH = f"{OUT_DATA_DIR}/metadata.db"
-    REMOTE_CHECKPOINT_PATH = f"{OUT_DATA_DIR}/Checkpoints/checkpoint_metadata.json"
+    REMOTE_CHECKPOINT_PATH = f"{OUT_DATA_DIR}/checkpoints/checkpoint_metadata.json"
     LOCAL_CHECKPOINT_PATH = os.path.join(
-        LOCAL_DATA_DIR, "Checkpoints", "checkpoint_metadata.json"
+        LOCAL_DATA_DIR, "checkpoints", "checkpoint_metadata.json"
     )
 
     os.makedirs(LOCAL_DATA_DIR, exist_ok=True)

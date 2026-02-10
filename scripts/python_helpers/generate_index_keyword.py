@@ -61,15 +61,15 @@ if __name__ == "__main__":
     REMOTE_INDEX_PREFIX = "index_keyword"
     REMOTE_INDEX_DIR = REMOTE_DATA_DIR + "/" + REMOTE_INDEX_PREFIX
     LOCAL_INDEX_DIR = os.path.join(LOCAL_DATA_DIR, REMOTE_INDEX_PREFIX)
-    REMOTE_CHECKPOINT_PATH = REMOTE_DATA_DIR + "/Checkpoints/checkpoint_text_index.json"
+    REMOTE_CHECKPOINT_PATH = REMOTE_DATA_DIR + "/checkpoints/checkpoint_text_index.json"
     LOCAL_CHECKPOINT_PATH = os.path.join(
-        LOCAL_DATA_DIR, "Checkpoints", "checkpoint_text_index.json"
+        LOCAL_DATA_DIR, "checkpoints", "checkpoint_text_index.json"
     )
     REMOTE_PERFORMANCE_PATH = (
-        REMOTE_DATA_DIR + "/Performance/performance_keyword_index.json"
+        REMOTE_DATA_DIR + "/performance/performance_keyword_index.json"
     )
     LOCAL_PERFORMANCE_PATH = os.path.join(
-        LOCAL_DATA_DIR, "Performance", "performance_keyword_index.json"
+        LOCAL_DATA_DIR, "performance", "performance_keyword_index.json"
     )
 
     if os.path.isdir(LOCAL_DATA_DIR):
