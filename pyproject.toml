@@ -21,6 +21,7 @@ awscli = "^1.42.66"
 botocore = {extras = ["crt"], version = "^1.42.39"}
 mypy = "^1.19.1"
 pre-commit = "^4.5.1"
+pytest-mypy = "^1.0.1"
 
 
 [build-system]
@@ -63,3 +64,7 @@ section-order = [
 [tool.mypy]
 ignore_missing_imports = true
 exclude = ["tests/reference", "src/finchlite/codegen/stc"]
+
+[[tool.mypy.overrides]]
+module = ["untyped_package.*"]
+follow_untyped_imports = true
