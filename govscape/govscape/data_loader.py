@@ -5,6 +5,8 @@ import json
 import os
 import shutil
 import subprocess
+import tarfile
+import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -50,8 +52,44 @@ class DataLoader(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def upload_directory(self, local_dir: str, remote_prefix: str) -> None:
+    def upload_directory(
+        self,
+        local_dir: str,
+        remote_prefix: str,
+        compress: bool = False,
+        chunk_size: int = 1000,
+    ) -> None:
         raise NotImplementedError
+
+    def _upload_directory_compressed(
+        self, local_dir: str, remote_prefix: str, chunk_size: int = 1000
+    ) -> None:
+        """Upload a directory as a series of compressed .tar.gz chunks.
+
+        Each chunk archive contains at most *chunk_size* files.  Archives are
+        named using a hash of their contents for uniqueness across concurrent
+        uploaders, e.g. ``chunk_<hash>.tar.gz``, and uploaded under
+        *remote_prefix*.
+        """
+        all_files: list[str] = []
+        for root, _, files in os.walk(local_dir):
+            for filename in files:
+                all_files.append(os.path.join(root, filename))
+        all_files.sort()
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            for chunk_idx in range(0, max(len(all_files), 1), chunk_size):
+                chunk_files = all_files[chunk_idx : chunk_idx + chunk_size]
+                if not chunk_files:
+                    break
+                chunk_hash = hash(tuple(chunk_files))
+                chunk_name = f"chunk_{chunk_hash}.tar.gz"
+                tar_path = os.path.join(tmp_dir, chunk_name)
+                with tarfile.open(tar_path, "w:gz") as tar:
+                    for file_path in chunk_files:
+                        arcname = os.path.relpath(file_path, local_dir)
+                        tar.add(file_path, arcname=arcname)
+            self.upload_directory(tmp_dir, remote_prefix, compress=False)
 
     @abstractmethod
     def copy_object(self, source_path: str, dest_path: str) -> None:
@@ -114,7 +152,16 @@ class S3DataLoader(DataLoader):
     def upload_bytes(self, data: bytes, remote_path: str) -> None:
         self.s3.put_object(Bucket=self.bucket_name, Key=remote_path, Body=data)
 
-    def upload_directory(self, local_dir: str, remote_prefix: str) -> None:
+    def upload_directory(
+        self,
+        local_dir: str,
+        remote_prefix: str,
+        compress: bool = False,
+        chunk_size: int = 1000,
+    ) -> None:
+        if compress:
+            self._upload_directory_compressed(local_dir, remote_prefix, chunk_size)
+            return
         normalized_local_dir = local_dir.rstrip("/") + "/"
         normalized_prefix = remote_prefix.rstrip("/") + "/"
         subprocess.run(
@@ -201,7 +248,16 @@ class LocalDataLoader(DataLoader):
         with open(dest_path, "wb") as f:
             f.write(data)
 
-    def upload_directory(self, local_dir: str, remote_prefix: str) -> None:
+    def upload_directory(
+        self,
+        local_dir: str,
+        remote_prefix: str,
+        compress: bool = False,
+        chunk_size: int = 1000,
+    ) -> None:
+        if compress:
+            self._upload_directory_compressed(local_dir, remote_prefix, chunk_size)
+            return
         for root, _, files in os.walk(local_dir):
             for filename in files:
                 local_path = os.path.join(root, filename)
