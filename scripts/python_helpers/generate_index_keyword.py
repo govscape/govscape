@@ -171,7 +171,8 @@ if __name__ == "__main__":
             print("No existing performance file found. Starting fresh.")
         overall_start_time = time.time()
         files_processed = 0
-        max_files_to_process = NUM_PAGES_TO_PROCESS * 1000
+        # Each page of results corresponds to 1 gzipped batch file
+        max_files_to_process = NUM_PAGES_TO_PROCESS
         while files_processed < max_files_to_process:
             print("-" * 93)
             print("FILES PROCESSED: ", files_processed)

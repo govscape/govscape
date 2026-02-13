@@ -179,9 +179,10 @@ if __name__ == "__main__":
     # overall method that gets the files in batches and runs them through the pipeline
     def batched_file_download(BATCH_SIZE):
         overall_start_time = time.time()
-        # Progress checkpoint is now managed by DataLoader
+        # Progress checkpoint is now managed by DataLoader\
 
-        max_files_to_process = NUM_PAGES_TO_PROCESS * 1000
+        # Each page of results corresponds to 1 gzipped batch file
+        max_files_to_process = NUM_PAGES_TO_PROCESS
         files_processed = 0
         while files_processed < max_files_to_process:
             print("-" * 93)

@@ -112,7 +112,9 @@ def main():
     # Create the metadata table
     index.build_index()
     files_processed = 0
-    max_files_to_process = NUM_PAGES_TO_PROCESS * 1000
+
+    # Each page of results corresponds to 1 gzipped batch file
+    max_files_to_process = NUM_PAGES_TO_PROCESS
     # get the metadata files from backend
     while files_processed < max_files_to_process:
         os.makedirs(LOCAL_METADATA_DIR, exist_ok=True)

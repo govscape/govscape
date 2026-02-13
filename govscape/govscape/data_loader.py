@@ -5,6 +5,8 @@ import json
 import os
 import shutil
 import subprocess
+import tarfile
+import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -38,8 +40,29 @@ class DataLoader(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def download_file(self, remote_path: str, local_path: str) -> str:
+    def download_file(
+        self, remote_path: str, local_path: str, decompress: bool = False
+    ) -> list[str]:
         raise NotImplementedError
+
+    @staticmethod
+    def _decompress_tar_gz(tar_path: str) -> list[str]:
+        """Extract a .tar.gz archive into its parent directory and remove it.
+
+        Returns the list of extracted file paths (excludes directories).
+        """
+        extract_dir = os.path.dirname(tar_path)
+        extracted_files: list[str] = []
+        with tarfile.open(tar_path, "r:gz") as tar:
+            for member in tar.getmembers():
+                dest = os.path.join(extract_dir, member.name)
+                if member.isdir() and os.path.isdir(dest):
+                    continue
+                tar.extract(member, path=extract_dir)
+                if not member.isdir():
+                    extracted_files.append(dest)
+        os.remove(tar_path)
+        return extracted_files
 
     @abstractmethod
     def upload_file(self, local_path: str, remote_path: str) -> None:
@@ -50,8 +73,49 @@ class DataLoader(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def upload_directory(self, local_dir: str, remote_prefix: str) -> None:
+    def upload_directory(
+        self,
+        local_dir: str,
+        remote_prefix: str,
+        compress: bool = False,
+        chunk_size: int = 1000,
+    ) -> None:
         raise NotImplementedError
+
+    def _upload_directory_compressed(
+        self, local_dir: str, remote_prefix: str, chunk_size: int = 1000
+    ) -> None:
+        """Upload a directory as a series of compressed .tar.gz chunks.
+
+        Each chunk archive contains at most *chunk_size* files.  Archives are
+        named using a hash of their contents for uniqueness across concurrent
+        uploaders, e.g. ``chunk_<hash>.tar.gz``, and uploaded under
+        *remote_prefix*.
+        """
+        all_files: list[str] = [
+            os.path.join(root, filename)
+            for root, _, files in os.walk(local_dir)
+            for filename in files
+        ]
+        all_files.sort()
+
+        # If there are no files to upload, do nothing.
+        if not all_files:
+            return
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            for chunk_idx in range(0, len(all_files), chunk_size):
+                chunk_files = all_files[chunk_idx : chunk_idx + chunk_size]
+                if not chunk_files:
+                    break
+                chunk_hash = hash(tuple(chunk_files))
+                chunk_name = f"chunk_{chunk_hash}.tar.gz"
+                tar_path = os.path.join(tmp_dir, chunk_name)
+                with tarfile.open(tar_path, "w:gz") as tar:
+                    for file_path in chunk_files:
+                        arcname = os.path.relpath(file_path, local_dir)
+                        tar.add(file_path, arcname=arcname)
+            self.upload_directory(tmp_dir, remote_prefix, compress=False)
 
     @abstractmethod
     def copy_object(self, source_path: str, dest_path: str) -> None:
@@ -103,10 +167,14 @@ class S3DataLoader(DataLoader):
             continuation_token=self._continuation_token,
         )
 
-    def download_file(self, remote_path: str, local_path: str) -> str:
+    def download_file(
+        self, remote_path: str, local_path: str, decompress: bool = False
+    ) -> list[str]:
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         self.s3.download_file(self.bucket_name, remote_path, local_path)
-        return local_path
+        if decompress and local_path.endswith(".tar.gz"):
+            return self._decompress_tar_gz(local_path)
+        return [local_path]
 
     def upload_file(self, local_path: str, remote_path: str) -> None:
         self.s3.upload_file(local_path, self.bucket_name, remote_path)
@@ -114,7 +182,16 @@ class S3DataLoader(DataLoader):
     def upload_bytes(self, data: bytes, remote_path: str) -> None:
         self.s3.put_object(Bucket=self.bucket_name, Key=remote_path, Body=data)
 
-    def upload_directory(self, local_dir: str, remote_prefix: str) -> None:
+    def upload_directory(
+        self,
+        local_dir: str,
+        remote_prefix: str,
+        compress: bool = False,
+        chunk_size: int = 1000,
+    ) -> None:
+        if compress:
+            self._upload_directory_compressed(local_dir, remote_prefix, chunk_size)
+            return
         normalized_local_dir = local_dir.rstrip("/") + "/"
         normalized_prefix = remote_prefix.rstrip("/") + "/"
         subprocess.run(
@@ -184,11 +261,15 @@ class LocalDataLoader(DataLoader):
             continuation_token=continuation_token,
         )
 
-    def download_file(self, remote_path: str, local_path: str) -> str:
+    def download_file(
+        self, remote_path: str, local_path: str, decompress: bool = False
+    ) -> list[str]:
         source_path = self._resolve(remote_path)
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         shutil.copy2(source_path, local_path)
-        return local_path
+        if decompress and local_path.endswith(".tar.gz"):
+            return self._decompress_tar_gz(local_path)
+        return [local_path]
 
     def upload_file(self, local_path: str, remote_path: str) -> None:
         dest_path = self._resolve(remote_path)
@@ -201,7 +282,16 @@ class LocalDataLoader(DataLoader):
         with open(dest_path, "wb") as f:
             f.write(data)
 
-    def upload_directory(self, local_dir: str, remote_prefix: str) -> None:
+    def upload_directory(
+        self,
+        local_dir: str,
+        remote_prefix: str,
+        compress: bool = False,
+        chunk_size: int = 1000,
+    ) -> None:
+        if compress:
+            self._upload_directory_compressed(local_dir, remote_prefix, chunk_size)
+            return
         for root, _, files in os.walk(local_dir):
             for filename in files:
                 local_path = os.path.join(root, filename)
@@ -277,6 +367,7 @@ class RemoteDirectoryIterator:
             with open(self.local_checkpoint_path) as f:
                 checkpoint_data = json.load(f)
                 self._continuation_token = checkpoint_data.get("continuation_token")
+                self.finished = checkpoint_data.get("finished", False)
         else:
             self._continuation_token = None
 
@@ -284,7 +375,13 @@ class RemoteDirectoryIterator:
         checkpoint_dir = os.path.dirname(self.local_checkpoint_path)
         os.makedirs(checkpoint_dir, exist_ok=True)
         with open(self.local_checkpoint_path, "w") as f:
-            json.dump({"continuation_token": self._continuation_token}, f)
+            json.dump(
+                {
+                    "continuation_token": self._continuation_token,
+                    "finished": self.finished,
+                },
+                f,
+            )
         self.data_loader.upload_file(
             self.local_checkpoint_path, self.remote_checkpoint_path
         )
@@ -317,16 +414,40 @@ class RemoteDirectoryIterator:
             )
             self._continuation_token = result.continuation_token
             keys = result.keys
+
+            # Separate compressed archives from regular files so .tar.gz
+            # archives can be decompressed and their contents returned.
+            tar_keys = [k for k in keys if k.endswith(".tar.gz")]
+            regular_keys = [k for k in keys if not k.endswith(".tar.gz")]
             if filter_fn:
-                keys = [key for key in keys if filter_fn(key)]
-            if keys:
+                regular_keys = [k for k in regular_keys if filter_fn(k)]
+
+            if regular_keys:
                 pairs = [
                     (key, self._build_local_path(self.prefix, key, self.local_dir))
-                    for key in keys
+                    for key in regular_keys
                 ]
                 downloaded_paths.extend(
                     self._download_files_parallel(pairs, num_workers=num_workers)
                 )
+
+            if tar_keys:
+                tar_pairs = [
+                    (key, self._build_local_path(self.prefix, key, self.local_dir))
+                    for key in tar_keys
+                ]
+                extracted = self._download_files_parallel(
+                    tar_pairs, num_workers=num_workers, decompress=True
+                )
+                downloaded_paths.extend(
+                    [
+                        fpath
+                        for fpath in extracted
+                        if filter_fn is None or filter_fn(fpath)
+                    ]
+                )
+
+            if regular_keys or tar_keys:
                 remaining = max_keys - len(downloaded_paths)
                 if remaining <= 0:
                     break
@@ -339,6 +460,7 @@ class RemoteDirectoryIterator:
         self,
         pairs: list[tuple[str, str]],
         num_workers: int | None = None,
+        decompress: bool = False,
     ) -> list[str]:
         if num_workers is None:
             num_workers = min(10, (os.cpu_count() or 1) * 5)
@@ -346,7 +468,12 @@ class RemoteDirectoryIterator:
         max_workers = min(num_workers, len(pairs))
         remote_paths = [pair[0] for pair in pairs]
         local_paths = [pair[1] for pair in pairs]
+        decompress_flags = [decompress] * len(pairs)
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            return list(
-                executor.map(self.data_loader.download_file, remote_paths, local_paths)
+            results = executor.map(
+                self.data_loader.download_file,
+                remote_paths,
+                local_paths,
+                decompress_flags,
             )
+            return [path for file_list in results for path in file_list]

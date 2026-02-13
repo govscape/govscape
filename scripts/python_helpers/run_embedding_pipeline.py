@@ -13,11 +13,6 @@ import govscape as gs
 # ---------------------------------------------------------------------------
 
 
-# uploads dir of files to s3
-def upload_directory_to_backend(data_loader, local_dir, remote_dir):
-    data_loader.upload_directory(local_dir, remote_dir)
-
-
 # processing the pdfs: running through embedding pipeline and uploading to s3
 def process_pdfs(
     pdf_files,
@@ -54,31 +49,32 @@ def process_pdfs(
     time1 = time.time()
     # UPLOADING EMBEDDINGS, TXTS, IMAGES TO S3 HERE
     if do_text_embedding or do_img_embedding:
-        upload_directory_to_backend(
-            data_loader, txt_directory, os.path.join(data_dir_backend, "txt")
+        data_loader.upload_directory(
+            txt_directory, os.path.join(data_dir_backend, "txt"), compress=False
         )
         print("finished uploading txt")
-        upload_directory_to_backend(
-            data_loader, image_directory, os.path.join(data_dir_backend, "img")
+
+        data_loader.upload_directory(
+            image_directory, os.path.join(data_dir_backend, "img"), compress=False
         )
         print("finished uploading img")
     if do_text_embedding:
-        upload_directory_to_backend(
-            data_loader,
+        data_loader.upload_directory(
             embeddings_directory,
             os.path.join(data_dir_backend, "embeddings"),
+            compress=False,
         )
         print("finished uploading embeddings")
     if do_img_embedding:
-        upload_directory_to_backend(
-            data_loader,
+        data_loader.upload_directory(
             embeddings_img_pg_directory,
             os.path.join(data_dir_backend, "embeddings_img_pg"),
+            compress=False,
         )
         print("finished uploading embed img pg")
     if do_metadata_collection:
-        upload_directory_to_backend(
-            data_loader, metadata_dir, os.path.join(data_dir_backend, "metadata")
+        data_loader.upload_directory(
+            metadata_dir, os.path.join(data_dir_backend, "metadata"), compress=False
         )
         print("finished uploading metadata")
 
