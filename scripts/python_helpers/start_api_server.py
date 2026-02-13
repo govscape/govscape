@@ -28,7 +28,7 @@ def _get_arg_parser():
         required=True,
         help="Remote data directory to use",
     )
-    parser.add_argument(    
+    parser.add_argument(
         "-d",
         "--local_data_directory",
         default="data/prod",

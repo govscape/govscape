@@ -35,7 +35,9 @@ if __name__ == "__main__":
         help="Number of pages to process at a time",
     )
     parser.add_argument("--bucket_name", type=str, help="S3 Bucket Name")
-    parser.add_argument("--remote_data_dir", type=str, help="Remote Directory for input data")
+    parser.add_argument(
+        "--remote_data_dir", type=str, help="Remote Directory for input data"
+    )
     parser.add_argument(
         "--embedding_prefix", type=str, help="S3 Prefix for embedding files"
     )
@@ -68,12 +70,16 @@ if __name__ == "__main__":
     )  # 'govscape/'
     LOCAL_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "prod")  # 'govscape/data/prod/'
     REMOTE_DATA_DIR = args.remote_data_dir  # 'prod-serving/'
-    REMOTE_EMBEDDING_DIR = os.path.join(REMOTE_DATA_DIR, args.embedding_prefix)  # 'prod-serving/embeddings/'
+    REMOTE_EMBEDDING_DIR = os.path.join(
+        REMOTE_DATA_DIR, args.embedding_prefix
+    )  # 'prod-serving/embeddings/'
     LOCAL_EMBEDDING_DIR = os.path.join(
         LOCAL_DATA_DIR, args.embedding_prefix.replace("/", "")
-    ) # 'govscape/data/prod/embeddings/'
+    )  # 'govscape/data/prod/embeddings/'
     REMOTE_INDEX_PREFIX = args.out_index_prefix.rstrip("/")  # 'index', 'index_img_pg'
-    REMOTE_INDEX_DIR = os.path.join(REMOTE_DATA_DIR, REMOTE_INDEX_PREFIX)  # 'prod-serving/index'
+    REMOTE_INDEX_DIR = os.path.join(
+        REMOTE_DATA_DIR, REMOTE_INDEX_PREFIX
+    )  # 'prod-serving/index'
     LOCAL_INDEX_DIR = os.path.join(LOCAL_DATA_DIR, REMOTE_INDEX_PREFIX)
     # 'govscape/data/prod/index/'
     REMOTE_CHECKPOINT_PATH = os.path.join(

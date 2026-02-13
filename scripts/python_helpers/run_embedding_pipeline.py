@@ -173,7 +173,9 @@ if __name__ == "__main__":
             help="Base directory for local backend",
         )
         parser.add_argument("--pdf_dir", type=str, help="Directory containing PDFs")
-        parser.add_argument("--remote_data_dir", type=str, help="Directory for output data")
+        parser.add_argument(
+            "--remote_data_dir", type=str, help="Directory for output data"
+        )
         args = parser.parse_args()
         NUM_PAGES_TO_PROCESS = args.num_pages_to_process
         BATCH_SIZE = args.batch_size
@@ -213,8 +215,9 @@ if __name__ == "__main__":
         )
         # e.g. "govscape/data/prod/checkpoints/checkpoint_embedding_pipeline_0.json"
         REMOTE_CHECKPOINT_PATH = os.path.join(
-            REMOTE_DATA_DIR, "checkpoints",
-            f"checkpoint_embedding_pipeline_{args.server_id}.json"
+            REMOTE_DATA_DIR,
+            "checkpoints",
+            f"checkpoint_embedding_pipeline_{args.server_id}.json",
         )
         # e.g. "prod-serving/checkpoints/checkpoint_embedding_pipeline_0.json"
         LOCAL_PERF_PATH = os.path.join(

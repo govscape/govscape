@@ -29,7 +29,9 @@ def main():
     parser.add_argument(
         "--cdx_parquet_key", required=True, help="S3 Key for CDX parquet file"
     )
-    parser.add_argument("--remote_data_dir", required=True, help="Remote Data Directory")
+    parser.add_argument(
+        "--remote_data_dir", required=True, help="Remote Data Directory"
+    )
     parser.add_argument(
         "--num_pages_to_process",
         type=int,
@@ -63,7 +65,9 @@ def main():
     LOCAL_CDX_PATH = os.path.join(LOCAL_DATA_DIR, "CDX", "cdx_metadata.parquet")
     LOCAL_INDEX_PATH = os.path.join(LOCAL_DATA_DIR, "metadata.db")
     REMOTE_INDEX_PATH = os.path.join(REMOTE_DATA_DIR, "index_metadata", "metadata.db")
-    REMOTE_CHECKPOINT_PATH = os.path.join(REMOTE_DATA_DIR, "checkpoints", "checkpoint_metadata.json")
+    REMOTE_CHECKPOINT_PATH = os.path.join(
+        REMOTE_DATA_DIR, "checkpoints", "checkpoint_metadata.json"
+    )
     LOCAL_CHECKPOINT_PATH = os.path.join(
         LOCAL_DATA_DIR, "checkpoints", "checkpoint_metadata.json"
     )
