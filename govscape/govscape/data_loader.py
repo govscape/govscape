@@ -1,3 +1,4 @@
+# AI modified: 2026-02-13 5e12f16b
 from __future__ import annotations
 
 import contextlib
@@ -49,17 +50,24 @@ class DataLoader(ABC):
     def _decompress_tar_gz(tar_path: str) -> list[str]:
         """Extract a .tar.gz archive into its parent directory and remove it.
 
+        Extraction happens in a private temporary directory first and the
+        results are moved to the final destination so that concurrent calls
+        operating on the same parent directory do not race with each other.
+
         Returns the list of extracted file paths (excludes directories).
         """
         extract_dir = os.path.dirname(tar_path)
         extracted_files: list[str] = []
-        with tarfile.open(tar_path, "r:gz") as tar:
-            for member in tar.getmembers():
-                dest = os.path.join(extract_dir, member.name)
-                if member.isdir() and os.path.isdir(dest):
-                    continue
-                tar.extract(member, path=extract_dir)
-                if not member.isdir():
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with tarfile.open(tar_path, "r:gz") as tar:
+                tar.extractall(path=tmp_dir)
+            for root, _, files in os.walk(tmp_dir):
+                for filename in files:
+                    tmp_file = os.path.join(root, filename)
+                    rel_path = os.path.relpath(tmp_file, tmp_dir)
+                    dest = os.path.join(extract_dir, rel_path)
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    shutil.move(tmp_file, dest)
                     extracted_files.append(dest)
         os.remove(tar_path)
         return extracted_files
