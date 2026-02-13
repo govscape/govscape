@@ -460,7 +460,7 @@ class RemoteDirectoryIterator:
                 break
 
             if regular_keys or tar_keys:
-                remaining = max_keys - len(downloaded_paths)
+                remaining = max_keys - len(regular_keys) - len(tar_keys)
                 if remaining <= 0:
                     break
         return downloaded_paths
