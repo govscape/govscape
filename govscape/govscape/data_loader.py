@@ -40,8 +40,18 @@ class DataLoader(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def download_file(self, remote_path: str, local_path: str) -> str:
+    def download_file(
+        self, remote_path: str, local_path: str, decompress: bool = False
+    ) -> str:
         raise NotImplementedError
+
+    @staticmethod
+    def _decompress_tar_gz(tar_path: str) -> None:
+        """Extract a .tar.gz archive into its parent directory and remove it."""
+        extract_dir = os.path.dirname(tar_path)
+        with tarfile.open(tar_path, "r:gz") as tar:
+            tar.extractall(path=extract_dir)
+        os.remove(tar_path)
 
     @abstractmethod
     def upload_file(self, local_path: str, remote_path: str) -> None:
@@ -141,9 +151,13 @@ class S3DataLoader(DataLoader):
             continuation_token=self._continuation_token,
         )
 
-    def download_file(self, remote_path: str, local_path: str) -> str:
+    def download_file(
+        self, remote_path: str, local_path: str, decompress: bool = False
+    ) -> str:
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         self.s3.download_file(self.bucket_name, remote_path, local_path)
+        if decompress and local_path.endswith(".tar.gz"):
+            self._decompress_tar_gz(local_path)
         return local_path
 
     def upload_file(self, local_path: str, remote_path: str) -> None:
@@ -231,10 +245,14 @@ class LocalDataLoader(DataLoader):
             continuation_token=continuation_token,
         )
 
-    def download_file(self, remote_path: str, local_path: str) -> str:
+    def download_file(
+        self, remote_path: str, local_path: str, decompress: bool = False
+    ) -> str:
         source_path = self._resolve(remote_path)
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         shutil.copy2(source_path, local_path)
+        if decompress and local_path.endswith(".tar.gz"):
+            self._decompress_tar_gz(local_path)
         return local_path
 
     def upload_file(self, local_path: str, remote_path: str) -> None:
