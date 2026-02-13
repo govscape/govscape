@@ -92,14 +92,19 @@ class DataLoader(ABC):
         uploaders, e.g. ``chunk_<hash>.tar.gz``, and uploaded under
         *remote_prefix*.
         """
-        all_files: list[str] = []
-        for root, _, files in os.walk(local_dir):
-            for filename in files:
-                all_files.append(os.path.join(root, filename))
+        all_files: list[str] = [
+            os.path.join(root, filename)
+            for root, _, files in os.walk(local_dir)
+            for filename in files
+        ]
         all_files.sort()
 
+        # If there are no files to upload, do nothing.
+        if not all_files:
+            return
+
         with tempfile.TemporaryDirectory() as tmp_dir:
-            for chunk_idx in range(0, max(len(all_files), 1), chunk_size):
+            for chunk_idx in range(0, len(all_files), chunk_size):
                 chunk_files = all_files[chunk_idx : chunk_idx + chunk_size]
                 if not chunk_files:
                     break
@@ -258,7 +263,7 @@ class LocalDataLoader(DataLoader):
 
     def download_file(
         self, remote_path: str, local_path: str, decompress: bool = False
-    ) -> str:
+    ) -> list[str]:
         source_path = self._resolve(remote_path)
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         shutil.copy2(source_path, local_path)
@@ -434,9 +439,13 @@ class RemoteDirectoryIterator:
                 extracted = self._download_files_parallel(
                     tar_pairs, num_workers=num_workers, decompress=True
                 )
-                for fpath in extracted:
-                    if filter_fn is None or filter_fn(fpath):
-                        downloaded_paths.append(fpath)
+                downloaded_paths.extend(
+                    [
+                        fpath
+                        for fpath in extracted
+                        if filter_fn is None or filter_fn(fpath)
+                    ]
+                )
 
             if regular_keys or tar_keys:
                 remaining = max_keys - len(downloaded_paths)
