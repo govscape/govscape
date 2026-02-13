@@ -78,10 +78,11 @@ def test_upload_directory_compressed(tmp_path: Path) -> None:
     # Build the expected chunk names using the same hash logic as the
     # implementation: collect all files sorted, split into chunks, and hash
     # each chunk's file-path tuple.
-    all_files: list[str] = []
-    for root, _, files in os.walk(str(source_dir)):
-        for filename in files:
-            all_files.append(os.path.join(root, filename))
+    all_files: list[str] = [
+        os.path.join(root, filename)
+        for root, _, files in os.walk(str(source_dir))
+        for filename in files
+    ]
     all_files.sort()
 
     expected_names: list[str] = []
@@ -169,9 +170,7 @@ def test_remote_directory_iterator_compressed(tmp_path: Path) -> None:
     loader = LocalDataLoader(base_dir=str(base_dir))
 
     # Upload with small chunk_size to force multiple .tar.gz archives.
-    loader.upload_directory(
-        str(source_dir), remote_prefix, compress=True, chunk_size=8
-    )
+    loader.upload_directory(str(source_dir), remote_prefix, compress=True, chunk_size=8)
 
     # Verify multiple chunks were created.
     dest_dir = base_dir / remote_prefix
@@ -198,16 +197,12 @@ def test_remote_directory_iterator_compressed(tmp_path: Path) -> None:
 
     # No .tar.gz files should remain in the download directory.
     remaining_tar = [
-        f
-        for f in Path(str(download_dir)).rglob("*")
-        if f.name.endswith(".tar.gz")
+        f for f in Path(str(download_dir)).rglob("*") if f.name.endswith(".tar.gz")
     ]
     assert len(remaining_tar) == 0, "tar.gz files should be cleaned up"
 
     # All .npy files from the source should have been extracted.
-    extracted_npy = sorted(
-        os.path.relpath(p, str(download_dir)) for p in batch1
-    )
+    extracted_npy = sorted(os.path.relpath(p, str(download_dir)) for p in batch1)
     assert extracted_npy == npy_files_created
 
     # Subdirectory structure should be preserved.
