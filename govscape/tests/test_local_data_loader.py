@@ -1,4 +1,3 @@
-# AI modified: 2025-02-13 525524a525e5ade4b8c714baa8be2c27c0027393
 import math
 import os
 from pathlib import Path
@@ -138,3 +137,96 @@ def test_download_file_decompress(tmp_path: Path) -> None:
         extracted = sorted(f.name for f in (download_dir / subdir).iterdir())
         expected = sorted(f"file_{i}.txt" for i in range(num_files))
         assert extracted == expected
+
+
+def test_remote_directory_iterator_compressed(tmp_path: Path) -> None:
+    """Round-trip test: upload with compression, iterate with RemoteDirectoryIterator.
+
+    Verifies that RemoteDirectoryIterator transparently decompresses .tar.gz
+    chunks, returns the correct extracted file paths, respects filter_fn,
+    handles multiple chunks via batching, and works with checkpointing.
+    """
+    base_dir = tmp_path / "data"
+    download_dir = tmp_path / "download"
+    source_dir = tmp_path / "source"
+    remote_prefix = "compressed_files"
+    checkpoint_path = os.path.join(str(base_dir), "checkpoints", "checkpoint.json")
+    local_checkpoint_path = str(tmp_path / "local_checkpoint.json")
+
+    # Create 15 .npy files and 5 .txt files across subdirectories so we can
+    # verify filter_fn works on the extracted contents.
+    npy_files_created: list[str] = []
+    for i in range(15):
+        subdir = f"doc_{i // 5}"
+        name = f"embedding_{i}.npy"
+        _touch(source_dir / subdir / name)
+        npy_files_created.append(os.path.join(subdir, name))
+    for i in range(5):
+        subdir = f"doc_{i // 5}"
+        _touch(source_dir / subdir / f"notes_{i}.txt")
+    npy_files_created.sort()
+
+    loader = LocalDataLoader(base_dir=str(base_dir))
+
+    # Upload with small chunk_size to force multiple .tar.gz archives.
+    loader.upload_directory(
+        str(source_dir), remote_prefix, compress=True, chunk_size=8
+    )
+
+    # Verify multiple chunks were created.
+    dest_dir = base_dir / remote_prefix
+    tar_files = [f for f in dest_dir.iterdir() if f.name.endswith(".tar.gz")]
+    assert len(tar_files) >= 2, "Expected multiple compressed chunks"
+
+    # --- Batch 1: download first batch with a filter for .npy files only ---
+    remote_iter = RemoteDirectoryIterator(
+        loader,
+        remote_prefix,
+        checkpoint_path,
+        local_checkpoint_path,
+        local_dir=str(download_dir),
+    )
+
+    batch1 = remote_iter.download_batch(
+        max_keys=1000,
+        filter_fn=lambda key: key.endswith(".npy"),
+    )
+
+    # Only .npy files should be returned.
+    assert len(batch1) > 0
+    assert all(p.endswith(".npy") for p in batch1)
+
+    # No .tar.gz files should remain in the download directory.
+    remaining_tar = [
+        f
+        for f in Path(str(download_dir)).rglob("*")
+        if f.name.endswith(".tar.gz")
+    ]
+    assert len(remaining_tar) == 0, "tar.gz files should be cleaned up"
+
+    # All .npy files from the source should have been extracted.
+    extracted_npy = sorted(
+        os.path.relpath(p, str(download_dir)) for p in batch1
+    )
+    assert extracted_npy == npy_files_created
+
+    # Subdirectory structure should be preserved.
+    extracted_dirs = sorted(
+        d.name for d in Path(str(download_dir)).iterdir() if d.is_dir()
+    )
+    assert "doc_0" in extracted_dirs
+    assert "doc_1" in extracted_dirs
+    assert "doc_2" in extracted_dirs
+
+    # --- Verify checkpointing: a new iterator should have nothing left ---
+    remote_iter.save_checkpoint()
+    remote_iter2 = RemoteDirectoryIterator(
+        loader,
+        remote_prefix,
+        checkpoint_path,
+        local_checkpoint_path,
+        local_dir=str(download_dir),
+    )
+    batch2 = remote_iter2.download_batch(max_keys=1000)
+    # The first iterator consumed all pages, so the second should be empty.
+    assert len(batch2) == 0
