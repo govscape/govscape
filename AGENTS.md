@@ -14,5 +14,5 @@ there are existing AI comments, add yours right after them.
 - Don't explain every line with a separate comment, use comments for complex chunks of code,
   or DSL logic. Don't write docstrings for single-line or simple functions/methods.
 - Use structures and code style that are already present in the codebase. Don't introduce
-  another approach for new changes. 
+  another approach for new changes.
 - Read `CONTRIBUTING.md` file for more details how to build the project and run tests.
