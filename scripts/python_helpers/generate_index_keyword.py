@@ -28,8 +28,7 @@ if __name__ == "__main__":
         help="Number of pages to process at a time",
     )
     parser.add_argument("--bucket_name", type=str, help="S3 Bucket Name")
-    parser.add_argument("--in_data_dir", type=str, help="S3 Directory for input data")
-    parser.add_argument("--out_data_dir", type=str, help="S3 Directory for output data")
+    parser.add_argument("--remote_data_dir", type=str, help="Remote Data Directory")
     parser.add_argument(
         "--keyword_index_type",
         type=str,
@@ -55,18 +54,18 @@ if __name__ == "__main__":
     BUCKET_NAME = args.bucket_name  # 'bcgl-public-bucket'
     PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
     LOCAL_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "prod")
-    REMOTE_TXT_DIR = args.in_data_dir + "/txt"
+    REMOTE_DATA_DIR = args.remote_data_dir  # 'prod-serving/'
+    REMOTE_TXT_DIR = os.path.join(REMOTE_DATA_DIR, "txt")
     LOCAL_TXT_DIR = os.path.join(LOCAL_DATA_DIR, "txt")
-    REMOTE_DATA_DIR = args.out_data_dir  # 'prod-serving/'
     REMOTE_INDEX_PREFIX = "index_keyword"
-    REMOTE_INDEX_DIR = REMOTE_DATA_DIR + "/" + REMOTE_INDEX_PREFIX
+    REMOTE_INDEX_DIR = os.path.join(REMOTE_DATA_DIR, REMOTE_INDEX_PREFIX)
     LOCAL_INDEX_DIR = os.path.join(LOCAL_DATA_DIR, REMOTE_INDEX_PREFIX)
-    REMOTE_CHECKPOINT_PATH = REMOTE_DATA_DIR + "/checkpoints/checkpoint_text_index.json"
+    REMOTE_CHECKPOINT_PATH = os.path.join(REMOTE_DATA_DIR, "checkpoints", "checkpoint_text_index.json")
     LOCAL_CHECKPOINT_PATH = os.path.join(
         LOCAL_DATA_DIR, "checkpoints", "checkpoint_text_index.json"
     )
-    REMOTE_PERFORMANCE_PATH = (
-        REMOTE_DATA_DIR + "/performance/performance_keyword_index.json"
+    REMOTE_PERFORMANCE_PATH = os.path.join(
+        REMOTE_DATA_DIR, "performance", "performance_keyword_index.json"
     )
     LOCAL_PERFORMANCE_PATH = os.path.join(
         LOCAL_DATA_DIR, "performance", "performance_keyword_index.json"

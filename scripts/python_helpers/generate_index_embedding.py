@@ -35,11 +35,10 @@ if __name__ == "__main__":
         help="Number of pages to process at a time",
     )
     parser.add_argument("--bucket_name", type=str, help="S3 Bucket Name")
-    parser.add_argument("--in_data_dir", type=str, help="S3 Directory for input data")
+    parser.add_argument("--remote_data_dir", type=str, help="Remote Directory for input data")
     parser.add_argument(
         "--embedding_prefix", type=str, help="S3 Prefix for embedding files"
     )
-    parser.add_argument("--out_data_dir", type=str, help="S3 Directory for output data")
     parser.add_argument("--out_index_prefix", type=str, help="S3 Prefix for index data")
     parser.add_argument(
         "--index_type",
@@ -68,35 +67,24 @@ if __name__ == "__main__":
         os.path.join(os.path.dirname(__file__), "../../")
     )  # 'govscape/'
     LOCAL_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "prod")  # 'govscape/data/prod/'
-    REMOTE_EMBEDDING_DIR = args.in_data_dir + args.embedding_prefix  # 'prod-serving/
+    REMOTE_DATA_DIR = args.remote_data_dir  # 'prod-serving/'
+    REMOTE_EMBEDDING_DIR = os.path.join(REMOTE_DATA_DIR, args.embedding_prefix)  # 'prod-serving/embeddings/'
     LOCAL_EMBEDDING_DIR = os.path.join(
         LOCAL_DATA_DIR, args.embedding_prefix.replace("/", "")
-    )
-    # 'govscape/data/prod/embeddings/'
-    REMOTE_DATA_DIR = args.out_data_dir  # 'prod-serving/'
+    ) # 'govscape/data/prod/embeddings/'
     REMOTE_INDEX_PREFIX = args.out_index_prefix.rstrip("/")  # 'index', 'index_img_pg'
-    REMOTE_INDEX_DIR = (
-        REMOTE_DATA_DIR + "/" + REMOTE_INDEX_PREFIX
-    )  # 'prod-serving/index'
+    REMOTE_INDEX_DIR = os.path.join(REMOTE_DATA_DIR, REMOTE_INDEX_PREFIX)  # 'prod-serving/index'
     LOCAL_INDEX_DIR = os.path.join(LOCAL_DATA_DIR, REMOTE_INDEX_PREFIX)
     # 'govscape/data/prod/index/'
-    REMOTE_CHECKPOINT_PATH = (
-        REMOTE_DATA_DIR
-        + "/checkpoints/"
-        + "checkpoint_"
-        + REMOTE_INDEX_PREFIX
-        + ".json"
+    REMOTE_CHECKPOINT_PATH = os.path.join(
+        REMOTE_DATA_DIR, "checkpoints", "checkpoint_" + REMOTE_INDEX_PREFIX + ".json"
     )  # 'prod-serving/checkpoints/index_checkpoint.json'
     LOCAL_CHECKPOINT_PATH = os.path.join(
         LOCAL_DATA_DIR, "checkpoints", "checkpoint_" + REMOTE_INDEX_PREFIX + ".json"
     )
     # 'govscape/data/prod/checkpoints/checkpoint_index.json'
-    REMOTE_PERFORMANCE_PATH = (
-        REMOTE_DATA_DIR
-        + "/performance/"
-        + "performance_"
-        + REMOTE_INDEX_PREFIX
-        + ".json"
+    REMOTE_PERFORMANCE_PATH = os.path.join(
+        REMOTE_DATA_DIR, "performance", "performance_" + REMOTE_INDEX_PREFIX + ".json"
     )
     # 'prod-serving/performance/index_performance.json'
     LOCAL_PERFORMANCE_PATH = os.path.join(
@@ -137,7 +125,7 @@ if __name__ == "__main__":
     remote_existing_idx_files = data_loader.list_objects(REMOTE_INDEX_DIR)
     for remote_file in remote_existing_idx_files.keys:
         data_loader.download_file(
-            remote_file, LOCAL_INDEX_DIR + "/" + os.path.basename(remote_file)
+            remote_file, os.path.join(LOCAL_INDEX_DIR, os.path.basename(remote_file))
         )
 
     # Adding Embedding Files to the Index and Uploading to S3

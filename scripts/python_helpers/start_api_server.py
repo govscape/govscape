@@ -8,9 +8,30 @@ import govscape as gs
 def _get_arg_parser():
     parser = argparse.ArgumentParser(description="Start the GovScape API server")
     parser.add_argument(
+        "--backend",
+        default="local",
+        choices=["s3", "local"],
+        required=True,
+        help="Data backend to use",
+    )
+    parser.add_argument(
+        "--bucket_name", help="S3 bucket name (required if backend is s3)"
+    )
+    parser.add_argument(
+        "--local_base_dir",
+        type=str,
+        default="data",
+    )
+    parser.add_argument(
+        "--remote_data_directory",
+        default="test-serving",
+        required=True,
+        help="Remote data directory to use",
+    )
+    parser.add_argument(    
         "-d",
-        "--data-directory",
-        default="data/test_data",
+        "--local_data_directory",
+        default="data/prod",
         help="Directory containing data files",
     )
     parser.add_argument(
@@ -68,7 +89,7 @@ def _build_app_from_args(args):
         raise ValueError(f"Unsupported visual model: {args.visual_model}")
 
     index_config = gs.IndexConfig(
-        args.data_directory, args.vector_index_type, args.keyword_index_type
+        args.local_data_directory, args.vector_index_type, args.keyword_index_type
     )
 
     server_config = gs.ServerConfig(

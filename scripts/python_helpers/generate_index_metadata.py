@@ -26,17 +26,10 @@ BATCH_SIZE = 100000
 
 def main():
     parser = argparse.ArgumentParser(description="Process CDX files from S3.")
-    parser.add_argument("--bucket_name", required=True, help="S3 bucket name")
     parser.add_argument(
         "--cdx_parquet_key", required=True, help="S3 Key for CDX parquet file"
     )
-    parser.add_argument(
-        "--metadata_prefix", required=True, help="S3 Prefix for metadata"
-    )
-    parser.add_argument("--output_prefix", required=True, help="S3 Prefix for output")
-    parser.add_argument(
-        "--output_dir", required=True, help="Local directory to save output files"
-    )
+    parser.add_argument("--remote_data_dir", required=True, help="Remote Data Directory")
     parser.add_argument(
         "--num_pages_to_process",
         type=int,
@@ -46,6 +39,7 @@ def main():
     parser.add_argument(
         "--backend", choices=["s3", "local"], default="s3", help="Data backend to use"
     )
+    parser.add_argument("--bucket_name", help="S3 bucket name")
     parser.add_argument(
         "--local_base_dir",
         type=str,
@@ -57,19 +51,25 @@ def main():
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process
 
     # ---------------------------------------------------------------------------
-    LOCAL_DATA_DIR = args.output_dir
-    REMOTE_METADATA_DIR = args.metadata_prefix
-    OUT_DATA_DIR = args.output_prefix
-    LOCAL_METADATA_DIR = os.path.join(LOCAL_DATA_DIR, "metadata_files")
-    LOCAL_PARQUET_PATH = os.path.join(LOCAL_DATA_DIR, "cdx_metadata.parquet")
+    LOCAL_DATA_DIR = os.path.join(
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")),
+        "data",
+        "prod",
+    )
+    REMOTE_DATA_DIR = args.remote_data_dir
+    REMOTE_CDX_PATH = args.cdx_parquet_key
+    REMOTE_METADATA_DIR = os.path.join(REMOTE_DATA_DIR, "metadata")
+    LOCAL_METADATA_DIR = os.path.join(LOCAL_DATA_DIR, "metadata")
+    LOCAL_CDX_PATH = os.path.join(LOCAL_DATA_DIR, "CDX", "cdx_metadata.parquet")
     LOCAL_INDEX_PATH = os.path.join(LOCAL_DATA_DIR, "metadata.db")
-    REMOTE_INDEX_PATH = f"{OUT_DATA_DIR}/metadata.db"
-    REMOTE_CHECKPOINT_PATH = f"{OUT_DATA_DIR}/checkpoints/checkpoint_metadata.json"
+    REMOTE_INDEX_PATH = os.path.join(REMOTE_DATA_DIR, "index_metadata", "metadata.db")
+    REMOTE_CHECKPOINT_PATH = os.path.join(REMOTE_DATA_DIR, "checkpoints", "checkpoint_metadata.json")
     LOCAL_CHECKPOINT_PATH = os.path.join(
         LOCAL_DATA_DIR, "checkpoints", "checkpoint_metadata.json"
     )
 
     os.makedirs(LOCAL_DATA_DIR, exist_ok=True)
+    os.makedirs(os.path.join(LOCAL_DATA_DIR, "CDX"), exist_ok=True)
     os.makedirs(LOCAL_METADATA_DIR, exist_ok=True)
     os.makedirs(os.path.dirname(LOCAL_CHECKPOINT_PATH), exist_ok=True)
 
@@ -90,10 +90,10 @@ def main():
 
     # Download the CDX parquet file from S3
     print("Reading CDX data")
-    os.makedirs(os.path.dirname(LOCAL_PARQUET_PATH), exist_ok=True)
-    if not os.path.exists(LOCAL_PARQUET_PATH):
-        data_loader.download_file(args.cdx_parquet_key, LOCAL_PARQUET_PATH)
-    cdx_df = pd.read_parquet(LOCAL_PARQUET_PATH)
+    os.makedirs(os.path.dirname(LOCAL_CDX_PATH), exist_ok=True)
+    if not os.path.exists(LOCAL_CDX_PATH):
+        data_loader.download_file(REMOTE_CDX_PATH, LOCAL_CDX_PATH)
+    cdx_df = pd.read_parquet(LOCAL_CDX_PATH)
     cdx_df["digest"] = cdx_df["digest"].astype(str).str.replace("sha1:", "")
 
     print("Initializing Index")
