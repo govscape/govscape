@@ -187,14 +187,13 @@ def test_remote_directory_iterator_compressed(tmp_path: Path) -> None:
     )
 
     batch1 = remote_iter.download_batch(
-        max_keys=1000,
+        max_keys=4,
         filter_fn=lambda key: key.endswith(".npy"),
     )
 
     # Only .npy files should be returned.
-    assert len(batch1) > 0
+    assert len(batch1) == 15
     assert all(p.endswith(".npy") for p in batch1)
-
     # No .tar.gz files should remain in the download directory.
     remaining_tar = [
         f for f in Path(str(download_dir)).rglob("*") if f.name.endswith(".tar.gz")
@@ -222,6 +221,6 @@ def test_remote_directory_iterator_compressed(tmp_path: Path) -> None:
         local_checkpoint_path,
         local_dir=str(download_dir),
     )
-    batch2 = remote_iter2.download_batch(max_keys=1000)
+    batch2 = remote_iter2.download_batch(max_keys=4)
     # The first iterator consumed all pages, so the second should be empty.
     assert len(batch2) == 0
