@@ -19,3 +19,4 @@ scripts/__pycache__/*
 .__pycache__/*
 .keyword_index_benchmark/*
 .vector_index_benchmark/*
+**/__pycache__/*

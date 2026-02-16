@@ -1,144 +1,164 @@
-import boto3
-import os
 import argparse
-import time
-import govscape as gs
-import torch
-import shutil
-import json
-import subprocess
 import math
-import numpy as np
-from botocore.config import Config
+import os
+import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from multiprocessing import Pool, cpu_count, get_context
 
-# ****************************************************************************************************
-# to run this file: poetry run python s3_ec2_embedding_pipeline.py 
-# ****************************************************************************************************
+import numpy as np
 
-def remove_sha1(bucket, sha1_keys):
-    config = Config(max_pool_connections=50)
-    s3 = boto3.client("s3", config=config)
+from govscape.data_loader import build_data_loader
+
+# ---------------------------------------------------------------------------
+# to run this file: poetry run python s3_ec2_embedding_pipeline.py
+# ---------------------------------------------------------------------------
+
+
+def _copy_and_delete(data_loader, sha1_key):
+    clean_key = sha1_key.replace("sha1:", "")
+    if clean_key == sha1_key:
+        return False, False
+    try:
+        data_loader.copy_object(sha1_key, clean_key)
+        copied = True
+    except Exception:
+        return False, False
+    try:
+        data_loader.delete_object(sha1_key)
+        deleted = True
+    except Exception as exc:
+        print(f"Error deleting {sha1_key}: {exc}")
+        deleted = False
+    return copied, deleted
+
+
+def remove_sha1(backend, bucket, local_base_dir, sha1_keys):
+    data_loader = build_data_loader(backend, bucket, local_base_dir)
     copied_properly = 0
     deleted_properly = 0
     for sha1_key in sha1_keys:
-        clean_key = sha1_key.replace('sha1:', '')
-        if (clean_key == sha1_key):
-            continue
-        correctly_copied = False
-        try:
-            response = s3.copy_object(
-                Bucket=bucket,
-                CopySource=f'/{bucket}/{sha1_key}',
-                Key=clean_key
-            )
+        copied, deleted = _copy_and_delete(data_loader, sha1_key)
+        if copied:
             copied_properly += 1
-            correctly_copied = True
-        except Exception as e:
-            pass
-        if correctly_copied:
-            try:
-                s3.delete_object(Bucket=bucket, Key=sha1_key)
-                deleted_properly += 1
-            except Exception as e:
-                print(f"Error deleting {sha1_key}: {e}")
+        if deleted:
+            deleted_properly += 1
 
     print(f"Copied {copied_properly} files to clean key.")
     print(f"Deleted {deleted_properly} files from directory.")
     return sha1_keys
 
-if __name__ == '__main__':
-    config = Config(max_pool_connections=50)
-    s3 = boto3.client("s3", config=config)
 
-    # FIELDS TO SET **************************************************************************************
+def _safe_future_result(future):
+    try:
+        return future.result()
+    except Exception as exc:
+        print(f"Error downloading {future}: {exc}")
+        return []
+
+
+if __name__ == "__main__":
+    # FIELDS TO SET --------------------------------------------------------
     parser = argparse.ArgumentParser(description="S3 EC2 Embedding Pipeline")
-    parser.add_argument('--num_pages_to_process', type=int, default=1000000, help='Number of pages to process from S3')
-    parser.add_argument('--batch_size', type=int, default=1000000, help='Number of pages to process at a time')
-    parser.add_argument('--bucket_name', type=str, help='S3 Bucket Name')
-    parser.add_argument('--data_prefix', type=str, help='S3 Directory to be sha1 cleaned')
+    parser.add_argument(
+        "--num_pages_to_process",
+        type=int,
+        default=1000000,
+        help="Number of pages to process from S3",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1000000,
+        help="Number of pages to process at a time",
+    )
+    parser.add_argument("--bucket_name", type=str, help="S3 Bucket Name")
+    parser.add_argument(
+        "--data_prefix", type=str, help="S3 Directory to be sha1 cleaned"
+    )
+    parser.add_argument(
+        "--backend", choices=["s3", "local"], default="s3", help="Data backend to use"
+    )
+    parser.add_argument(
+        "--local_base_dir",
+        type=str,
+        default="data",
+        help="Base directory for local backend",
+    )
     args = parser.parse_args()
 
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process
     BATCH_SIZE = args.batch_size
 
-    bucket_name = args.bucket_name # 'bcgl-public-bucket'
-    data_prefix = args.data_prefix # 'prod-serving/'# INPUT DATA DIR IN S3 HERE
+    bucket_name = args.bucket_name  # 'bcgl-public-bucket'
+    data_prefix = args.data_prefix  # 'prod-serving/'# INPUT DATA DIR IN S3 HERE
 
-    # ****************************************************************************************************
-    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
-    DATA_DIR = os.path.join(PROJECT_ROOT, 'data', 'prod')
+    # ---------------------------------------------------------------------------
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+    DATA_DIR = os.path.join(PROJECT_ROOT, "data", "prod")
 
-    txt_directory = os.path.join(DATA_DIR, 'txt')
-    index_keyword_directory = os.path.join(DATA_DIR, 'index_keyword')
+    txt_directory = os.path.join(DATA_DIR, "txt")
+    index_keyword_directory = os.path.join(DATA_DIR, "index_keyword")
 
-    progress_path = 'sha1_clean_progress.json'  # Token to track of which pages have already been processed
+    # Token to track of which pages have already been processed.
+    progress_path = "sha1_clean_progress.json"
 
-    # gets txt files from s3
+    data_loader = build_data_loader(args.backend, bucket_name, args.local_base_dir)
+
+    # gets txt files from backend
     def list_digests(num_pages=1):
         keys = []
-        continuation_token = None
-        if os.path.exists(progress_path):
-            with open(progress_path, 'r') as f:
-                progress = json.load(f)
-                continuation_token = progress.get('continuation_token', None)
         keys_retrieved = 0
         while True:
-            if continuation_token:
-                result = s3.list_objects_v2(Bucket=bucket_name, Prefix=data_prefix, ContinuationToken=continuation_token)
-            else:
-                result = s3.list_objects_v2(Bucket=bucket_name, Prefix=data_prefix)
+            result = data_loader.list_objects(data_prefix)
 
-            contents = result.get('Contents', [])
-            key_batch = [obj['Key'] for obj in contents]
+            key_batch = result.keys
             keys.extend(key_batch)
             keys_retrieved += 1
-            if result.get('IsTruncated'):
-                continuation_token = result.get('NextContinuationToken')
-                with open(progress_path, 'w') as f:
-                    json.dump({'continuation_token': continuation_token}, f)
-            if not result.get('IsTruncated'):
+            if not result.is_truncated:
                 return keys, True
             if keys_retrieved >= num_pages:
                 break
-        print(f"Listed {len(result.get('Contents', []))} files from S3")
+        print(f"Listed {len(result.keys)} files from backend")
         return keys, False
 
     # overall method that gets the files in batches and runs them through the pipeline
     def batched_file_download(BATCH_SIZE):
-        # result = s3.list_objects_v2(Bucket=bucket_name, Prefix=pdfs_dir)
-        # # get list of pdf file names
-        # pdf_files = [obj['Key'] for obj in result.get('Contents', []) if obj['Key'].endswith('.pdf')]  # note this only returns 1000
         batch_size = 100
         overall_start_time = time.time()
-        for i in range(0, math.ceil(NUM_PAGES_TO_PROCESS / batch_size)):
+        for _i in range(math.ceil(NUM_PAGES_TO_PROCESS / batch_size)):
             # get the pdf files from s3
             digests, is_finished = list_digests(batch_size)
             print("Now starting with total number of PDF files: ", len(digests))
 
             for j in range(0, len(digests), BATCH_SIZE):
-                print('*****************************************************************************************************')
+                print("-" * 93)
                 print("WE ARE ON BATCH: ", j)
-                print('*****************************************************************************************************')
-                batch = digests[j:j + BATCH_SIZE]
+                print("-" * 93)
+                batch = digests[j : j + BATCH_SIZE]
                 num_workers = 64
-                worker_batches = np.array_split(batch, num_workers)  # Split the batch into smaller batches for parallel downloading
+                worker_batches = np.array_split(
+                    batch, num_workers
+                )  # Split the batch into smaller batches for parallel downloading
                 local_batch = []
                 with ProcessPoolExecutor(max_workers=num_workers) as executor:
-                    futures = [executor.submit(remove_sha1, bucket_name, worker_batch) for worker_batch in worker_batches]
+                    futures = [
+                        executor.submit(
+                            remove_sha1,
+                            args.backend,
+                            bucket_name,
+                            args.local_base_dir,
+                            worker_batch,
+                        )
+                        for worker_batch in worker_batches
+                    ]
                     for future in as_completed(futures):
-                        try:
-                            file_name = future.result()
-                            local_batch.extend(file_name)
-                        except Exception as e:
-                            print(f"Error downloading {future}: {e}")
+                        local_batch.extend(_safe_future_result(future))
+                data_loader.save_checkpoint()
             if is_finished:
                 break
             overall_end_time = time.time()
             print("TOTAL TIME TO RENAME IS ", (overall_end_time - overall_start_time))
 
     def main():
-        batched_file_download(BATCH_SIZE) 
+        batched_file_download(BATCH_SIZE)
 
     main()

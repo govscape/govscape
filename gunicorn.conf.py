@@ -1,9 +1,12 @@
-import multiprocessing
 import os
+
 
 def _get_env(key: str, default: str) -> str:
     value = os.getenv(key)
-    return value if value not in (None, "") else default
+    if value is not None:
+        return value
+    return default
+
 
 bind = _get_env("GUNICORN_BIND", "127.0.0.1:8080")
 workers = int(_get_env("GUNICORN_WORKERS", "24"))
@@ -20,5 +23,6 @@ loglevel = _get_env("GUNICORN_LOGLEVEL", "info")
 max_requests = int(_get_env("GUNICORN_MAX_REQUESTS", "1000"))
 max_requests_jitter = int(_get_env("GUNICORN_MAX_REQUESTS_JITTER", "100"))
 
-# Because indexes/models loading is heavy, we set True here to fork the workers from the master
+# Because indexes/models loading is heavy, we set True here to fork the workers
+# from the master.
 preload_app = _get_env("GUNICORN_PRELOAD_APP", "true").lower() in ("1", "true", "yes")

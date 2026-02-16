@@ -98,7 +98,7 @@
 <main>
   <SearchBox on:setMode={handleSetModeEvent} />
   <ResultsGrid on:pdfSelect={handlePDFSelect} />
-  <PDFPreview 
+  <PDFPreview
     show={shouldShowPreview}
     pdfData={selectedPDF}
     on:close={handleClosePreview}

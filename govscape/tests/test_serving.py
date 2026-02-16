@@ -1,7 +1,8 @@
 from pathlib import Path
 
-import numpy as np
 import pytest
+
+import numpy as np
 
 from govscape.config import IndexConfig, ServerConfig
 from govscape.server import Server
@@ -100,13 +101,14 @@ def server_fixture(tmp_path, monkeypatch):
     (data_dir / "total_pdfs.txt").write_text("0")
 
     monkeypatch.setattr("govscape.server.FAISSIndex", DummyVectorIndex)
-    monkeypatch.setattr("govscape.server.DiskANNIndex", DummyVectorIndex)
     monkeypatch.setattr("govscape.server.LanceDBKeywordIndex", DummyKeywordIndex)
     monkeypatch.setattr("govscape.server.SQLiteKeywordIndex", DummyKeywordIndex)
     monkeypatch.setattr("govscape.server.WhooshKeywordIndex", DummyKeywordIndex)
     monkeypatch.setattr("govscape.server.SQLiteMetadataIndex", DummyMetadataIndex)
 
-    index_config = IndexConfig(str(data_dir), vector_index_type="Memory", keyword_index_type="LanceDB")
+    index_config = IndexConfig(
+        str(data_dir), vector_index_type="Memory", keyword_index_type="LanceDB"
+    )
 
     text_model = DummyTextModel()
     visual_model = DummyVisualModel()

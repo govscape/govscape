@@ -25,7 +25,7 @@
     try {
       const data = await apiFetch(`/pages/${pdfData.id}`, { method: 'GET' });
       const imageBase = getImageBaseUrl();
-      
+
       images = (data.images || []).map(img => {
         const parts = img.split('/');
         return `${imageBase}/${parts.slice(-2).join('/')}`;
@@ -66,10 +66,10 @@
 
   async function sharePreview() {
     if (!pdfData?.id || isLinkCopied) return;
-    
+
     const baseUrl = window.location.origin;
     const previewUrl = `${baseUrl}/preview/${pdfData.id}${currentPageIndex > 0 ? `?page=${currentPageIndex + 1}` : ''}`;
-    
+
     try {
       // Try to use the modern Clipboard API
       await navigator.clipboard.writeText(previewUrl);
@@ -87,7 +87,7 @@
         textArea.select();
         document.execCommand('copy');
         document.body.removeChild(textArea);
-        
+
         showShareFeedback();
       } catch (fallbackErr) {
         // If all else fails, still show the button feedback
@@ -97,10 +97,10 @@
   }
 
   let isLinkCopied = false;
-  
+
   function showShareFeedback(message, isError = false) {
     isLinkCopied = true;
-    
+
     // Reset button text after 2 seconds
     setTimeout(() => {
       isLinkCopied = false;
