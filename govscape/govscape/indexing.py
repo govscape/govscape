@@ -16,43 +16,37 @@ from whoosh.index import create_in, open_dir
 from whoosh.fields import *
 from whoosh.qparser import QueryParser
 from whoosh.filedb.filestore import FileStorage
-import meilisearch
 from typing import Optional, Sequence
-
-# Optional Elasticsearch client (not required for other backends)
-_ES_AVAILABLE = True
-try:  # pragma: no cover - optional dependency
-    from elasticsearch import Elasticsearch
-    from elasticsearch import helpers as es_helpers
-except Exception:
-    _ES_AVAILABLE = False
 
 lucene = None
 _LUCENE_LOADED = False
 
 def _load_lucene():
-    global lucene, _LUCENE_LOADED
-    if _LUCENE_LOADED:
-        return
+    try:
+        global lucene, _LUCENE_LOADED
+        if _LUCENE_LOADED:
+            return
 
-    import lucene as _lucene
-    lucene = _lucene
-    lucene.initVM()
+        import lucene as _lucene
+        lucene = _lucene
+        lucene.initVM()
 
-    # import Java-side classes ONLY after initVM
-    global Paths, FSDirectory, StandardAnalyzer, Document, Field, StringField, TextField, StoredField
-    global IndexWriter, IndexWriterConfig, DirectoryReader, IndexSearcher, QueryParser, BM25Similarity
+        # import Java-side classes ONLY after initVM
+        global Paths, FSDirectory, StandardAnalyzer, Document, Field, StringField, TextField, StoredField
+        global IndexWriter, IndexWriterConfig, DirectoryReader, IndexSearcher, QueryParser, BM25Similarity
 
-    from java.nio.file import Paths
-    from org.apache.lucene.store import FSDirectory
-    from org.apache.lucene.analysis.standard import StandardAnalyzer
-    from org.apache.lucene.document import Document, Field, StringField, TextField, StoredField
-    from org.apache.lucene.index import IndexWriter, IndexWriterConfig, DirectoryReader
-    from org.apache.lucene.search import IndexSearcher
-    from org.apache.lucene.queryparser.classic import QueryParser
-    from org.apache.lucene.search.similarities import BM25Similarity
+        from java.nio.file import Paths
+        from org.apache.lucene.store import FSDirectory
+        from org.apache.lucene.analysis.standard import StandardAnalyzer
+        from org.apache.lucene.document import Document, Field, StringField, TextField, StoredField
+        from org.apache.lucene.index import IndexWriter, IndexWriterConfig, DirectoryReader
+        from org.apache.lucene.search import IndexSearcher
+        from org.apache.lucene.queryparser.classic import QueryParser
+        from org.apache.lucene.search.similarities import BM25Similarity
 
-    _LUCENE_LOADED = True
+        _LUCENE_LOADED = True
+    except Exception as e:
+        print(f"Lucene not available: {e}")
 
 # Avoid annoying output from faiss during import
 @contextlib.contextmanager
@@ -675,156 +669,6 @@ class LuceneKeywordIndex(AbstractKeywordIndex):
             self.load_index()
         return int(self._reader.numDocs())
 
-
-class ElasticsearchKeywordIndex(AbstractKeywordIndex):
-    def __init__(self, index_keyword_directory):
-        if not _ES_AVAILABLE:
-            raise RuntimeError("Elasticsearch client not available.")
-        self.index_keyword_directory = index_keyword_directory
-        os.makedirs(self.index_keyword_directory, exist_ok=True)
-
-        self.hosts = ["http://host.docker.internal:9200"]
-
-        self.index_name = "govscape_keyword"
-        self._es: Optional[Elasticsearch] = None
-
-    def _client(self) -> Elasticsearch:
-        if self._es is None:
-            self._es = Elasticsearch(self.hosts, api_key="")
-        return self._es
-
-    def build_index(self):
-        es = self._client()
-        try:
-            exists = es.indices.exists(index=self.index_name)
-        except Exception:
-            # Some client versions return bool directly, others return dict.
-            exists = False
-        if exists:
-            return
-        mapping = {
-            "settings": {
-                "index": {
-                    # Faster visibility for tests; adjust in production.
-                    "refresh_interval": "1s"
-                }
-            },
-            "mappings": {
-                "properties": {
-                    "text": {"type": "text"},
-                    "pdf_name": {"type": "keyword"},
-                    "page": {"type": "integer"},
-                }
-            },
-        }
-        es.indices.create(index=self.index_name, **mapping)
-
-    def add_batch(self, texts, pdf_names, pages):
-        es = self._client()
-        # Ensure index exists before bulk.
-        self.build_index()
-        actions = (
-            {
-                "_index": self.index_name,
-                "_source": {
-                    "text": text if text is not None else "",
-                    "pdf_name": pdf if pdf is not None else "",
-                    "page": int(page),
-                },
-            }
-            for text, pdf, page in zip(texts, pdf_names, pages)
-        )
-        es_helpers.bulk(es, actions)
-
-    def save_index(self):
-        # Force refresh so subsequent searches see newly indexed docs.
-        es = self._client()
-        try:
-            es.indices.refresh(index=self.index_name)
-        except Exception:
-            pass
-
-    def load_index(self):
-        self._client()
-        self.build_index()
-
-    def search(self, query, k):
-        es = self._client()
-
-        is_phrase = len(query) >= 2 and query[0] == '"' and query[-1] == '"'
-        q_body = {
-            "size": int(k),
-            "query": {
-                "match_phrase" if is_phrase else "match": {
-                    "text": query.strip('"') if is_phrase else query
-                }
-            }
-        }
-        resp = es.search(index=self.index_name, body=q_body)
-        hits = resp.get("hits", {}).get("hits", [])
-        scores = [float(h.get("_score", 0.0)) for h in hits]
-        pdf_names = [h.get("_source", {}).get("pdf_name", "") for h in hits]
-        pages = [str(h.get("_source", {}).get("page", "")) for h in hits]
-        return scores, pdf_names, pages
-
-    def total_entries(self):
-        es = self._client()
-        try:
-            resp = es.count(index=self.index_name)
-            return int(resp.get("count", 0))
-        except Exception:
-            return 0
-
-
-class MeilisearchKeywordIndex(AbstractKeywordIndex):
-    def __init__(self, index_keyword_directory):
-        print("Connecting to Meilisearch at http://host.docker.internal:7700/")
-        self._client = meilisearch.Client("http://host.docker.internal:7700/", "masterKey")
-
-        self._index = self._client.index("govscape_keyword")
-
-
-    def build_index(self):
-        pass
-
-    def add_batch(self, texts, pdf_names, pages):
-        print(f"Indexing batch of {len(texts)} documents into Meilisearch...")
-        documents = [
-            {
-                # Id will be a random int for this test
-                "id" : str(random.randint(1, 1_000_000)),
-                "text": text if text is not None else "",
-                "pdf_name": pdf if pdf is not None else "",
-                "page": int(page),
-            }
-            for text, pdf, page in zip(texts, pdf_names, pages)
-        ]
-        tasks = self._index.add_documents_in_batches(documents)
-
-        for task in tasks:
-            self._client.wait_for_task(task.task_uid, timeout_in_ms=300000)
-
-        failed = self._client.get_tasks({"statuses": ["failed"], "limit": 20})
-        print(failed)
-
-    def save_index(self):
-        pass
-
-    def load_index(self):
-        pass
-
-    def search(self, query, k):
-        results = self._index.search(query, {"limit": k})
-        hits = results.get("hits", [])
-        scores = [float(h.get("_rankingScore", 0.0)) for h in hits]
-        pdf_names = [h.get("pdf_name", "") for h in hits]
-        pages = [str(h.get("page", "")) for h in hits]
-        return scores, pdf_names, pages
-
-    def total_entries(self):
-        stats = self._index.get_stats()
-        return stats.number_of_documents
-
 class AbstractMetadataIndex(ABC):
 
     @abstractmethod
@@ -881,14 +725,14 @@ class AbstractMetadataIndex(ABC):
 class SQLiteMetadataIndex(AbstractMetadataIndex):
     def __init__(self, index_metadata_directory):
         self.index_metadata_directory = index_metadata_directory
+        if not os.path.exists(self.index_metadata_directory):
+            os.makedirs(self.index_metadata_directory)
         self.db_path = os.path.join(self.index_metadata_directory, "metadata.db")
         self.conn = None
         self.cursor = None
         self._total_entries = -1
 
     def build_index(self):
-        if not os.path.exists(self.index_metadata_directory):
-            os.makedirs(self.index_metadata_directory)
         self.conn = sqlite3.connect(self.db_path)
         self.cursor = self.conn.cursor()
         self.cursor.execute("""
