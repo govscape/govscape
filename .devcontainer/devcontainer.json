@@ -6,7 +6,6 @@
 	"dockerComposeFile": "compose.yml",
   	"service": "app",
 	"workspaceFolder": "/workspace",
-	// "runServices": ["elasticsearch"],
 
 	// 👇 Features to add to the Dev Container. More info: https://containers.dev/implementors/features.
 	// "features": {},

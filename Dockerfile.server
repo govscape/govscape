@@ -1,10 +1,16 @@
-FROM python:3.11.14-trixie
+ARG PYTHON_VERSION=3.11.14-trixie
 
-RUN pip install --upgrade pip setuptools wheel
+FROM python:${PYTHON_VERSION} AS builder
 
-RUN pip install poetry==2.1.2
+ARG LUCENE_VERSION=10.0.0
+ARG POETRY_VERSION=2.1.2
 
-RUN apt-get update && apt-get install -y \
+ENV POETRY_CACHE_DIR=/tmp/pypoetry-cache \
+    POETRY_VIRTUALENVS_CREATE=false
+
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install poetry==${POETRY_VERSION} \
+    && apt-get update && apt-get install -y \
         build-essential \
         default-jdk
 
@@ -14,7 +20,7 @@ RUN ln -s default-java temurin
 RUN pip install build setuptools
 
 WORKDIR /usr/src/pylucene
-RUN curl https://downloads.apache.org/lucene/pylucene/pylucene-10.0.0-src.tar.gz \
+RUN curl https://downloads.apache.org/lucene/pylucene/pylucene-${LUCENE_VERSION}-src.tar.gz \
     | tar -xz --strip-components=1
 
 RUN cd jcc \
@@ -25,13 +31,51 @@ RUN make all install JCC='python -m jcc' PYTHON=python NUM_FILES=16 MODERN_PACKA
 RUN rm -rf /var/lib/apt/lists/*
 
 RUN mkdir /home/govscape
+
 WORKDIR /home/govscape
+
+# Stops poetry's cache from filling up the image with wheels and tar.gz files
+
 COPY . .
-RUN poetry config virtualenvs.in-project false && poetry install
+RUN poetry config virtualenvs.in-project false \
+    && poetry install \
+    && rm -rf /root/.gradle \
+    && rm -rf ${POETRY_CACHE_DIR}
 
-ENV APP_ARGS="--data-directory /data"
 
-RUN mkdir -p /data
+FROM python:${PYTHON_VERSION} AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    POETRY_VIRTUALENVS_CREATE=false \
+    POETRY_CACHE_DIR=/tmp/pypoetry-cache \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Runtime needs a JRE
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      default-jre-headless \
+ && rm -rf /var/lib/apt/lists/*
+
+# Match the JVM path expected by your build/install
+WORKDIR /usr/lib/jvm
+RUN ln -s default-java temurin
+
+WORKDIR /home/govscape
+
+# Copy only installed Python runtime
+COPY --from=builder \
+    /usr/local/lib/python3.11/site-packages \
+    /usr/local/lib/python3.11/site-packages
+
+COPY --from=builder \
+    /usr/local \
+    /usr/local
+
+COPY --from=builder \
+    /home/govscape \
+    /home/govscape
+
+ENV APP_ARGS="--keyword_index_type Lucene --text_model 'Dummy' --visual_model 'Dummy' --backend local --remote_data_directory '/data' --local_data_directory '/data'"
 
 EXPOSE 8080
 

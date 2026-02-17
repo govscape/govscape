@@ -124,9 +124,11 @@ if __name__ == "__main__":
             index = gs.SQLiteKeywordIndex(LOCAL_INDEX_DIR)
         elif INDEX_TYPE == "Whoosh":
             index = gs.WhooshKeywordIndex(LOCAL_INDEX_DIR)
+        elif INDEX_TYPE == "Lucene":
+            index = gs.LuceneKeywordIndex(LOCAL_INDEX_DIR)
         else:
             raise ValueError(
-                "index_type must be either 'LanceDB', 'SQLite', or 'Whoosh'"
+                "index_type must be either 'LanceDB', 'SQLite', 'Whoosh', or 'Lucene'"
             )
 
         index.load_index()

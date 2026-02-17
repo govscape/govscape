@@ -11,3 +11,5 @@ interface/node_modules/
 interface/build/
 interface/.svelte-kit/
 data/
+poetry.lock
+data/
