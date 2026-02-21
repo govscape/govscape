@@ -99,8 +99,9 @@ class BenchmarkResult:
     query_seconds: float
     queries_per_sec: float
     avg_query_latency_ms: float
+    index_size_mb: float
 
-    def as_row(self) -> Tuple[str, int, float, float, float, float]:
+    def as_row(self) -> Tuple[str, int, float, float, float, float, float]:
         return (
             self.name,
             self.documents,
@@ -108,6 +109,7 @@ class BenchmarkResult:
             self.ingest_docs_per_sec,
             self.queries_per_sec,
             self.avg_query_latency_ms,
+            self.index_size_mb,
         )
 
 
@@ -150,6 +152,8 @@ def benchmark_index(
     ingest_duration = time.perf_counter() - start_ingest
     ingest_docs_per_sec = len(texts) / ingest_duration if ingest_duration else float("inf")
 
+    index_size_mb = sum(f.stat().st_size for f in index_dir.rglob("*") if f.is_file()) / (1024 * 1024)
+
     # Re-load the index to simulate real usage
     index = index_cls(index_dir.as_posix())
     index.load_index()
@@ -172,6 +176,7 @@ def benchmark_index(
         query_seconds=total_query_time,
         queries_per_sec=queries_per_sec,
         avg_query_latency_ms=avg_latency_ms,
+        index_size_mb=index_size_mb,
     )
 
 
@@ -195,14 +200,15 @@ def format_results(results: Iterable[BenchmarkResult]) -> str:
     """Format benchmark results as a text table."""
     header = (
         f"{'Index':<18} {'Docs':>8} {'Ingest (s)':>12} {'Docs/s':>12} "
-        f"{'Queries/s':>12} {'Avg Latency (ms)':>18}"
+        f"{'Queries/s':>12} {'Avg Latency (ms)':>18} {'Size (MB)':>12}"
     )
     lines = [header, "-" * len(header)]
     for res in results:
         lines.append(
             f"{res.name:<18} {res.documents:>8} {res.add_seconds:>12.4f} "
             f"{res.ingest_docs_per_sec:>12.2f} "
-            f"{res.queries_per_sec:>12.2f} {res.avg_query_latency_ms:>18.2f}"
+            f"{res.queries_per_sec:>12.2f} {res.avg_query_latency_ms:>18.2f} "
+            f"{res.index_size_mb:>12.2f}"
         )
     return "\n".join(lines)
 
