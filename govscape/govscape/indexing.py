@@ -136,9 +136,10 @@ class DiskANNIndex(AbstractVectorIndex):
 
 
 class FAISSIndex(AbstractVectorIndex):
-    def __init__(self, index_directory):
+    def __init__(self, index_directory, index_type = "IVFPQ"):
         self.index_directory = index_directory
         self.faiss_index = None
+        self.index_type = index_type
         self.d = None
         self.is_trained = False
         self.train_batch = None
@@ -161,10 +162,17 @@ class FAISSIndex(AbstractVectorIndex):
         if not self.is_trained:
             self.train_batch = np.vstack((self.train_batch, embeddings))
             if self.train_batch.shape[0] >= 8192 * 39:
-                coarse_quantizer = faiss.IndexFlatL2(self.d)
-                self.faiss_index = faiss.IndexIVFPQ(
-                    coarse_quantizer, self.d, 8192, int(self.d / 4), 8
-                )
+                if self.index_type == "IVFPQ":
+                    coarse_quantizer = faiss.IndexFlatL2(self.d)
+                    self.faiss_index = faiss.IndexIVFPQ(
+                        coarse_quantizer, self.d, 8192, int(self.d / 4), 8
+                    )
+                elif self.index_type == "IVF":
+                    self.faiss_index = faiss.IndexIVFFlat(self.d, 8192, faiss.METRIC_L2)
+                elif self.index_type == "HNSW":
+                    self.faiss_index = faiss.IndexHNSWFlat(self.d, 32)
+                else:
+                    raise ValueError(f"Unsupported index type: {self.index_type}")
                 self.faiss_index.train(self.train_batch)
                 self.faiss_index.nprobe = 32
                 self.faiss_index.add(
