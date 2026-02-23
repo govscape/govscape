@@ -75,66 +75,6 @@ class AbstractVectorIndex(ABC):
         :return: Total number of embeddings.
         """
 
-
-class DiskANNIndex(AbstractVectorIndex):
-    def __init__(self, embedding_directory, index_directory):
-        self.embedding_directory = embedding_directory
-        self.index_directory = index_directory
-        self.index = None
-        self.page_indices = None
-
-    def build_index(self):
-        if not os.path.exists(self.index_directory):
-            os.makedirs(self.index_directory)
-        embedding = os.path.join(self.embedding_directory, "embeddings.bin")
-        # Comments below are adapted from the DiskANN repo.
-        # Can also be cosine, especially if you don't normalize your vectors.
-        # Higher complexity considers more candidate points when ranking.
-        # Higher graph degree increases quality but takes longer to build.
-        # Memory values are in GB.
-        # 0 means use all available threads.
-        # ann is the default prefix; files are generated like f"{index_prefix}_".
-        # Product quantization can improve recall at lower latency; skip for now.
-        dap.build_disk_index(
-            data=embedding,
-            distance_metric="l2",
-            index_directory=self.index_directory,
-            complexity=128,
-            graph_degree=64,
-            search_memory_maximum=16.0,
-            build_memory_maximum=100.0,
-            num_threads=0,
-            vector_dtype=np.float32,
-            index_prefix="ann",
-            pq_disk_bytes=0,
-        )
-
-    def save_index(self, filepath):
-        return
-
-    def load_index(self):
-        self.index = dap.StaticDiskIndex(
-            index_directory=self.index_directory,
-            num_threads=0,
-            num_nodes_to_cache=17,
-            index_prefix="ann",
-        )
-
-    def search(self, query_vector, k):
-        query_vector = query_vector.copy() / np.linalg.norm(query_vector)
-        # query vector should be 2D
-        internal_indices, distances = self.index.search(
-            query=query_vector,
-            k_neighbors=k,
-            complexity=k * 10,  # must be as big or bigger than `k_neighbors`
-        )
-        return distances, internal_indices
-
-    def total_entries(self):
-        # TODO: Implement this method to return the total number of embeddings.
-        return 0
-
-
 class FAISSIndex(AbstractVectorIndex):
     def __init__(self, index_directory, index_type = "IVFPQ"):
         self.index_directory = index_directory
@@ -167,6 +107,8 @@ class FAISSIndex(AbstractVectorIndex):
                     self.faiss_index = faiss.IndexIVFPQ(
                         coarse_quantizer, self.d, 8192, int(self.d / 4), 8
                     )
+                elif self.index_type == "Flat":
+                    self.faiss_index = faiss.IndexFlatL2(self.d)
                 elif self.index_type == "IVF":
                     self.faiss_index = faiss.IndexIVFFlat(self.d, 8192, faiss.METRIC_L2)
                 elif self.index_type == "HNSW":

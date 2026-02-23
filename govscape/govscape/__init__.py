@@ -1,7 +1,6 @@
 from .config import IndexConfig, ServerConfig
 from .data_loader import build_data_loader
 from .indexing import (
-    DiskANNIndex,
     FAISSIndex,
     LanceDBKeywordIndex,
     SQLiteKeywordIndex,
