@@ -606,7 +606,7 @@ class RemoteDirectoryIterator:
         decompress: bool = False,
     ) -> list[str]:
         if num_workers is None:
-            num_workers = min(10, (os.cpu_count() or 1) * 5)
+            num_workers = os.cpu_count() * 2 or 1
 
         max_workers = min(num_workers, len(pairs))
         pool = self._get_mp_pool(max_workers)
