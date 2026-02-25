@@ -76,7 +76,7 @@ class AbstractVectorIndex(ABC):
         """
 
 class FAISSIndex(AbstractVectorIndex):
-    def __init__(self, index_directory, index_type = "IVFPQ"):
+    def __init__(self, index_directory, index_type="IVFPQ"):
         self.index_directory = index_directory
         self.faiss_index = None
         self.index_type = index_type
@@ -110,7 +110,7 @@ class FAISSIndex(AbstractVectorIndex):
                 elif self.index_type == "Flat":
                     self.faiss_index = faiss.IndexFlatL2(self.d)
                 elif self.index_type == "IVF":
-                    quantizer = faiss.IndexFlatL2(self.d)  # the other index
+                    quantizer = faiss.IndexFlatL2(self.d)  # coarse quantizer used for IVF (inverted file) indexing
                     self.faiss_index = faiss.IndexIVFFlat(quantizer, self.d, 8192, faiss.METRIC_L2)
                 elif self.index_type == "HNSW":
                     self.faiss_index = faiss.IndexHNSWFlat(self.d, 32)

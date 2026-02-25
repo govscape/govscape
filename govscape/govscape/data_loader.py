@@ -522,7 +522,6 @@ class RemoteDirectoryIterator:
             )
             self._continuation_token = result.continuation_token
             keys = result.keys
-            print(f"Listed {len(keys)} keys, is_truncated={result.is_truncated}, continuation_token={self._continuation_token}")
             # Separate compressed archives from regular files so .tar.gz
             # archives can be decompressed and their contents returned.
             tar_keys = [k for k in keys if k.endswith(".tar.gz")]
