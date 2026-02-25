@@ -1,4 +1,3 @@
-# AI modified: 2026-02-18 9f4dd3b5
 import math
 import os
 from pathlib import Path

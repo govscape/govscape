@@ -1,4 +1,3 @@
-# AI modified: 2026-02-24 f1bc36d7
 from __future__ import annotations
 
 import contextlib

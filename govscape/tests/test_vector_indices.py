@@ -1,5 +1,3 @@
-# AI modified: 2026-02-24 8c6f5bb3
-# AI modified: 2026-02-24 8c6f5bb3
 import pytest
 
 import numpy as np
