@@ -1,5 +1,5 @@
 from .config import IndexConfig, ServerConfig
-from .data_loader import build_data_loader, RemoteDirectoryIterator
+from .data_loader import RemoteDirectoryIterator, build_data_loader
 from .indexing import (
     FAISSIndex,
     LanceDBKeywordIndex,
@@ -34,6 +34,7 @@ __all__ = [
     "LanceDBKeywordIndex",
     "NpyToBin",
     "PDFsToEmbeddings",
+    "RemoteDirectoryIterator",
     "SQLiteKeywordIndex",
     "SQLiteMetadataIndex",
     "ST_TextEmbeddingModel",

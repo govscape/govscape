@@ -68,11 +68,12 @@ def compute_exact_topk_threshold(
 
     k = max(1, min(k, embeddings.shape[0]))
     index = FAISSIndex("/tmp/benchmark_temp_index", index_type="Flat")
-    index.add_batch(embeddings, ["temp"] * embeddings.shape[0], [1] * embeddings.shape[0])
+    index.add_batch(
+        embeddings, ["temp"] * embeddings.shape[0], [1] * embeddings.shape[0]
+    )
     index.build_index()
-    D, I = index.faiss_index.search(queries, k)
-    distance_threshold = D[:, -1]  # k-th nearest neighbor distance for each query
-    return distance_threshold
+    D, _ = index.faiss_index.search(queries, k)
+    return D[:, -1]
 
 
 def extract_result_pairs(
@@ -88,10 +89,7 @@ def extract_result_pairs(
         )
 
     _, names, pages = search_result
-    pairs = [
-        (str(name), int(page))
-        for name, page in zip(names, pages, strict=False)
-    ]
+    pairs = [(str(name), int(page)) for name, page in zip(names, pages, strict=False)]
     return pairs[:k]
 
 
@@ -106,6 +104,7 @@ def extract_result_distances(search_result: tuple, k: int) -> np.ndarray:
 
     distances = np.asarray(search_result[0], dtype=np.float32).reshape(-1)
     return distances[:k]
+
 
 def compute_recall_at_k(
     predicted_distances: Sequence[np.ndarray],
@@ -144,15 +143,16 @@ def generate_embeddings(num_embeddings: int, dim: int, seed: int) -> np.ndarray:
         local_dir="/tmp/data/vector_benchmark_embeddings",
     )
 
-    embeddings : list[np.ndarray] = []
+    embeddings: list[np.ndarray] = []
     while len(embeddings) < num_embeddings:
         batch = iterator.download_batch(
-            max_keys=min(100000, int((num_embeddings - len(embeddings))/1000)), num_workers=64
+            max_keys=min(100000, int((num_embeddings - len(embeddings)) / 1000)),
+            num_workers=64,
         )
         if len(batch) == 0:
             break
         embeddings.extend([np.load(path) for path in batch])
-        print('Downloaded batch of embeddings, total so far:', len(embeddings))
+        print("Downloaded batch of embeddings, total so far:", len(embeddings))
     if len(embeddings) < num_embeddings:
         raise ValueError(f"Expected {num_embeddings} embeddings, got {len(embeddings)}")
     return np.array(embeddings[:num_embeddings], dtype=np.float32)
@@ -182,17 +182,21 @@ def create_ivfpq_faiss_index(base_dir: Path) -> AbstractVectorIndex:
     base_dir.mkdir(parents=True, exist_ok=True)
     return FAISSIndex(base_dir.as_posix(), index_type="IVFPQ")
 
+
 def create_ivf_faiss_index(base_dir: Path) -> AbstractVectorIndex:
     base_dir.mkdir(parents=True, exist_ok=True)
     return FAISSIndex(base_dir.as_posix(), index_type="IVF")
+
 
 def create_hnsw_faiss_index(base_dir: Path) -> AbstractVectorIndex:
     base_dir.mkdir(parents=True, exist_ok=True)
     return FAISSIndex(base_dir.as_posix(), index_type="HNSW")
 
+
 def create_flat_faiss_index(base_dir: Path) -> AbstractVectorIndex:
     base_dir.mkdir(parents=True, exist_ok=True)
     return FAISSIndex(base_dir.as_posix(), index_type="Flat")
+
 
 def create_lancedb_index(base_dir: Path) -> AbstractVectorIndex:
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -284,7 +288,9 @@ def benchmark_index(
     total_query_time = sum(latencies) or 1e-9
     queries_per_sec = len(queries) / total_query_time
     avg_latency_ms = (statistics.mean(latencies) * 1000) if latencies else 0.0
-    recall_at_k = compute_recall_at_k(predicted_distances, exact_kth_distances, k, atol=1e-2)
+    recall_at_k = compute_recall_at_k(
+        predicted_distances, exact_kth_distances, k, atol=1e-2
+    )
 
     ingest_embeddings_per_sec = (
         embeddings.shape[0] / ingest_seconds if ingest_seconds else float("inf")
@@ -305,13 +311,15 @@ def benchmark_index(
 def format_results(results: Iterable[BenchmarkResult]) -> str:
     header = (
         f"{'Index':<12} {'Embeddings':>12} {'Dim':>6} {'Ingest (s)':>12} "
-        f"{'Emb/s':>12} {'Index MB':>10} {'Queries/s':>12} {'Avg Latency (ms)':>18} {'Recall@k':>10}"
+        f"{'Emb/s':>12} {'Index MB':>10} {'Queries/s':>12} {'Avg Latency (ms)':>18}\
+              {'Recall@k':>10}"
     )
     lines = [header, "-" * len(header)]
     lines.extend(
         f"{res.name:<12} {res.embeddings:>12} {res.dimension:>6} "
         f"{res.ingest_seconds:>12.4f} {res.ingest_embeddings_per_sec:>12.2f} "
-        f"{res.index_size_mb:>10.2f} {res.queries_per_sec:>12.2f} {res.avg_latency_ms:>18.2f} "
+        f"{res.index_size_mb:>10.2f} {res.queries_per_sec:>12.2f} \
+            {res.avg_latency_ms:>18.2f} "
         f"{(f'{res.recall_at_k:.4f}' if res.recall_at_k is not None else 'n/a'):>10}"
         for res in results
     )
@@ -395,13 +403,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     rng = random.Random(args.seed)
     embedding_seed = rng.randrange(1 << 63)
-    query_seed = rng.randrange(1 << 63)
     metadata_seed = rng.randrange(1 << 63)
 
     n_embeddings = args.embeddings + args.queries
     all_embeddings = generate_embeddings(n_embeddings, args.dim, embedding_seed)
     embeddings = all_embeddings[: args.embeddings]
-    queries = all_embeddings[args.embeddings : ]
+    queries = all_embeddings[args.embeddings :]
     pdf_names, pdf_pages = generate_metadata(
         args.documents, args.embeddings, metadata_seed
     )
@@ -412,7 +419,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     selected = select_indexes(args.indexes or [])
     index_root = args.index_root.resolve()
     index_root.mkdir(parents=True, exist_ok=True)
-
 
     results: list[BenchmarkResult] = []
     for name, factory in selected.items():

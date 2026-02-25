@@ -10,7 +10,6 @@ Example:
 """
 
 import argparse
-import os
 import random
 import shutil
 import statistics
@@ -25,7 +24,6 @@ import numpy as np
 from govscape.indexing import AbstractVectorIndex, FAISSIndex
 
 IndexFactory = Callable[[Path], AbstractVectorIndex]
-
 
 
 @dataclass
@@ -68,11 +66,13 @@ def create_faiss_index(base_dir: Path) -> AbstractVectorIndex:
     base_dir.mkdir(parents=True, exist_ok=True)
     return FAISSIndex(base_dir.as_posix())
 
+
 def create_lancedb_index(base_dir: Path) -> AbstractVectorIndex:
     from govscape.indexing import LanceDBVectorIndex
 
     base_dir.mkdir(parents=True, exist_ok=True)
     return LanceDBVectorIndex(base_dir.as_posix())
+
 
 INDEX_FACTORIES: dict[str, Callable[[Path], AbstractVectorIndex]] = {
     "faiss": create_faiss_index,

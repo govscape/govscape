@@ -56,13 +56,12 @@ def test_vector_indices_round_trip(index_name, vector_index_class, tmp_path):
         indices = [pdf_names.index(name) for name in second_component[:k_neighbors]]
     else:
         indices = [
-            int(idx)
-            for idx in np.asarray(second_component).reshape(-1)[:k_neighbors]
+            int(idx) for idx in np.asarray(second_component).reshape(-1)[:k_neighbors]
         ]
 
-    expected_order = np.argsort(
-        np.linalg.norm(embeddings - query_vector, axis=1)
-    )[:k_neighbors].tolist()
+    expected_order = np.argsort(np.linalg.norm(embeddings - query_vector, axis=1))[
+        :k_neighbors
+    ].tolist()
     assert indices == expected_order
 
     if len(search_result) > 2:

@@ -9,7 +9,6 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-import diskannpy as dap
 import pyarrow as pa
 from lancedb import connect
 from lancedb.query import MatchQuery, PhraseQuery
@@ -75,6 +74,7 @@ class AbstractVectorIndex(ABC):
         :return: Total number of embeddings.
         """
 
+
 class FAISSIndex(AbstractVectorIndex):
     def __init__(self, index_directory, index_type="IVFPQ"):
         self.index_directory = index_directory
@@ -110,8 +110,12 @@ class FAISSIndex(AbstractVectorIndex):
                 elif self.index_type == "Flat":
                     self.faiss_index = faiss.IndexFlatL2(self.d)
                 elif self.index_type == "IVF":
-                    quantizer = faiss.IndexFlatL2(self.d)  # coarse quantizer used for IVF (inverted file) indexing
-                    self.faiss_index = faiss.IndexIVFFlat(quantizer, self.d, 8192, faiss.METRIC_L2)
+                    quantizer = faiss.IndexFlatL2(
+                        self.d
+                    )  # coarse quantizer used for IVF (inverted file) indexing
+                    self.faiss_index = faiss.IndexIVFFlat(
+                        quantizer, self.d, 8192, faiss.METRIC_L2
+                    )
                 elif self.index_type == "HNSW":
                     self.faiss_index = faiss.IndexHNSWFlat(self.d, 32)
                     self.faiss_index.hnsw.efConstruction = 200

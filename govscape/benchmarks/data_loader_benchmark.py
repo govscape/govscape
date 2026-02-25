@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -6,10 +7,10 @@ import tempfile
 import time
 import uuid
 from contextlib import ExitStack
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
+
 from botocore.config import Config
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
-
 
 
 @dataclass
@@ -51,7 +52,9 @@ def _run_one_benchmark(
     with ExitStack() as stack:
         src_dir = stack.enter_context(tempfile.TemporaryDirectory(prefix="bench_src_"))
         dst_dir = stack.enter_context(tempfile.TemporaryDirectory(prefix="bench_dst_"))
-        ckpt_dir = stack.enter_context(tempfile.TemporaryDirectory(prefix="bench_ckpt_"))
+        ckpt_dir = stack.enter_context(
+            tempfile.TemporaryDirectory(prefix="bench_ckpt_")
+        )
 
         if backend == "local" and not local_base_dir:
             local_base_dir = stack.enter_context(

@@ -12,7 +12,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from multiprocessing import Pool
-from typing import Self, Any
+from typing import Any, Self
 
 import boto3
 from botocore.client import BaseClient as S3Client
@@ -138,7 +138,9 @@ class DataLoader(ABC):
         if not all_files:
             return
 
-        def build_chunk_task(chunk_idx: int, tmp_dir: str) -> tuple[list[str], str, str]:
+        def build_chunk_task(
+            chunk_idx: int, tmp_dir: str
+        ) -> tuple[list[str], str, str]:
             chunk_files = all_files[chunk_idx : chunk_idx + chunk_size]
             chunk_hash = hash(tuple(chunk_files))
             chunk_name = f"chunk_{chunk_hash}.tar.gz"
@@ -147,7 +149,9 @@ class DataLoader(ABC):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             chunk_indices = list(range(0, len(all_files), chunk_size))
-            tasks = [build_chunk_task(chunk_idx, tmp_dir) for chunk_idx in chunk_indices]
+            tasks = [
+                build_chunk_task(chunk_idx, tmp_dir) for chunk_idx in chunk_indices
+            ]
             if tasks:
                 workers = min(os.cpu_count() or 1, len(tasks))
                 with Pool(processes=workers) as pool:
