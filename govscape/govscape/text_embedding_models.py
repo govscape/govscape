@@ -29,7 +29,7 @@ class ST_TextEmbeddingModel(TextEmbeddingModel):
     @property
     def d(self):
         return self.model.get_sentence_embedding_dimension()
-    
+
     def __init__(self):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
@@ -58,7 +58,7 @@ class BGE_TextEmbeddingModel(TextEmbeddingModel):
     @property
     def d(self):
         return self.model.get_sentence_embedding_dimension()
-    
+
     def __init__(self):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.model = SentenceTransformer("BAAI/bge-base-en-v1.5")
