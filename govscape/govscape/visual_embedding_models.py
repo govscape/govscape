@@ -60,15 +60,7 @@ class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
         return 512
 
     def __init__(self):
-        image_processor = CLIPImageProcessor.from_pretrained(
-            "openai/clip-vit-base-patch32", use_fast=True
-        )  # online
-        tokenizer = CLIPTokenizer.from_pretrained(
-            "openai/clip-vit-base-patch32"
-        )  # online
-        self.processor = CLIPProcessor(
-            image_processor=image_processor, tokenizer=tokenizer
-        )
+        self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32", use_fast=True)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(
             self.device
@@ -102,8 +94,9 @@ class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
             batch_embeddings = self.model.get_text_features(
                 input_ids=batch_input_ids, attention_mask=batch_attention_mask
             )
-        embeddings = batch_embeddings.split(1, dim=0)
+        batch_embeddings = batch_embeddings / batch_embeddings.norm(dim=-1, keepdim=True)
 
+        embeddings = batch_embeddings.split(1, dim=0)
         # decision: average embedding to create one embedding per PDF
         return torch.mean(torch.stack(embeddings), dim=0).to("cpu").numpy()
 
@@ -164,7 +157,7 @@ class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
         # Use spawn to avoid CUDA + fork deadlocks
         ctx = mp.get_context("spawn")
         with ctx.Pool(
-            processes=min(int(math.floor(os.cpu_count())), len(path_batches))
+            processes=min(os.cpu_count(), len(path_batches))
         ) as pool:
             batch_tensors = pool.starmap(
                 self._load_and_process_image,
@@ -185,7 +178,7 @@ class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
         print(f"Total images preprocessed: {all_pixels.size(0)}")
 
         all_embeddings = []
-        gpu_batch = 64  # GPU forward batch size
+        gpu_batch = 256  # GPU forward batch size
         print("Embedding Images")
         for i in range(0, all_pixels.size(0), gpu_batch):
             pixel_batch = all_pixels[i : i + gpu_batch].to(self.device)
