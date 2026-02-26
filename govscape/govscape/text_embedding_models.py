@@ -71,9 +71,7 @@ class BGE_TextEmbeddingModel(TextEmbeddingModel):
         if is_query:
             text = "Represent this sentence for searching relevant passages:" + text
         with torch.no_grad():
-            return self.model.encode(
-                text, batch_size=256, device=self.device
-            )
+            return self.model.encode(text, batch_size=256, device=self.device)
 
     def encode_text_batch(self, texts, is_query=False):
         if self.model.device != self.device:
@@ -108,9 +106,7 @@ class BGESmall_TextEmbeddingModel(TextEmbeddingModel):
         if is_query:
             text = "Represent this sentence for searching relevant passages:" + text
         with torch.no_grad():
-            return self.model.encode(
-                text, batch_size=512, device=self.device
-            )
+            return self.model.encode(text, batch_size=512, device=self.device)
 
     def encode_text_batch(self, texts, is_query=False):
         if self.model.device != self.device:

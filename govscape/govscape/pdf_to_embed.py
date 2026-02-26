@@ -81,7 +81,9 @@ class PDFsToEmbeddings:
 
     # converts a single pdf file to txt and img files (one of each per page)
     @staticmethod
-    def convert_pdf_to_txt_img_and_metadata(txts_path, imgs_path, pdfs_path, metadata_dir, pdf_file):
+    def convert_pdf_to_txt_img_and_metadata(
+        txts_path, imgs_path, pdfs_path, metadata_dir, pdf_file
+    ):
         pdf_name = os.path.splitext(os.path.basename(pdf_file))[0]
         pdf_path = os.path.join(pdfs_path, pdf_file)
         pdf_txt_subdir = os.path.join(txts_path, pdf_name)
@@ -122,7 +124,7 @@ class PDFsToEmbeddings:
                 # Render image
                 pil_image = page.render(scale=1.0).to_pil()
                 images.append(pil_image)
-        except Exception as e:
+        except Exception:
             return False
 
         for page_num, page_text in enumerate(text):
@@ -146,12 +148,17 @@ class PDFsToEmbeddings:
             results = pool.starmap(
                 self.convert_pdf_to_txt_img_and_metadata,
                 [
-                    (self.txts_path, self.img_path, self.pdfs_path, self.metadata_dir, file)
+                    (
+                        self.txts_path,
+                        self.img_path,
+                        self.pdfs_path,
+                        self.metadata_dir,
+                        file,
+                    )
                     for file in pdf_files
                 ],
             )
         return sum(results)
-        
 
     # ----------------------------------------
     # 1. dir pdf -> dir img (entire page) -> dir embed (entire page) shared with og
@@ -319,7 +326,7 @@ class PDFsToEmbeddings:
     # Create Page Image Embeddings
     # -------------------------------------------------------------------------------
     def compute_image_embeddings(self):
-        os.makedirs(self.embeddings_img_path, exist_ok=True)    
+        os.makedirs(self.embeddings_img_path, exist_ok=True)
         img_paths = []
         embedding_paths = []
         for img_subdir in os.scandir(self.img_path):
@@ -355,8 +362,12 @@ class PDFsToEmbeddings:
         pdfs_successfully_parsed = 0
         if do_text_embedding or do_img_embedding or do_metadata_collection:
             print("Converting pdfs to txts and page images")
-            pdfs_successfully_parsed = self.convert_pdfs_to_txt_img_and_metadata(pdf_files)
-        print(f"% pdfs successfully parsed: {pdfs_successfully_parsed} / {len(pdf_files)}")
+            pdfs_successfully_parsed = self.convert_pdfs_to_txt_img_and_metadata(
+                pdf_files
+            )
+        print(
+            f"% pdfs successfully parsed: {pdfs_successfully_parsed} / {len(pdf_files)}"
+        )
 
         time2 = time.time()
         if do_text_embedding:
@@ -377,4 +388,8 @@ class PDFsToEmbeddings:
         print("txt -> embed time: ", text_embed_time)
         print("img per page -> embed time: ", img_embed_time)
 
-        return pdf_to_txt_img_metadata, text_embed_time, img_embed_time,
+        return (
+            pdf_to_txt_img_metadata,
+            text_embed_time,
+            img_embed_time,
+        )
