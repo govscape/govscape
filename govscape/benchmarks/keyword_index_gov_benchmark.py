@@ -1,4 +1,5 @@
 # AI modified: 2026-02-21 d8ae3e4a
+# AI modified: 2026-02-22 d8ae3e4a
 """Benchmark utilities for AbstractKeywordIndex implementations using real government documents.
 
 Loads pages from a directory tree of the form:
@@ -10,13 +11,15 @@ various keyword index implementations for ingestion and query performance.
 Example:
     poetry run python -m govscape.benchmarks.keyword_index_gov_benchmark \
         --txt-dir data/s3_mock/test-serving/txt \
-        --queries-file data/queries/keyword_queries.txt
+        --queries-file data/queries/keyword_queries.txt \
+        --num-queries 10000 --seed 42
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import random
 import shutil
 import statistics
 import sys
@@ -282,6 +285,19 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         metavar="FILE",
         help="Write results to this CSV file in addition to stdout.",
     )
+    parser.add_argument(
+        "--num-queries",
+        type=int,
+        default=10_000,
+        help="Total number of queries to run, sampling with replacement when the"
+             " file has fewer entries (default: 10000).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed used when sampling queries (default: 42).",
+    )
     return parser.parse_args(argv)
 
 
@@ -312,11 +328,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # Load queries from file
     print(f"[INFO] Loading queries from {queries_file}...", file=sys.stderr)
-    queries = load_queries_from_file(queries_file)
-    if not queries:
+    base_queries = load_queries_from_file(queries_file)
+    if not base_queries:
         print("[ERROR] No queries loaded", file=sys.stderr)
         return 1
-    print(f"[INFO] Loaded {len(queries)} queries", file=sys.stderr)
+    print(f"[INFO] Loaded {len(base_queries)} unique queries", file=sys.stderr)
+
+    # Expand to the requested trial count by sampling with replacement
+    rng = random.Random(args.seed)
+    if args.num_queries <= len(base_queries):
+        queries = rng.sample(base_queries, args.num_queries)
+    else:
+        queries = base_queries + rng.choices(base_queries, k=args.num_queries - len(base_queries))
+    print(f"[INFO] Running {len(queries)} queries (seed={args.seed})", file=sys.stderr)
 
     # Run benchmarks
     selected = select_indexes(args.indexes or [])
