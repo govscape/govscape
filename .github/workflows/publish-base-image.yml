@@ -53,7 +53,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v4
         with:
-          images: ${{ github.repository_owner }}/govscape-base:${{ matrix.python_version }}
+          images: ${{ github.repository_owner }}/govscape-base
           tags: |
             type=sha,prefix=sha-
             type=raw,value=py${{ env.PYTHON_VERSION }}-lucene${{ env.LUCENE_VERSION }}-poetry${{ env.POETRY_VERSION }},enable={{is_default_branch}}
