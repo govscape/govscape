@@ -1,0 +1,23 @@
+# Development configuration for running the API server with a mocked S3 backend.
+# Do not start this from within the dev container, but from the host machine with `docker compose -f compose.yaml up --build`.
+
+services:
+  govscape:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "33239:8080"
+    volumes:
+      - ./data/s3_mock/test_serving:/data:cached
+    environment:
+      # The APP_ARGS variable can be overridden by using an .env file. See https://docs.docker.com/compose/how-tos/environment-variables/set-environment-variables/ for more details.
+      - APP_ARGS=--keyword_index_type Lucene --text_model 'Dummy' --visual_model 'Dummy' --backend local --remote_data_directory '/data' --local_data_directory '/data'
+    command: ["poetry", "run", "gunicorn", "-c", "gunicorn.conf.py", "scripts.python_helpers.start_api_server:create_app()"]

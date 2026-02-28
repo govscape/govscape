@@ -1,28 +1,31 @@
 {
 	"name": "poetry3-poetry-pyenv",
-	// "build": {
-	// 	"dockerfile": "Dockerfile"
-	// },
 	"dockerComposeFile": "compose.yml",
   	"service": "app",
 	"workspaceFolder": "/workspace",
-
 	// 👇 Features to add to the Dev Container. More info: https://containers.dev/implementors/features.
 	// "features": {},
-
 	// 👇 Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
-
 	// 👇 Use 'postCreateCommand' to run commands after the container is created.
-	// "postCreateCommand": "",
-
+	"postCreateCommand": "poetry install && cd govscape && poetry install",
 	// 👇 Configure tool-specific properties.
 	"customizations": {
-        "vscode": {
-            "extensions":["ms-python.python", "njpwerner.autodocstring"]
-            }
-        }
-
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"ms-python.vscode-pylance"
+			]
+		}
+	},
+	"mounts": [
+		// Mount AWS credentials so s5cmd works as expected.
+		"source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,readonly"
+	],
+	"hostRequirements": {
+		"gpu": "optional"
+	}
+	
 	// 👇 Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
 	// "remoteUser": "root"
 }

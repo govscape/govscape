@@ -1,4 +1,7 @@
-# GovScape currently requires python 3.11.14
+# govscape image for both API and embedding servers.
+# Use compose.yaml to start the API server after running the embedding pipeline.
+
+# govscape currently requires python 3.11.14
 ARG PYTHON_VERSION=3.11.14-trixie
 
 # We use a separate build phase to reduce the size of the final image.
@@ -68,10 +71,6 @@ RUN ln -s default-java temurin
 WORKDIR /home/govscape
 
 COPY --from=builder \
-    /usr/local/lib/python3.11/site-packages \
-    /usr/local/lib/python3.11/site-packages
-
-COPY --from=builder \
     /usr/local \
     /usr/local
 
@@ -79,9 +78,4 @@ COPY --from=builder \
     /home/govscape \
     /home/govscape
 
-# TODO: enable configuration via environment variables.
-ENV APP_ARGS="--keyword_index_type Lucene --text_model 'Dummy' --visual_model 'Dummy' --backend local --remote_data_directory '/data' --local_data_directory '/data'"
-
 EXPOSE 8080
-
-CMD ["poetry", "run", "gunicorn", "-c", "gunicorn.conf.py", "scripts.python_helpers.start_api_server:create_app()"]
