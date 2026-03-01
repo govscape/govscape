@@ -1,4 +1,5 @@
 # AI modified: 2026-02-21 d8ae3e4a
+# AI modified: 2026-03-01 b6756050
 # This file contains the functionality for bulk loading and indexing the data
 # before requests can be served.
 import contextlib
@@ -6,6 +7,7 @@ import os
 import pickle as pkl
 import sqlite3
 import sys
+import threading
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -20,62 +22,74 @@ from whoosh.qparser import QueryParser
 
 lucene = None
 _LUCENE_LOADED = False
+# Prevents two threads from racing through initVM() simultaneously.
+_lucene_load_lock = threading.Lock()
 
 
 # Lazily load lucene and its Java dependencies only when needed, since it may
 # not exist in all environments.
 def _load_lucene():
-    try:
-        global lucene, _LUCENE_LOADED
+    global lucene, _LUCENE_LOADED
+    # Already loaded (no lock needed for read).
+    if _LUCENE_LOADED:
+        return
+    # Module lock to prevent two threads both calling initVM().
+    with _lucene_load_lock:
         if _LUCENE_LOADED:
             return
+        try:
+            import lucene as _lucene
 
-        import lucene as _lucene
+            lucene = _lucene
+            lucene.initVM()
 
-        lucene = _lucene
-        lucene.initVM()
+            # import Java-side classes ONLY after initVM
+            global \
+                Paths, \
+                FSDirectory, \
+                StandardAnalyzer, \
+                Document, \
+                Field, \
+                StringField, \
+                TextField, \
+                StoredField
+            global \
+                IndexWriter, \
+                IndexWriterConfig, \
+                DirectoryReader, \
+                IndexSearcher, \
+                QueryParser, \
+                BM25Similarity
 
-        # import Java-side classes ONLY after initVM
-        global \
-            Paths, \
-            FSDirectory, \
-            StandardAnalyzer, \
-            Document, \
-            Field, \
-            StringField, \
-            TextField, \
-            StoredField
-        global \
-            IndexWriter, \
-            IndexWriterConfig, \
-            DirectoryReader, \
-            IndexSearcher, \
-            QueryParser, \
-            BM25Similarity
+            from java.nio.file import Paths  # type: ignore[import]
+            from org.apache.lucene.analysis.standard import (  # type: ignore[import]
+                StandardAnalyzer,
+            )
+            from org.apache.lucene.document import (  # type: ignore[import]
+                Document,
+                Field,
+                StoredField,
+                StringField,
+                TextField,
+            )
+            from org.apache.lucene.index import (  # type: ignore[import]
+                DirectoryReader,
+                IndexWriter,
+                IndexWriterConfig,
+            )
+            from org.apache.lucene.queryparser.classic import (  # type: ignore[import]
+                QueryParser,
+            )
+            from org.apache.lucene.search import IndexSearcher  # type: ignore[import]
+            from org.apache.lucene.search.similarities import (  # type: ignore[import]
+                BM25Similarity,
+            )
+            from org.apache.lucene.store import FSDirectory  # type: ignore[import]
 
-        from java.nio.file import Paths
-        from org.apache.lucene.analysis.standard import StandardAnalyzer
-        from org.apache.lucene.document import (
-            Document,
-            Field,
-            StoredField,
-            StringField,
-            TextField,
-        )
-        from org.apache.lucene.index import (
-            DirectoryReader,
-            IndexWriter,
-            IndexWriterConfig,
-        )
-        from org.apache.lucene.queryparser.classic import QueryParser
-        from org.apache.lucene.search import IndexSearcher
-        from org.apache.lucene.search.similarities import BM25Similarity
-        from org.apache.lucene.store import FSDirectory
-
-        _LUCENE_LOADED = True
-    except Exception as e:
-        print(f"Lucene not available: {e}")
-        raise ImportError("Lucene is not available in this environment") from e
+            _LUCENE_LOADED = True
+        except Exception as e:
+            print(f"Lucene not available: {e}")
+            raise ImportError("Lucene is not available in this environment") from e
 
 
 # Avoid annoying output from faiss during import
@@ -658,34 +672,77 @@ class WhooshKeywordIndex(AbstractKeywordIndex):
 
 class LuceneKeywordIndex(AbstractKeywordIndex):
     def __init__(self, index_keyword_directory):
-        _load_lucene()
+        # No JVM calls here — the gunicorn master may fork workers, and the
+        # JVM's internal daemon threads (GC, finalizer) don't survive fork(),
+        # leaving it in a broken state.  All JVM work is deferred to
+        # _ensure_ready(), which runs lazily inside each worker process.
         self.index_keyword_directory = index_keyword_directory
         os.makedirs(self.index_keyword_directory, exist_ok=True)
-
         self._dir = None
         self._analyzer = None
         self._writer = None
-
         self._reader = None
         self._searcher = None
+        # PID where the search index was opened; triggers re-init after fork.
+        self._ready_pid = None
+        # Ensures only one thread per process performs the full init.
+        self._init_lock = threading.Lock()
 
     def _attach(self):
-        """
-        Synchronizes lucene with the current python thread
-        """
+        """Start the JVM (if needed) and attach the current thread."""
         _load_lucene()
         env = lucene.getVMEnv()
         if env is not None:
             env.attachCurrentThread()
+
+    def _ensure_ready(self):
+        """
+        Lazily start the JVM and open the search index, once per process.
+
+        When gunicorn uses preload_app=True the Server object is created in the
+        master process, which then fork()s workers. The JVM's internal daemon
+        threads (GC, finalizer, etc.) are not copied by fork(), leaving it in
+        an unreliable state where some JNI calls work and others deadlock.
+        By deferring all JVM work to the first actual use inside each worker we
+        guarantee that initVM() runs fresh in every process.
+        """
+        pid = os.getpid()
+        if self._ready_pid == pid:
+            self._attach()
+            return
+
+        with self._init_lock:
+            if self._ready_pid == pid:
+                self._attach()
+                return
+
+            self._attach()
+            self._dir = FSDirectory.open(Paths.get(self.index_keyword_directory))
+            self._analyzer = StandardAnalyzer()
+
+            try:
+                reader = DirectoryReader.open(self._dir)
+            except Exception:
+                # Index does not exist yet; create an empty one.
+                cfg = IndexWriterConfig(self._analyzer)
+                cfg.setOpenMode(IndexWriterConfig.OpenMode.CREATE_OR_APPEND)
+                w = IndexWriter(self._dir, cfg)
+                w.commit()
+                w.close()
+                reader = DirectoryReader.open(self._dir)
+
+            searcher = IndexSearcher(reader)
+            searcher.setSimilarity(BM25Similarity())
+            self._reader = reader
+            self._searcher = searcher
+            self._ready_pid = pid
 
     def _open_dir(self):
         if self._dir is None:
             self._dir = FSDirectory.open(Paths.get(self.index_keyword_directory))
 
     def build_index(self):
-        """
-        Create/open the index for writing.
-        """
+        """Create/open the index for writing."""
         self._attach()
         self._open_dir()
         if self._analyzer is None:
@@ -697,21 +754,14 @@ class LuceneKeywordIndex(AbstractKeywordIndex):
             self._writer = IndexWriter(self._dir, cfg)
 
     def add_batch(self, texts, pdf_names, pages):
-        """
-        Adds documents to the Lucene index.
-        """
+        """Adds documents to the Lucene index."""
         self._attach()
         if self._writer is None:
             self.build_index()
 
-        # New readers/searchers won't see newly added docs until refreshed.
         for text, pdf_name, page in zip(texts, pdf_names, pages, strict=False):
             doc = Document()
-
-            # Indexed full-text field
             doc.add(TextField("text", text if text is not None else "", Field.Store.NO))
-
-            # Stored fields to return in results
             doc.add(
                 StringField(
                     "pdf_name",
@@ -719,79 +769,24 @@ class LuceneKeywordIndex(AbstractKeywordIndex):
                     Field.Store.YES,
                 )
             )
-
             doc.add(StoredField("page", int(page)))
-
             self._writer.addDocument(doc)
 
     def save_index(self):
-        """
-        Commit changes (and optionally close writer).
-        """
+        """Commit changes and close writer."""
         self._attach()
         if self._writer is not None:
             self._writer.commit()
             self._writer.close()
             self._writer = None
 
-        # Searcher must be refreshed after commits.
-        self._close_reader()
-
-    def _close_reader(self):
-        if self._reader is not None:
-            self._reader.close()
-
-        self._reader = None
-        self._searcher = None
-
     def load_index(self):
-        """
-        Open the index for searching.
-        """
-        self._attach()
-        self._open_dir()
-        if self._analyzer is None:
-            self._analyzer = StandardAnalyzer()
-
-        # Close any existing reader so we don't leak file handles.
-        self._close_reader()
-
-        # DirectoryReader.open will fail if index doesn't exist yet.
-        try:
-            self._reader = DirectoryReader.open(self._dir)
-            self._searcher = IndexSearcher(self._reader)
-            self._searcher.setSimilarity(BM25Similarity())
-        except Exception:
-            # No index yet; create it.
-            self.build_index()
-            self.save_index()
-            self._reader = DirectoryReader.open(self._dir)
-            self._searcher = IndexSearcher(self._reader)
-            self._searcher.setSimilarity(BM25Similarity())
-
-    def _ensure_searcher_fresh(self):
-        """
-        If writer exists and has uncommitted changes, commit them;
-        then open/refresh reader so searches see newest docs.
-        """
-        self._attach()
-        if self._writer is not None:
-            self._writer.commit()
-
-        if self._reader is None or self._searcher is None:
-            self.load_index()
-            return
-
-        # Try to reopen reader if index changed.
-        new_reader = DirectoryReader.openIfChanged(self._reader)
-        if new_reader is not None:
-            self._reader.close()
-            self._reader = new_reader
-            self._searcher = IndexSearcher(self._reader)
+        # Deferred to _ensure_ready() on first search/total_entries call,
+        # so the JVM is never started in the gunicorn master process.
+        pass
 
     def search(self, query, k):
-        self._attach()
-        self._ensure_searcher_fresh()
+        self._ensure_ready()
 
         parser = QueryParser("text", self._analyzer)
         try:
@@ -802,9 +797,8 @@ class LuceneKeywordIndex(AbstractKeywordIndex):
         top_docs = self._searcher.search(q, int(k))
         hits = top_docs.scoreDocs
 
-        stored = self._reader.storedFields()
-
         scores, pdf_names, pages = [], [], []
+        stored = self._searcher.storedFields()
         for sd in hits:
             doc = stored.document(sd.doc)
             scores.append(float(sd.score))
@@ -814,9 +808,7 @@ class LuceneKeywordIndex(AbstractKeywordIndex):
         return scores, pdf_names, pages
 
     def total_entries(self):
-        self._attach()
-        if self._reader is None:
-            self.load_index()
+        self._ensure_ready()
         return int(self._reader.numDocs())
 
 
