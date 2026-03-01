@@ -11,6 +11,9 @@ jobs:
         python: ['3.11.14']
       fail-fast: false
     runs-on: ${{ matrix.os }}
+    container:
+      # TODO, once first PR is merged, update to use proper version tag instead of sha for the base image
+      image: ghcr.io/bcglee/govscape-base:sha-2c5d3a9
     steps:
       - name: Disk Cleanup
         run: |
@@ -19,9 +22,6 @@ jobs:
             sudo docker builder prune -a
       - name: Checkout Repo
         uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
       - name: Install Poetry
         uses: snok/install-poetry@v1
       - name: Install package
