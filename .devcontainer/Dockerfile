@@ -1,7 +1,7 @@
 # The dev container is based on the same base image as the CI environment and the main image for the API server.
 
 # TODO, once first PR is merged, update to use proper version tag instead of sha for the base image
-FROM ghcr.io/bcglee/govscape-base:sha-2c5d3a9
+FROM ghcr.io/bcglee/govscape-base:sha-30e2697
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG USER=vscode
