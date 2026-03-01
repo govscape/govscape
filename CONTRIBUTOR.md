@@ -127,3 +127,9 @@ To start the web server locally, in a different server run:
 ```
 cd interface && npm install && npm run dev --open
 ```
+
+If you want to start the web server within a dev container, add `-- --host`
+
+```
+cd interface && npm install && npm run dev -- --host
+```

@@ -1,6 +1,6 @@
 # GovScape image for both API and embedding servers.
 # Use ./compose.yaml to start the API server after running the embedding pipeline.
-FROM ghcr.io/bcglee/govscape-base:sha-dcf81b6
+FROM ghcr.io/bcglee/govscape-base:sha-2c5d3a9
 
 ENV DEBIAN_FRONTEND=noninteractive
 

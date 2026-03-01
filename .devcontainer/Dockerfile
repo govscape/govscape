@@ -1,4 +1,4 @@
-FROM ghcr.io/bcglee/govscape-base:sha-dcf81b6
+FROM ghcr.io/bcglee/govscape-base:sha-2c5d3a9
 
 # In the docker environment, we can install dependencies globally without conflicts.
 # This allows us to use a globally installed pylucene package, which cannot be pip installed.
@@ -10,6 +10,8 @@ ARG USER=vscode
 # In the docker environment, we can install dependencies globally without conflicts.
 # This allows us to use a globally installed pylucene package, which cannot be pip installed.
 ENV POETRY_VIRTUALENVS_CREATE=false
+ENV POETRY_HOME=/opt/poetry
+ENV PATH="${POETRY_HOME}/bin:${PATH}"
 
 RUN DEBIAN_FRONTEND=noninteractive \
     && apt-get update \
@@ -32,6 +34,4 @@ RUN DEBIAN_FRONTEND=noninteractive \
         libffi-dev \
         liblzma-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && curl -fsSL https://install.python-poetry.org | python3 -
-
-
+    && curl -sSL https://install.python-poetry.org | python3 -

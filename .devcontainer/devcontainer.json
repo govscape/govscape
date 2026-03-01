@@ -19,10 +19,16 @@
 		"ghcr.io/devcontainers/features/aws-cli:1": {},
 		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
 			"moby": false // Trixie does not support moby.
+		},
+		"ghcr.io/devcontainers/features/node:1": {
+			"version": "20"
 		}
 	},
 	// 👇 Use 'forwardPorts' to make a list of ports inside the container available locally.
-	// "forwardPorts": [],
+	"forwardPorts": [
+		8080,
+		5173
+	],
 	// 👇 Use 'postCreateCommand' to run commands after the container is created.
 	"postCreateCommand": "poetry install",
 	// 👇 Configure tool-specific properties.
