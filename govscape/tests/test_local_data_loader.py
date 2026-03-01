@@ -2,6 +2,8 @@ import math
 import os
 from pathlib import Path
 
+import pytest
+
 from govscape.data_loader import LocalDataLoader, RemoteDirectoryIterator
 
 
@@ -10,7 +12,10 @@ def _touch(path: Path) -> None:
     path.write_text("x")
 
 
-def test_local_data_loader_continuation_token(tmp_path: Path) -> None:
+@pytest.mark.parametrize("use_multiprocessing", [False, True])
+def test_local_data_loader_continuation_token(
+    tmp_path: Path, use_multiprocessing: bool
+) -> None:
     base_dir = tmp_path / "data"
     checkpoint_path = tmp_path / "checkpoint.json"
     local_checkpoint_path = tmp_path / "local_checkpoint.json"
@@ -29,6 +34,7 @@ def test_local_data_loader_continuation_token(tmp_path: Path) -> None:
         str(checkpoint_path),
         str(local_checkpoint_path),
         local_dir=str(download_dir),
+        use_multiprocessing=use_multiprocessing,
     )
 
     # First page
@@ -48,6 +54,7 @@ def test_local_data_loader_continuation_token(tmp_path: Path) -> None:
         str(checkpoint_path),
         str(local_checkpoint_path),
         local_dir=str(download_dir),
+        use_multiprocessing=use_multiprocessing,
     )
     result3 = remote_iter2.download_batch(max_keys=2)
     assert len(result3) == 1
@@ -140,7 +147,10 @@ def test_download_file_decompress(tmp_path: Path) -> None:
         assert extracted == expected
 
 
-def test_remote_directory_iterator_compressed(tmp_path: Path) -> None:
+@pytest.mark.parametrize("use_multiprocessing", [False, True])
+def test_remote_directory_iterator_compressed(
+    tmp_path: Path, use_multiprocessing: bool
+) -> None:
     """Round-trip test: upload with compression, iterate with RemoteDirectoryIterator.
 
     Verifies that RemoteDirectoryIterator transparently decompresses .tar.gz
@@ -184,6 +194,7 @@ def test_remote_directory_iterator_compressed(tmp_path: Path) -> None:
         checkpoint_path,
         local_checkpoint_path,
         local_dir=str(download_dir),
+        use_multiprocessing=use_multiprocessing,
     )
 
     batch1 = remote_iter.download_batch(
@@ -220,6 +231,7 @@ def test_remote_directory_iterator_compressed(tmp_path: Path) -> None:
         checkpoint_path,
         local_checkpoint_path,
         local_dir=str(download_dir),
+        use_multiprocessing=use_multiprocessing,
     )
     batch2 = remote_iter2.download_batch(max_keys=4)
     # The first iterator consumed all pages, so the second should be empty.

@@ -10,7 +10,6 @@ Example:
 """
 
 import argparse
-import os
 import random
 import shutil
 import statistics
@@ -22,35 +21,9 @@ from pathlib import Path
 
 import numpy as np
 
-from govscape.indexing import AbstractVectorIndex, DiskANNIndex, FAISSIndex
+from govscape.indexing import AbstractVectorIndex, FAISSIndex
 
 IndexFactory = Callable[[Path], AbstractVectorIndex]
-
-
-class BenchmarkDiskANNIndex(DiskANNIndex):
-    """DiskANNIndex variant with a concrete add_batch implementation."""
-
-    def __init__(self, embedding_directory: str, index_directory: str):
-        super().__init__(embedding_directory, index_directory)
-        self._entry_count = 0
-
-    def add_batch(self, embeddings, pdf_names, pdf_pages):  # noqa: D401 - interface compliance
-        vectors = np.asarray(embeddings, dtype=np.float32)
-        if vectors.ndim != 2:
-            raise ValueError("Embeddings must be a 2D array")
-        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
-        norms[norms == 0] = 1.0
-        vectors = vectors / norms
-        os.makedirs(self.embedding_directory, exist_ok=True)
-        bin_path = os.path.join(self.embedding_directory, "embeddings.bin")
-        with open(bin_path, "wb") as handle:
-            np.array([vectors.shape[0]], dtype=np.int32).tofile(handle)
-            np.array([vectors.shape[1]], dtype=np.int32).tofile(handle)
-            vectors.tofile(handle)
-        self._entry_count = vectors.shape[0]
-
-    def total_entries(self):
-        return self._entry_count
 
 
 @dataclass
@@ -94,17 +67,16 @@ def create_faiss_index(base_dir: Path) -> AbstractVectorIndex:
     return FAISSIndex(base_dir.as_posix())
 
 
-def create_diskann_index(base_dir: Path) -> AbstractVectorIndex:
-    embedding_dir = base_dir / "embeddings"
-    index_dir = base_dir / "index"
-    embedding_dir.mkdir(parents=True, exist_ok=True)
-    index_dir.mkdir(parents=True, exist_ok=True)
-    return BenchmarkDiskANNIndex(embedding_dir.as_posix(), index_dir.as_posix())
+def create_lancedb_index(base_dir: Path) -> AbstractVectorIndex:
+    from govscape.indexing import LanceDBVectorIndex
+
+    base_dir.mkdir(parents=True, exist_ok=True)
+    return LanceDBVectorIndex(base_dir.as_posix())
 
 
 INDEX_FACTORIES: dict[str, Callable[[Path], AbstractVectorIndex]] = {
     "faiss": create_faiss_index,
-    "diskann": create_diskann_index,
+    "lancedb": create_lancedb_index,
 }
 
 
@@ -141,15 +113,8 @@ def benchmark_index(
 
     start_ingest = time.perf_counter()
     index.add_batch(embeddings, pdf_names, pdf_pages)
-    index.build_index()
+    index.save_index()
     ingest_seconds = time.perf_counter() - start_ingest
-
-    # Ensure the index is ready for querying (DiskANN requires an explicit load step).
-    if hasattr(index, "load_index"):
-        try:
-            index.load_index()
-        except Exception as exc:
-            raise RuntimeError(f"Failed to load index '{name}': {exc}") from exc
 
     latencies: list[float] = []
     for query in queries:
@@ -196,7 +161,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument("--dim", type=int, default=768, help="Embedding dimensionality")
     parser.add_argument(
-        "--embeddings", type=int, default=50000, help="Number of embeddings to index"
+        "--embeddings", type=int, default=500000, help="Number of embeddings to index"
     )
     parser.add_argument(
         "--documents",

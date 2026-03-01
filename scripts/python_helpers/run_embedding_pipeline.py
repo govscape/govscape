@@ -36,21 +36,18 @@ def process_pdfs(
     metadata_dir = os.path.join(local_data_dir, "metadata")
 
     # PROCESS PDFS HERE
-    pdf_to_txt_img_time, text_embed_time, img_embed_time, metadata_time = (
-        processor.pdfs_to_embeddings(
-            pdf_files, do_text_embedding, do_img_embedding, do_metadata_collection
-        )
+    pdf_to_txt_img_time, text_embed_time, img_embed_time = processor.pdfs_to_embeddings(
+        pdf_files, do_text_embedding, do_img_embedding, do_metadata_collection
     )
     pipeline_times["pdf_to_txt_img_time"] += pdf_to_txt_img_time
     pipeline_times["text_embed_time"] += text_embed_time
     pipeline_times["img_embed_time"] += img_embed_time
-    pipeline_times["metadata_time"] += metadata_time
 
     time1 = time.time()
     # UPLOADING EMBEDDINGS, TXTS, IMAGES TO S3 HERE
     if do_text_embedding or do_img_embedding:
         data_loader.upload_directory(
-            txt_directory, os.path.join(data_dir_backend, "txt"), compress=False
+            txt_directory, os.path.join(data_dir_backend, "txt"), compress=True
         )
         print("finished uploading txt")
 
@@ -62,19 +59,19 @@ def process_pdfs(
         data_loader.upload_directory(
             embeddings_directory,
             os.path.join(data_dir_backend, "embeddings"),
-            compress=False,
+            compress=True,
         )
         print("finished uploading embeddings")
     if do_img_embedding:
         data_loader.upload_directory(
             embeddings_img_pg_directory,
             os.path.join(data_dir_backend, "embeddings_img_pg"),
-            compress=False,
+            compress=True,
         )
         print("finished uploading embed img pg")
     if do_metadata_collection:
         data_loader.upload_directory(
-            metadata_dir, os.path.join(data_dir_backend, "metadata"), compress=False
+            metadata_dir, os.path.join(data_dir_backend, "metadata"), compress=True
         )
         print("finished uploading metadata")
 
@@ -237,7 +234,6 @@ if __name__ == "__main__":
             "pdf_to_txt_img_time": 0,
             "text_embed_time": 0,
             "img_embed_time": 0,
-            "metadata_time": 0,
             "upload": 0,
             "pdfs_processed": 0,
         }
@@ -337,7 +333,6 @@ if __name__ == "__main__":
         )
         print("TOTAL TIME txt -> embed time:", pipeline_times["text_embed_time"])
         print("TOTAL TIME img -> embed time:", pipeline_times["img_embed_time"])
-        print("TOTAL TIME metadata time:", pipeline_times["metadata_time"])
         print("TOTAL TIME uploading data:", pipeline_times["upload"])
 
     main()
