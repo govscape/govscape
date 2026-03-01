@@ -1,4 +1,4 @@
-# govscape base image for both API and embedding servers.
+# GovScape base image for both API and embedding servers, and the dev container.
 
 # The GitHub action has a build matrix that specifies the versions.
 # These ARGs are the fallback.
@@ -36,6 +36,8 @@ RUN curl -fsSL https://downloads.apache.org/lucene/pylucene/pylucene-${LUCENE_VE
 # Python, and pylucene remain after copying.
 FROM python:${PYTHON_VERSION} AS runtime
 
+ARG POETRY_VERSION=2.3.2
+
 # In the docker environment, we can install dependencies globally without conflicts.
 # This allows us to use a globally installed pylucene package, which cannot be pip installed.
 ENV POETRY_VIRTUALENVS_CREATE=false
@@ -47,6 +49,7 @@ RUN DEBIAN_FRONTEND=noninteractive \
     && apt-get install -y --no-install-recommends default-jre-headless \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/lib/jvm/default-java /usr/lib/jvm/temurin \
-    && curl -fsSL https://install.python-poetry.org | python3 -
+    && python3 -m venv ${POETRY_HOME} \
+    && ${POETRY_HOME}/bin/pip install poetry==${POETRY_VERSION}
 
 COPY --from=builder /usr/local /usr/local
