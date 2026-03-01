@@ -26,6 +26,7 @@ jobs:
             lucene_version: 10.0.0
             # Obtain checksum from https://dlcdn.apache.org/lucene/pylucene/
             lucene_sha256: "100c3d61d6799ac16b7b8c1826cddf07fb1715141ebdb0d7b8119cdd96b24574  pylucene-10.0.0-src.tar.gz"
+            poetry_version: 2.3.2
 
           # Add more versions below as needed.
 
@@ -50,7 +51,7 @@ jobs:
           images: ghcr.io/${{ github.repository_owner }}/govscape-base
           tags: |
             type=sha,prefix=sha-
-            type=raw,value=py${{ env.PYTHON_VERSION }}-lucene${{ env.LUCENE_VERSION }},enable={{is_default_branch}}
+            type=raw,value=py${{ env.PYTHON_VERSION }}-lucene${{ env.LUCENE_VERSION }}-poetry${{ env.POETRY_VERSION }},enable={{is_default_branch}}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build Docker image
@@ -66,3 +67,4 @@ jobs:
             PYTHON_VERSION=${{ matrix.python_version }}
             LUCENE_VERSION=${{ matrix.lucene_version }}
             LUCENE_SHA256=${{ matrix.lucene_sha256 }}
+            POETRY_VERSION=${{ matrix.poetry_version }}
