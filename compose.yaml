@@ -14,7 +14,8 @@ services:
               count: all
               capabilities: [gpu]
     ports:
-      - "8080:8080"
+      # Externally available at 8081, internally available at govscape:8080
+      - "8081:8080"
     volumes:
       - ${LOCAL_WORKSPACE_FOLDER:-.}/data/s3_mock/test-serving:/data
     environment:

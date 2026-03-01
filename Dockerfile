@@ -1,8 +1,8 @@
 # GovScape image for both API and embedding servers.
 # Use ./compose.yaml to start the API server after running the embedding pipeline.
 
-# TODO, once first PR is merged, update to use proper version tag instead of sha for the base image
-FROM ghcr.io/bcglee/govscape-base:sha-30e2697
+# TODO, once first PR is merged, update to remove the branch from the version tag
+FROM ghcr.io/bcglee/govscape-base:py3.11.14-lucene10.0.0-poetry2.3.2-lucene-keyword-index 
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -12,6 +12,6 @@ COPY . .
 
 # Install poetry and dependencies. --no-cache still produces /root/.cache/artifacts/
 RUN poetry install --no-cache \
-    && rm -rf /root/.cache/*
+    && rm -rf /root/.cache/artifacts/
 
 EXPOSE 8080

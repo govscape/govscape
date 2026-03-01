@@ -45,7 +45,10 @@
 			"extensions": [
 				"ms-python.python",
 				"ms-python.vscode-pylance"
-			]
+			],
+			"settings": {
+				"python.terminal.activateEnvironment": false
+			}
 		}
 	},
 	"mounts": [
