@@ -18,13 +18,14 @@ def sample_pipeline(tmp_path):
     return pipeline, pdf_files
 
 
-def test_convert_pdf_to_txt_and_img(sample_pipeline):
+def test_convert_pdf_to_txt_img_and_metadata(sample_pipeline):
     pipeline, pdf_files = sample_pipeline
     assert "govscape_intro.pdf" in pdf_files
-    PDFsToEmbeddings.convert_pdf_to_txt_and_img(
+    PDFsToEmbeddings.convert_pdf_to_txt_img_and_metadata(
         pipeline.txts_path,
         pipeline.img_path,
         pipeline.pdfs_path,
+        pipeline.metadata_dir,
         "govscape_intro.pdf",
     )
 
@@ -41,7 +42,7 @@ def test_convert_pdf_to_txt_and_img(sample_pipeline):
 
 def test_convert_pdfs_to_txt_and_img_creates_outputs(sample_pipeline):
     pipeline, pdf_files = sample_pipeline
-    pipeline.convert_pdfs_to_txt_and_img(pdf_files)
+    pipeline.convert_pdfs_to_txt_img_and_metadata(pdf_files)
 
     txt_base = Path(pipeline.txts_path)
     img_base = Path(pipeline.img_path)
@@ -77,7 +78,7 @@ def test_pdfs_to_embeddings_text_only(sample_pipeline):
         do_metadata_collection=False,
     )
 
-    assert len(timings) == 4
+    assert len(timings) == 3
     assert all(isinstance(value, float) for value in timings)
 
     txt_base = Path(pipeline.txts_path)

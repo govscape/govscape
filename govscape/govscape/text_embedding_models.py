@@ -26,10 +26,14 @@ class TextEmbeddingModel(ABC):
 
 
 class ST_TextEmbeddingModel(TextEmbeddingModel):
+    @property
+    def d(self):
+        return self.model.get_sentence_embedding_dimension()
+
     def __init__(self):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
-        self.d = self.model.get_sentence_embedding_dimension()
+        self.model.half()
 
     def encode_text(self, text, is_query=False):
         if self.model.device != self.device:
@@ -52,10 +56,14 @@ class ST_TextEmbeddingModel(TextEmbeddingModel):
 
 
 class BGE_TextEmbeddingModel(TextEmbeddingModel):
+    @property
+    def d(self):
+        return self.model.get_sentence_embedding_dimension()
+
     def __init__(self):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.model = SentenceTransformer("BAAI/bge-base-en-v1.5")
-        self.d = self.model.get_sentence_embedding_dimension()
+        self.model.half()
 
     def encode_text(self, text, is_query=False):
         if self.model.device != self.device:
@@ -63,9 +71,7 @@ class BGE_TextEmbeddingModel(TextEmbeddingModel):
         if is_query:
             text = "Represent this sentence for searching relevant passages:" + text
         with torch.no_grad():
-            return self.model.encode(
-                text, batch_size=GPU_BATCH_SIZE, device=self.device
-            )
+            return self.model.encode(text, batch_size=256, device=self.device)
 
     def encode_text_batch(self, texts, is_query=False):
         if self.model.device != self.device:
@@ -92,6 +98,7 @@ class BGESmall_TextEmbeddingModel(TextEmbeddingModel):
     def __init__(self):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.model = SentenceTransformer("BAAI/bge-small-en-v1.5")
+        self.model.half()
 
     def encode_text(self, text, is_query=False):
         if self.model.device != self.device:
@@ -99,9 +106,7 @@ class BGESmall_TextEmbeddingModel(TextEmbeddingModel):
         if is_query:
             text = "Represent this sentence for searching relevant passages:" + text
         with torch.no_grad():
-            return self.model.encode(
-                text, batch_size=GPU_BATCH_SIZE, device=self.device
-            )
+            return self.model.encode(text, batch_size=512, device=self.device)
 
     def encode_text_batch(self, texts, is_query=False):
         if self.model.device != self.device:

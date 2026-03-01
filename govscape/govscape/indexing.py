@@ -10,7 +10,6 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-import diskannpy as dap
 import pyarrow as pa
 from lancedb import connect
 from lancedb.query import MatchQuery, PhraseQuery
@@ -133,69 +132,11 @@ class AbstractVectorIndex(ABC):
         """
 
 
-class DiskANNIndex(AbstractVectorIndex):
-    def __init__(self, embedding_directory, index_directory):
-        self.embedding_directory = embedding_directory
-        self.index_directory = index_directory
-        self.index = None
-        self.page_indices = None
-
-    def build_index(self):
-        if not os.path.exists(self.index_directory):
-            os.makedirs(self.index_directory)
-        embedding = os.path.join(self.embedding_directory, "embeddings.bin")
-        # Comments below are adapted from the DiskANN repo.
-        # Can also be cosine, especially if you don't normalize your vectors.
-        # Higher complexity considers more candidate points when ranking.
-        # Higher graph degree increases quality but takes longer to build.
-        # Memory values are in GB.
-        # 0 means use all available threads.
-        # ann is the default prefix; files are generated like f"{index_prefix}_".
-        # Product quantization can improve recall at lower latency; skip for now.
-        dap.build_disk_index(
-            data=embedding,
-            distance_metric="l2",
-            index_directory=self.index_directory,
-            complexity=128,
-            graph_degree=64,
-            search_memory_maximum=16.0,
-            build_memory_maximum=100.0,
-            num_threads=0,
-            vector_dtype=np.float32,
-            index_prefix="ann",
-            pq_disk_bytes=0,
-        )
-
-    def save_index(self, filepath):
-        return
-
-    def load_index(self):
-        self.index = dap.StaticDiskIndex(
-            index_directory=self.index_directory,
-            num_threads=0,
-            num_nodes_to_cache=17,
-            index_prefix="ann",
-        )
-
-    def search(self, query_vector, k):
-        query_vector = query_vector.copy() / np.linalg.norm(query_vector)
-        # query vector should be 2D
-        internal_indices, distances = self.index.search(
-            query=query_vector,
-            k_neighbors=k,
-            complexity=k * 10,  # must be as big or bigger than `k_neighbors`
-        )
-        return distances, internal_indices
-
-    def total_entries(self):
-        # TODO: Implement this method to return the total number of embeddings.
-        return 0
-
-
 class FAISSIndex(AbstractVectorIndex):
-    def __init__(self, index_directory):
+    def __init__(self, index_directory, index_type="IVFPQ"):
         self.index_directory = index_directory
         self.faiss_index = None
+        self.index_type = index_type
         self.d = None
         self.is_trained = False
         self.train_batch = None
@@ -218,10 +159,26 @@ class FAISSIndex(AbstractVectorIndex):
         if not self.is_trained:
             self.train_batch = np.vstack((self.train_batch, embeddings))
             if self.train_batch.shape[0] >= 8192 * 39:
-                coarse_quantizer = faiss.IndexFlatL2(self.d)
-                self.faiss_index = faiss.IndexIVFPQ(
-                    coarse_quantizer, self.d, 8192, int(self.d / 4), 8
-                )
+                if self.index_type == "IVFPQ":
+                    coarse_quantizer = faiss.IndexFlatL2(self.d)
+                    self.faiss_index = faiss.IndexIVFPQ(
+                        coarse_quantizer, self.d, 8192, int(self.d / 4), 8
+                    )
+                elif self.index_type == "Flat":
+                    self.faiss_index = faiss.IndexFlatL2(self.d)
+                elif self.index_type == "IVF":
+                    quantizer = faiss.IndexFlatL2(
+                        self.d
+                    )  # coarse quantizer used for IVF (inverted file) indexing
+                    self.faiss_index = faiss.IndexIVFFlat(
+                        quantizer, self.d, 8192, faiss.METRIC_L2
+                    )
+                elif self.index_type == "HNSW":
+                    self.faiss_index = faiss.IndexHNSWFlat(self.d, 32)
+                    self.faiss_index.hnsw.efConstruction = 200
+                    self.faiss_index.hnsw.efSearch = 200
+                else:
+                    raise ValueError(f"Unsupported index type: {self.index_type}")
                 self.faiss_index.train(self.train_batch)
                 self.faiss_index.nprobe = 32
                 self.faiss_index.add(
@@ -284,6 +241,131 @@ class FAISSIndex(AbstractVectorIndex):
 
     def total_entries(self):
         return self.faiss_index.ntotal
+
+
+class LanceDBVectorIndex(AbstractVectorIndex):
+    def __init__(self, index_directory, table_name="vector_index"):
+        self.index_directory = index_directory
+        self.table_name = table_name
+        self.db = None
+        self.table = None
+        self.d = None
+
+    def _connect(self):
+        if self.db is None:
+            os.makedirs(self.index_directory, exist_ok=True)
+            self.db = connect(self.index_directory)
+
+    def build_index(self):
+        self._connect()
+        if self.table_name in self.db.table_names():
+            self.table = self.db.open_table(self.table_name)
+            return
+
+        if self.d is None:
+            raise ValueError(
+                "Vector dimension must be known before creating LanceDB vector table"
+            )
+
+        if self.table_name not in self.db.table_names():
+            schema = pa.schema(
+                [
+                    pa.field("vector", pa.list_(pa.float32(), self.d)),
+                    pa.field("pdf_name", pa.string()),
+                    pa.field("page", pa.int32()),
+                ]
+            )
+            self.table = self.db.create_table(self.table_name, schema=schema)
+
+    def add_batch(self, embeddings, pdf_names, pdf_pages):
+        embeddings = np.asarray(embeddings, dtype=np.float32)
+        if embeddings.ndim == 1:
+            embeddings = embeddings[np.newaxis, :]
+        if embeddings.ndim != 2:
+            raise ValueError("Embeddings must be a 2D array")
+
+        if self.d is None:
+            self.d = embeddings.shape[1]
+        elif embeddings.shape[1] != self.d:
+            raise ValueError(
+                "Embedding dimension mismatch: "
+                f"expected {self.d}, got {embeddings.shape[1]}"
+            )
+
+        if self.table is None:
+            self.build_index()
+
+        rows = [
+            {
+                "vector": embeddings[i].tolist(),
+                "pdf_name": str(pdf_name),
+                "page": int(page),
+            }
+            for i, (pdf_name, page) in enumerate(
+                zip(pdf_names, pdf_pages, strict=False)
+            )
+        ]
+        if rows:
+            self.table.add(rows)
+
+    def save_index(self):
+        if self.table is None:
+            self.load_index()
+        if self.table is None:
+            return
+
+        if self.table.count_rows() > 1024:
+            try:
+                self.table.create_index(vector_column_name="vector")
+            except Exception as exc:
+                if "already exists" not in str(exc).lower():
+                    raise
+        self.table.optimize()
+
+    def load_index(self):
+        self._connect()
+        try:
+            self.table = self.db.open_table(self.table_name)
+        except Exception:
+            self.build_index()
+        if self.table is not None:
+            try:
+                self.d = int(self.table.schema.field("vector").type.list_size)
+            except Exception:
+                # Keep d unknown on reload if schema does not expose fixed vector size.
+                self.d = None
+
+    def search(self, query_vector, k):
+        if self.table is None:
+            self.load_index()
+
+        query_vector = np.asarray(query_vector, dtype=np.float32)
+        if query_vector.ndim == 2:
+            if query_vector.shape[0] != 1:
+                raise ValueError("Query embedding must be a 1D vector or shape (1, d)")
+            query_vector = query_vector[0]
+        if query_vector.ndim != 1:
+            raise ValueError("Query embedding must be a 1D vector")
+        if self.d is not None and query_vector.shape[0] != self.d:
+            raise ValueError(
+                "Query dimension mismatch: "
+                f"expected {self.d}, got {query_vector.shape[0]}"
+            )
+
+        results = (
+            self.table.search(query_vector.tolist(), vector_column_name="vector")
+            .limit(int(k))
+            .to_list()
+        )
+        distances = [float(r.get("_distance", 0.0)) for r in results]
+        pdf_names = [r["pdf_name"] for r in results]
+        pages = [int(r["page"]) for r in results]
+        return distances, pdf_names, pages
+
+    def total_entries(self):
+        if self.table is None:
+            self.load_index()
+        return self.table.count_rows()
 
 
 class AbstractKeywordIndex(ABC):

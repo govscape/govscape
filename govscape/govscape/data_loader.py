@@ -1,4 +1,3 @@
-# AI modified: 2026-02-13 5e12f16b
 from __future__ import annotations
 
 import contextlib
@@ -12,6 +11,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from multiprocessing import Pool
+from typing import Any, Self
 
 import boto3
 from botocore.client import BaseClient as S3Client
@@ -58,17 +59,33 @@ class DataLoader(ABC):
         """
         extract_dir = os.path.dirname(tar_path)
         extracted_files: list[str] = []
+
+        def move_extracted_file(tmp_file: str, rel_path: str) -> str:
+            dest = os.path.join(extract_dir, rel_path)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.move(tmp_file, dest)
+            return dest
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             with tarfile.open(tar_path, "r:gz") as tar:
                 tar.extractall(path=tmp_dir)
+
+            extracted_paths: list[tuple[str, str]] = []
             for root, _, files in os.walk(tmp_dir):
                 for filename in files:
                     tmp_file = os.path.join(root, filename)
                     rel_path = os.path.relpath(tmp_file, tmp_dir)
-                    dest = os.path.join(extract_dir, rel_path)
-                    os.makedirs(os.path.dirname(dest), exist_ok=True)
-                    shutil.move(tmp_file, dest)
-                    extracted_files.append(dest)
+                    extracted_paths.append((tmp_file, rel_path))
+
+            if extracted_paths:
+                max_workers = min(32, len(extracted_paths))
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    extracted_files.extend(
+                        executor.map(
+                            lambda item: move_extracted_file(item[0], item[1]),
+                            extracted_paths,
+                        )
+                    )
         os.remove(tar_path)
         return extracted_files
 
@@ -89,6 +106,16 @@ class DataLoader(ABC):
         chunk_size: int = 1000,
     ) -> None:
         raise NotImplementedError
+
+    @staticmethod
+    def _create_tar_chunk(args: tuple[list[str], str, str]) -> str:
+        """Create one compressed tar chunk from a list of files."""
+        chunk_files, local_dir, tar_path = args
+        with tarfile.open(tar_path, "w:gz") as tar:
+            for file_path in chunk_files:
+                arcname = os.path.relpath(file_path, local_dir)
+                tar.add(file_path, arcname=arcname)
+        return tar_path
 
     def _upload_directory_compressed(
         self, local_dir: str, remote_prefix: str, chunk_size: int = 1000
@@ -111,18 +138,24 @@ class DataLoader(ABC):
         if not all_files:
             return
 
+        def build_chunk_task(
+            chunk_idx: int, tmp_dir: str
+        ) -> tuple[list[str], str, str]:
+            chunk_files = all_files[chunk_idx : chunk_idx + chunk_size]
+            chunk_hash = hash(tuple(chunk_files))
+            chunk_name = f"chunk_{chunk_hash}.tar.gz"
+            tar_path = os.path.join(tmp_dir, chunk_name)
+            return (chunk_files, local_dir, tar_path)
+
         with tempfile.TemporaryDirectory() as tmp_dir:
-            for chunk_idx in range(0, len(all_files), chunk_size):
-                chunk_files = all_files[chunk_idx : chunk_idx + chunk_size]
-                if not chunk_files:
-                    break
-                chunk_hash = hash(tuple(chunk_files))
-                chunk_name = f"chunk_{chunk_hash}.tar.gz"
-                tar_path = os.path.join(tmp_dir, chunk_name)
-                with tarfile.open(tar_path, "w:gz") as tar:
-                    for file_path in chunk_files:
-                        arcname = os.path.relpath(file_path, local_dir)
-                        tar.add(file_path, arcname=arcname)
+            chunk_indices = list(range(0, len(all_files), chunk_size))
+            tasks = [
+                build_chunk_task(chunk_idx, tmp_dir) for chunk_idx in chunk_indices
+            ]
+            if tasks:
+                workers = min(os.cpu_count() or 1, len(tasks))
+                with Pool(processes=workers) as pool:
+                    pool.map(self._create_tar_chunk, tasks)
             self.upload_directory(tmp_dir, remote_prefix, compress=False)
 
     @abstractmethod
@@ -165,14 +198,24 @@ class S3DataLoader(DataLoader):
         }
         if continuation_token:
             kwargs["ContinuationToken"] = continuation_token
-        result = self.s3.list_objects_v2(**kwargs)
-        contents = result.get("Contents", [])
-        keys = [obj["Key"] for obj in contents]
-        self._continuation_token = result.get("NextContinuationToken")
+        remaining = max_keys
+        is_truncated = False
+        keys = []
+        while remaining > 0:
+            kwargs["MaxKeys"] = min(10000, remaining)
+            result = self.s3.list_objects_v2(**kwargs)
+            contents = result.get("Contents", [])
+            keys.extend([obj["Key"] for obj in contents])
+            continuation_token = result.get("NextContinuationToken")
+            kwargs["ContinuationToken"] = continuation_token
+            remaining = max_keys - len(keys)
+            is_truncated = result.get("IsTruncated", False)
+            if not continuation_token:
+                break
         return ListResult(
             keys=keys,
-            is_truncated=result.get("IsTruncated", False),
-            continuation_token=self._continuation_token,
+            is_truncated=is_truncated,
+            continuation_token=continuation_token,
         )
 
     def download_file(
@@ -347,6 +390,38 @@ def build_data_loader(
     raise ValueError(f"Unsupported backend: {backend}")
 
 
+# -- Multiprocessing helpers (module-level for picklability) --
+
+_mp_loader: DataLoader | None = None
+
+
+def _init_mp_worker(loader_type: str, loader_kwargs: dict) -> None:
+    """Initializer for multiprocessing pool workers.
+
+    Reconstructs the DataLoader in each worker process to avoid pickling
+    boto3 clients.
+    """
+    global _mp_loader
+    if loader_type == "s3":
+        _mp_loader = S3DataLoader(
+            bucket_name=loader_kwargs["bucket_name"],
+            config=Config(
+                max_pool_connections=loader_kwargs.get("max_pool_connections", 60)
+            ),
+        )
+    elif loader_type == "local":
+        _mp_loader = LocalDataLoader(base_dir=loader_kwargs["base_dir"])
+    else:
+        raise ValueError(f"Unknown loader type: {loader_type}")
+
+
+def _mp_download_file(args: tuple[str, str, bool]) -> list[str]:
+    """Worker function that downloads a single file using the process-local loader."""
+    remote_path, local_path, decompress = args
+    assert _mp_loader is not None
+    return _mp_loader.download_file(remote_path, local_path, decompress)
+
+
 class RemoteDirectoryIterator:
     def __init__(
         self,
@@ -355,17 +430,45 @@ class RemoteDirectoryIterator:
         remote_checkpoint_path: str,
         local_checkpoint_path: str,
         local_dir: str,
-        batch_size: int = 1000,
+        use_multiprocessing: bool = True,
     ) -> None:
         self.data_loader = data_loader
         self.prefix = prefix
         self.remote_checkpoint_path = remote_checkpoint_path
         self.local_dir = local_dir
         self.local_checkpoint_path = local_checkpoint_path
-        self.batch_size = batch_size
+        self.use_multiprocessing = use_multiprocessing
         self.finished: bool = False
         self._continuation_token: str | None = None
+        self._mp_pool: Any | None = None
         self._load_checkpoint_from_remote()
+
+    def _get_mp_pool(self, num_workers: int):
+        """Return the cached multiprocessing pool, creating it on first use."""
+        if self._mp_pool is None:
+            loader_type, loader_kwargs = self._get_loader_spec()
+            self._mp_pool = Pool(
+                processes=num_workers,
+                initializer=_init_mp_worker,
+                initargs=(loader_type, loader_kwargs),
+            )
+        return self._mp_pool
+
+    def close(self) -> None:
+        """Shut down the cached multiprocessing pool, if any."""
+        if self._mp_pool is not None:
+            self._mp_pool.terminate()
+            self._mp_pool.join()
+            self._mp_pool = None
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        self.close()
 
     def _load_checkpoint_from_remote(self) -> None:
         if self.data_loader.exists(self.remote_checkpoint_path):
@@ -417,12 +520,11 @@ class RemoteDirectoryIterator:
         while remaining > 0:
             result = self.data_loader.list_objects(
                 self.prefix,
-                max_keys=min(1000, remaining),
+                max_keys=min(100000, remaining),
                 continuation_token=self._continuation_token,
             )
             self._continuation_token = result.continuation_token
             keys = result.keys
-
             # Separate compressed archives from regular files so .tar.gz
             # archives can be decompressed and their contents returned.
             tar_keys = [k for k in keys if k.endswith(".tar.gz")]
@@ -430,21 +532,25 @@ class RemoteDirectoryIterator:
             if filter_fn:
                 regular_keys = [k for k in regular_keys if filter_fn(k)]
 
+            download_fn = (
+                self._download_files_multiprocess
+                if self.use_multiprocessing
+                else self._download_files_multithreaded
+            )
+
             if regular_keys:
                 pairs = [
                     (key, self._build_local_path(self.prefix, key, self.local_dir))
                     for key in regular_keys
                 ]
-                downloaded_paths.extend(
-                    self._download_files_parallel(pairs, num_workers=num_workers)
-                )
+                downloaded_paths.extend(download_fn(pairs, num_workers=num_workers))
 
             if tar_keys:
                 tar_pairs = [
                     (key, self._build_local_path(self.prefix, key, self.local_dir))
                     for key in tar_keys
                 ]
-                extracted = self._download_files_parallel(
+                extracted = download_fn(
                     tar_pairs, num_workers=num_workers, decompress=True
                 )
                 downloaded_paths.extend(
@@ -465,7 +571,7 @@ class RemoteDirectoryIterator:
                     break
         return downloaded_paths
 
-    def _download_files_parallel(
+    def _download_files_multithreaded(
         self,
         pairs: list[tuple[str, str]],
         num_workers: int | None = None,
@@ -486,3 +592,26 @@ class RemoteDirectoryIterator:
                 decompress_flags,
             )
             return [path for file_list in results for path in file_list]
+
+    def _get_loader_spec(self) -> tuple[str, dict]:
+        """Return a picklable (type, kwargs) pair describing the data loader."""
+        if isinstance(self.data_loader, S3DataLoader):
+            return ("s3", {"bucket_name": self.data_loader.bucket_name})
+        if isinstance(self.data_loader, LocalDataLoader):
+            return ("local", {"base_dir": self.data_loader.base_dir})
+        raise TypeError(f"Cannot serialize loader: {type(self.data_loader)}")
+
+    def _download_files_multiprocess(
+        self,
+        pairs: list[tuple[str, str]],
+        num_workers: int | None = None,
+        decompress: bool = False,
+    ) -> list[str]:
+        if num_workers is None:
+            num_workers = os.cpu_count() * 2 or 1
+
+        max_workers = min(num_workers, len(pairs))
+        pool = self._get_mp_pool(max_workers)
+        tasks = [(remote, local, decompress) for remote, local in pairs]
+        results = pool.map(_mp_download_file, tasks)
+        return [path for file_list in results for path in file_list]
