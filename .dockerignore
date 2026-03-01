@@ -7,9 +7,6 @@ __pycache__
 .DS_Store
 .venv/
 node_modules/
-interface/node_modules/
-interface/build/
-interface/.svelte-kit/
+interface/
 data/
 poetry.lock
-data/

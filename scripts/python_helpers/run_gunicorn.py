@@ -62,6 +62,9 @@ def main():
     else:
         app_argv = sys.argv[1:]
         gunicorn_argv = [
+            # Ensure poetry is used to run gunicorn so it picks up with or without a venv.
+            "poetry",
+            "run",
             "gunicorn",
             "-c",
             "gunicorn.conf.py",
