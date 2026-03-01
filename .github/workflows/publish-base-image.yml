@@ -2,6 +2,7 @@ name: Publish Base Image
 
 on:
   push:
+    branches: ["**"]
     paths:
       - .github/workflows/publish-base-image.yml
       - docker/images/govscape-base/Dockerfile
@@ -22,11 +23,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - python_version: 3.11.14-trixie
+          - python_version: 3.11.14
             lucene_version: 10.0.0
+            poetry_version: 2.3.2
+            
             # Obtain checksum from https://dlcdn.apache.org/lucene/pylucene/
             lucene_sha256: "100c3d61d6799ac16b7b8c1826cddf07fb1715141ebdb0d7b8119cdd96b24574  pylucene-10.0.0-src.tar.gz"
-            poetry_version: 2.3.2
 
           # Add more versions below as needed.
 
@@ -46,13 +48,17 @@ jobs:
 
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v4
+        uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/govscape-base
           tags: |
             type=sha,prefix=sha-
-            type=raw,value=py${{ env.PYTHON_VERSION }}-lucene${{ env.LUCENE_VERSION }}-poetry${{ env.POETRY_VERSION }},enable={{is_default_branch}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=py${{ matrix.python_version }}-lucene${{ matrix.lucene_version }}-poetry${{ matrix.poetry_version }},enable={{is_default_branch}}
+            type=ref,event=branch,prefix=py${{ matrix.python_version }}-lucene${{ matrix.lucene_version }}-poetry${{ matrix.poetry_version }}-
+          labels: |
+            org.opencontainers.image.title=GovScape Base Image
+            org.opencontainers.image.description=Base Docker image for GovScape, containing Python, Lucene, and Poetry.
+
 
       - name: Build Docker image
         uses: docker/build-push-action@v5
@@ -62,9 +68,11 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
           build-args: |
-            PYTHON_VERSION=${{ matrix.python_version }}
+            PYTHON_VERSION=${{ matrix.python_version }}-trixie
             LUCENE_VERSION=${{ matrix.lucene_version }}
             LUCENE_SHA256=${{ matrix.lucene_sha256 }}
             POETRY_VERSION=${{ matrix.poetry_version }}
