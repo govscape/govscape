@@ -29,6 +29,14 @@
 		8080,
 		5173
 	],
+	"portsAttributes": {
+		"5173": {
+			"label": "Web"
+		},
+		"8080": {
+			"label": "API"
+		}
+	},
 	// 👇 Use 'postCreateCommand' to run commands after the container is created.
 	"postCreateCommand": "poetry install",
 	// 👇 Configure tool-specific properties.

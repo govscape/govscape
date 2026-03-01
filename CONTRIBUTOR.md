@@ -25,6 +25,27 @@ poetry install
 ```
 to install the current project and dev dependencies.
 
+### Dev container
+We recommend using the dev container for local development to ensure your local environment has all necessary dependencies set up correctly. You will need [Docker Desktop](https://www.docker.com/get-started/) and the [Dev Containers extension for VS Code](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers). 
+
+This also works with the [Remote - SSH extension](https://code.visualstudio.com/remote/advancedcontainers/develop-remote-host) if you want to develop on a remote machine instead of your local machine.
+
+Clone the repository (ideally with https and not ssh) and open it in VS Code. You should see a prompt to "Reopen in Container". When clicked, VS Code will relaunch and build the dev container; this will take a few minutes the first time. Once the window reloads, you will be connected to the dev container and can run all commands from the terminal within VS Code. ```poetry install``` automatically triggers when the dev container is built.
+
+AWS credentials at `~/.aws` on your host machine are automatically mounted onto the dev container. Both `aws` and `poetry run s5cmd` commands work without any additional configuration.
+
+`docker` commands within the dev container interact with the Docker daemon on your host machine. Note that if you need to bind a folder in the workspace, the path must be from the host, not from within the dev container. You can use `${LOCAL_WORKSPACE_FOLDER}` to refer to the workspace folder on the host machine from within the dev container. Alternatively use an external terminal to run `docker` commands on the host machine if needed.
+
+If you have the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) installed on your host machine, you will have GPUs available within the dev container. You can verify this by running `nvidia-smi` within the dev container.
+
+A copy of Node.js gets installed in the dev container, so you can run `npm` commands within the dev container terminal for web interface development.
+
+Git is automatically set up within the dev container, with the same local `.gitconfig` file. You can use Git CLI commands within the dev container terminal, or use the Git integration in VS Code. If you use Git over ssh, you may need to [enable SSH agent forwarding](https://code.visualstudio.com/remote/advancedcontainers/sharing-git-credentials) to push from within the dev container.
+
+VS Code forwards ports 8080 and 5173 for the API and web servers respectively, so you can access them from your local browser if they are running within the dev container.
+
+If you ever need to exit the dev container and return VS Code to your local environment, open the command palette in VS Code (Ctrl+Shift+P or Cmd+Shift+P) and select "Dev Containers: Reopen Folder Locally". If you use WSL, you can also select "Dev Containers: Reopen in WSL" to open the folder in WSL instead of on your local machine. "Dev Containers: Reopen in Container" will bring you back into the dev container.
+
 ### Pre-commit hooks
 
 Pull requests must pass some formatting, linting, and typing checks before we can merge them. These checks can be run automatically before you make commits, which is why they are sometimes called "pre-commit hooks". We use [pre-commit](https://pre-commit.com/) to run these checks.
