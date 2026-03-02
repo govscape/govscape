@@ -14,8 +14,6 @@ jobs:
     container:
       # TODO, once first PR is merged, update to remove the branch from the version tag
       image: ghcr.io/bcglee/govscape-base:py${{ matrix.python }}-lucene10.0.0-poetry2.3.2-lucene-keyword-index
-    env:
-      POETRY_VIRTUALENVS_CREATE: false
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v6
