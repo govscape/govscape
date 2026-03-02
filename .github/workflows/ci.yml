@@ -13,12 +13,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     container:
       # TODO, once first PR is merged, update to remove the branch from the version tag
-      image: ghcr.io/bcglee/govscape-base:py3.11.14-lucene10.0.0-poetry2.3.2-lucene-keyword-index
+      image: ghcr.io/bcglee/govscape-base:py${{ matrix.python }}-lucene10.0.0-poetry2.3.2-lucene-keyword-index
     env:
       POETRY_VIRTUALENVS_CREATE: false
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Install packages
         run: |
           /opt/poetry/bin/poetry install

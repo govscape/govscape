@@ -18,7 +18,8 @@
 		},
 		"ghcr.io/devcontainers/features/aws-cli:1": {},
 		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
-			"moby": false // Trixie does not support moby.
+			// Trixie does not support moby.
+			"moby": false
 		},
 		"ghcr.io/devcontainers/features/node:1": {
 			"version": "20"
@@ -38,7 +39,7 @@
 		}
 	},
 	// 👇 Use 'postCreateCommand' to run commands after the container is created.
-	"postCreateCommand": "poetry install",
+	"postCreateCommand": "./post-create-setup.sh",
 	// 👇 Configure tool-specific properties.
 	"customizations": {
 		"vscode": {
@@ -48,6 +49,7 @@
 				"charliermarsh.ruff"
 			],
 			"settings": {
+				// This may try to activate the incorrect .venv.
 				"python.terminal.activateEnvironment": false
 			}
 		}

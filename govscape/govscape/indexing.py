@@ -25,7 +25,6 @@ _LUCENE_LOADED = False
 # Prevents two threads from racing through initVM() simultaneously.
 _lucene_load_lock = threading.Lock()
 
-
 # Lazily load lucene and its Java dependencies only when needed, since it may
 # not exist in all environments.
 def _load_lucene():
@@ -761,6 +760,8 @@ class LuceneKeywordIndex(AbstractKeywordIndex):
 
         for text, pdf_name, page in zip(texts, pdf_names, pages, strict=False):
             doc = Document()
+
+            # No need to store the text since we only search for it, not return it.
             doc.add(TextField("text", text if text is not None else "", Field.Store.NO))
             doc.add(
                 StringField(
@@ -786,6 +787,7 @@ class LuceneKeywordIndex(AbstractKeywordIndex):
         pass
 
     def search(self, query, k):
+        """Search the index for the query string, returning up to k results."""
         self._ensure_ready()
 
         parser = QueryParser("text", self._analyzer)

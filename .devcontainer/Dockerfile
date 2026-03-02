@@ -6,6 +6,7 @@ FROM ghcr.io/bcglee/govscape-base:py3.11.14-lucene10.0.0-poetry2.3.2-lucene-keyw
 ARG DEBIAN_FRONTEND=noninteractive
 ARG USER=vscode
 
+# Setup any dev tools here.
 RUN DEBIAN_FRONTEND=noninteractive \
     && apt-get update \
     && apt-get install -y build-essential --no-install-recommends make \

@@ -26,11 +26,16 @@ jobs:
           - python_version: 3.11.14
             lucene_version: 10.0.0
             poetry_version: 2.3.2
-
             # Obtain checksum from https://dlcdn.apache.org/lucene/pylucene/
             lucene_sha256: "100c3d61d6799ac16b7b8c1826cddf07fb1715141ebdb0d7b8119cdd96b24574  pylucene-10.0.0-src.tar.gz"
 
           # Add more versions below as needed.
+
+          # - python_version:
+          #   lucene_version:
+          #   poetry_version:
+          #   lucene_sha256: ""
+
 
     steps:
       - name: Checkout
@@ -59,7 +64,6 @@ jobs:
             org.opencontainers.image.title=GovScape Base Image
             org.opencontainers.image.description=Base Docker image for GovScape, containing Python, Lucene, and Poetry.
 
-
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
@@ -70,7 +74,6 @@ jobs:
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
           build-args: |
             PYTHON_VERSION=${{ matrix.python_version }}-trixie
             LUCENE_VERSION=${{ matrix.lucene_version }}
