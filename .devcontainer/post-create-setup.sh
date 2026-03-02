@@ -1,5 +1,10 @@
 #!/bin/bash
 
+echo "Running post-create setup script..."
+echo ""
+echo "____________________________________________________________________________________________"
+echo ""
+
 # we need to activate the Poetry environment for the user to use it in the terminal
 # so edit the .bashrc file to activate the Poetry environment automatically when the terminal is opened
 echo "Activating Poetry environment in the terminal..."
@@ -7,7 +12,13 @@ echo "eval \$(poetry env activate)" >> ~/.bashrc
 # also for zsh users, we need to add it to the .zshrc file
 echo "eval \$(poetry env activate)" >> ~/.zshrc
 
-echo "Running post-create setup script..."
+echo ""
+echo "____________________________________________________________________________________________"
+echo ""
+
+echo "Installing pre-commit hooks..."
+poetry run pre-commit install
+
 
 echo ""
 echo "____________________________________________________________________________________________"

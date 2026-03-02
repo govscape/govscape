@@ -63,7 +63,7 @@ If you use WSL, you can also select "Dev Containers: Reopen in WSL" to open the 
 
 ### Pre-commit hooks
 
-Pull requests must pass some formatting, linting, and typing checks before we can merge them. These checks can be run automatically before you make commits, which is why they are sometimes called "pre-commit hooks". We use [pre-commit](https://pre-commit.com/) to run these checks.
+Pull requests must pass some formatting, linting, and typing checks before we can merge them. These checks can be run automatically before you make commits, which is why they are sometimes called "pre-commit hooks". We use [pre-commit](https://pre-commit.com/) to run these checks. In the dev container, pre-commit is already installed.
 
 To install pre-commit hooks to run before committing, run:
 ```bash
