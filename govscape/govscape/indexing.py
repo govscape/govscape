@@ -25,6 +25,7 @@ _LUCENE_LOADED = False
 # Prevents two threads from racing through initVM() simultaneously.
 _lucene_load_lock = threading.Lock()
 
+
 # Lazily load lucene and its Java dependencies only when needed, since it may
 # not exist in all environments.
 def _load_lucene():

@@ -36,6 +36,9 @@ Clone the repository (ideally with https and not ssh) and open it in VS Code.
 You should see a prompt on the bottom right of the screen to "Reopen in Container".
 When clicked, VS Code relaunches and builds the dev container; this will take a few minutes the first time. Once the window reloads, you will be connected to the dev container and can run all commands from the terminal within VS Code. `poetry install` automatically starts when the dev container build finishes.
 
+Poetry will not use the workspace .venv folder, but will create an isolated virtual environment within the dev container with lucene and all other dependencies installed.
+This will not impact any Python environments on your host machine.
+
 AWS credentials at `~/.aws` on your host machine are automatically mounted onto the dev container. Both `aws` and `poetry run s5cmd` commands work without any additional configuration.
 
 `docker` commands within the dev container interact with the Docker daemon on your host machine.
@@ -51,7 +54,8 @@ Node.js is included in the dev container. You can run `npm` commands within the 
 The dev container automatically configures Git, copying your `~/.gitconfig` file. You can use Git CLI commands within the dev container terminal, or use the Git integration in VS Code.
 If you use Git over ssh, you may need to [enable SSH agent forwarding](https://code.visualstudio.com/remote/advancedcontainers/sharing-git-credentials) to push from within the dev container.
 
-VS Code forwards ports 8080 and 5173 for the API and web servers respectively, so you can access them from your local browser if they are running within the dev container. Note that the front expects the API server to exist at `localhost:8080`.
+VS Code forwards ports 8080 and 5173 for the API and web servers respectively, so you can access them from your local browser if they are running within the dev container.
+Note that the frontend by default expects the API server to exist at `localhost:8080`.
 
 If you ever need to exit the dev container and return VS Code to your local environment, open the command palette in VS Code (Ctrl+Shift+P or Cmd+Shift+P) and select "Dev Containers: Reopen Folder Locally".
 If you use WSL, you can also select "Dev Containers: Reopen in WSL" to open the folder in WSL instead of on your local machine.
