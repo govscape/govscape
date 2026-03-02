@@ -58,7 +58,7 @@ VS Code forwards ports 8080 and 5173 for the API and web servers respectively, s
 Note that the frontend by default expects the API server to exist at `localhost:8080`.
 
 If you ever need to exit the dev container and return VS Code to your local environment, open the command palette in VS Code (Ctrl+Shift+P or Cmd+Shift+P) and select "Dev Containers: Reopen Folder Locally".
-If you use WSL, you can also select "Dev Containers: Reopen in WSL" to open the folder in WSL instead of on your local machine.
+If you use WSL, you can also select "Dev Containers: Reopen in WSL" to open the folder in WSL instead of Windows.
 "Dev Containers: Reopen in Container" will bring you back into the dev container.
 
 ### Pre-commit hooks
