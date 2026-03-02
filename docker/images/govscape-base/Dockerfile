@@ -1,4 +1,4 @@
-# GovScape base image for both API and embedding servers, and the dev container.
+# GovScape base image for embedding, the API server, CI, and the dev container.
 
 # The GitHub action has a build matrix that specifies the versions for all dependencies.
 # The ARGs in this file are the fallback used if built locally.
@@ -24,8 +24,11 @@ RUN pip install --upgrade pip setuptools wheel build \
 # Download pylucene, verify, build, and install.
 WORKDIR /usr/src/pylucene
 RUN curl -fsSL https://downloads.apache.org/lucene/pylucene/pylucene-${LUCENE_VERSION}-src.tar.gz -o pylucene-${LUCENE_VERSION}-src.tar.gz \
-    && echo "${LUCENE_SHA256}" | sha256sum -c - \
-    && tar -xz --strip-components=1 -f pylucene-${LUCENE_VERSION}-src.tar.gz \
+    && echo "${LUCENE_SHA256}" | sha256sum -c -
+
+# Separate step to build pylucene for improved layer caching.
+# If the downloaded file is unchanged, this step is skipped if cached.
+RUN tar -xz --strip-components=1 -f pylucene-${LUCENE_VERSION}-src.tar.gz \
     && cd jcc \
     && NO_SHARED=1 JCC_JDK=/usr/lib/jvm/temurin python -m build -nw \
     && pip install dist/*.whl \
@@ -43,6 +46,10 @@ ARG POETRY_VERSION=2.3.2
 # in-project venvs, since any out-of-container venvs won't have lucene and will never have lucene.
 ENV POETRY_VIRTUALENVS_OPTIONS_SYSTEM_SITE_PACKAGES=true
 ENV POETRY_VIRTUALENVS_IN_PROJECT=false
+
+# In the dev container, having the venv in the project can reduce the need to re-install if the container is recreated.
+# For that, after reenabling in-project venvs, manual create the python venv, and set the VIRTUAL_ENV environment
+# variable to target poetry at that different virtual environment that the default .venv.
 
 # Install poetry somewhere where non-root users can access it.
 ENV POETRY_HOME=/opt/poetry
