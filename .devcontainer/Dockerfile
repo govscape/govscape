@@ -6,12 +6,12 @@ FROM ghcr.io/bcglee/govscape-base:py3.11.14-lucene10.0.0-poetry2.3.2-lucene-keyw
 ARG DEBIAN_FRONTEND=noninteractive
 ARG USER=vscode
 
-# Setup any dev tools here.
+# Add dev tools here.
+# Node, git, aws and a few other tools are mounted using devcontainer.json features.
 RUN DEBIAN_FRONTEND=noninteractive \
     && apt-get update \
     && apt-get install -y build-essential --no-install-recommends make \
         ca-certificates \
-        git \
         libssl-dev \
         zlib1g-dev \
         libbz2-dev \

@@ -1,7 +1,7 @@
 # GovScape base image for both API and embedding servers, and the dev container.
 
-# The GitHub action has a build matrix that specifies the versions.
-# These ARGs are the fallback.
+# The GitHub action has a build matrix that specifies the versions for all dependencies.
+# The ARGs in this file are the fallback used if built locally.
 ARG PYTHON_VERSION=3.11.14-trixie
 
 # We use a separate build phase to reduce the size of the final image.
@@ -38,11 +38,13 @@ FROM python:${PYTHON_VERSION} AS runtime
 
 ARG POETRY_VERSION=2.3.2
 
-# We will allow poetry to access system site packages, which allows us to use the globally installed pylucene package.
-# We will also need to configure poetry to not use in-project venvs, since any out-of-container venvs won't have lucene and won't be recreated.
+# We will allow poetry to access system site packages, which allows us to use the globally installed pylucene package
+# but this only applies in newly created venvs, not .venvs that already exist. So we need to configure poetry to not use
+# in-project venvs, since any out-of-container venvs won't have lucene and will never have lucene.
 ENV POETRY_VIRTUALENVS_OPTIONS_SYSTEM_SITE_PACKAGES=true
 ENV POETRY_VIRTUALENVS_IN_PROJECT=false
 
+# Install poetry somewhere where non-root users can access it.
 ENV POETRY_HOME=/opt/poetry
 ENV PATH="${POETRY_HOME}/bin:${PATH}"
 
@@ -54,4 +56,5 @@ RUN DEBIAN_FRONTEND=noninteractive \
     && python3 -m venv ${POETRY_HOME} \
     && ${POETRY_HOME}/bin/pip install poetry==${POETRY_VERSION}
 
+# Copy over pylucene and its dependencies from the builder stage, leaving behind the build tools and source code.
 COPY --from=builder /usr/local /usr/local
