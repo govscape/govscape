@@ -57,9 +57,9 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/govscape-base
           tags: |
-            type=sha,prefix=sha-
             type=raw,value=py${{ matrix.python_version }}-lucene${{ matrix.lucene_version }}-poetry${{ matrix.poetry_version }},enable={{is_default_branch}}
             type=ref,event=branch,prefix=py${{ matrix.python_version }}-lucene${{ matrix.lucene_version }}-poetry${{ matrix.poetry_version }}-
+            type=sha,prefix=sha-
           labels: |
             org.opencontainers.image.title=GovScape Base Image
             org.opencontainers.image.description=Base Docker image for GovScape, containing Python, Lucene, and Poetry.
