@@ -1,7 +1,6 @@
 # The dev container is based on the same base image as the CI environment and the main image for the API server.
 
-# TODO, once first PR is merged, update to remove the branch from the version tag
-FROM ghcr.io/bcglee/govscape-base:py3.11.14-lucene10.0.0-poetry2.3.2-lucene-keyword-index
+FROM ghcr.io/bcglee/govscape-base:py3.11.14-lucene10.0.0-poetry2.3.2
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG USER=vscode
