@@ -156,6 +156,7 @@ class BenchmarkResult:
     queries: int
     add_seconds: float
     ingest_docs_per_sec: float
+    index_size_bytes: int
     # Per-scenario timings
     no_filter_queries: int
     no_filter_qps: float
@@ -215,6 +216,7 @@ def benchmark_index(
     _, smf_qps, smf_ms = _run_queries(index, query_batches["some_filters"])
     _, af_qps, af_ms = _run_queries(index, query_batches["all_filters"])
 
+    index_size = sum(f.stat().st_size for f in index_dir.rglob("*") if f.is_file())
     total_queries = sum(len(b) for b in query_batches.values())
     return BenchmarkResult(
         name=name,
@@ -222,6 +224,7 @@ def benchmark_index(
         queries=total_queries,
         add_seconds=ingest_duration,
         ingest_docs_per_sec=ingest_dps,
+        index_size_bytes=index_size,
         no_filter_queries=len(query_batches["no_filter"]),
         no_filter_qps=nf_qps,
         no_filter_avg_ms=nf_ms,
@@ -234,11 +237,19 @@ def benchmark_index(
     )
 
 
+def _fmt_size(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:.1f}{unit}"
+        n /= 1024
+    return f"{n:.1f}TB"
+
+
 def format_results(results: Iterable[BenchmarkResult]) -> str:
-    ci, cd, cn, cds, cs, cq, cm = 14, 6, 10, 8, 13, 9, 10
+    ci, cd, cn, cds, csz, cs, cq, cm = 14, 6, 10, 8, 8, 13, 9, 10
     header = (
         f"{'Index':<{ci}} {'Docs':>{cd}} {'Ingest(s)':>{cn}} {'Docs/s':>{cds}}"
-        f"  {'Scenario':<{cs}} {'Q/s':>{cq}} {'Lat(ms)':>{cm}}"
+        f" {'Size':>{csz}}  {'Scenario':<{cs}} {'Q/s':>{cq}} {'Lat(ms)':>{cm}}"
     )
     sep = "-" * len(header)
     lines = [header, sep]
@@ -247,10 +258,12 @@ def format_results(results: Iterable[BenchmarkResult]) -> str:
         ("some_filters", "some_filters_qps", "some_filters_avg_ms"),
         ("all_filters", "all_filters_qps", "all_filters_avg_ms"),
     ]
+
     for res in results:
         prefix = (
             f"{res.name:<{ci}} {res.documents:>{cd}} {res.add_seconds:>{cn}.4f}"
             f" {res.ingest_docs_per_sec:>{cds}.0f}"
+            f" {_fmt_size(res.index_size_bytes):>{csz}}"
         )
         blank = " " * len(prefix)
         for i, (label, qps_attr, ms_attr) in enumerate(scenarios):

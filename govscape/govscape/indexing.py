@@ -1051,14 +1051,18 @@ class ImprovedSQLiteMetadataIndex(AbstractMetadataIndex):
         self.cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_pdf_name ON metadata (pdf_name);
                             """)
-        self.cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_crawl_date ON metadata (crawl_date);
-                            """)
-        self.cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sub_domain ON metadata (sub_domain);
-                            """)
+        # It does not make sense to store indices on crawl_date or sub_domain alone
+        # as the query load does not filter on those independently.
+        # This makes the ingestion faster and reduces space.
+        # self.cursor.execute("""
+        #     CREATE INDEX IF NOT EXISTS idx_crawl_date ON metadata (crawl_date);
+        #                     """)
+        # self.cursor.execute("""
+        #     CREATE INDEX IF NOT EXISTS idx_sub_domain ON metadata (sub_domain);
+        #                     """)
 
         # Add every combination of the three indices to speed up all queries
+        # crawl_date must go last since it's used in range queries.
         self.cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_pdf_name_crawl_date
             ON metadata (pdf_name, crawl_date);
@@ -1071,10 +1075,10 @@ class ImprovedSQLiteMetadataIndex(AbstractMetadataIndex):
         # It's not very helpful to have a sub_domain x crawl_date index since
         # Cardinality of both are likely to be low, but the indices are built only once
         # and can speed up some queries, so we include it for completeness.
-        self.cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sub_domain_crawl_date
-            ON metadata (sub_domain, crawl_date);
-                            """)
+        # self.cursor.execute("""
+        #     CREATE INDEX IF NOT EXISTS idx_sub_domain_crawl_date
+        #     ON metadata (sub_domain, crawl_date);
+        #                     """)
 
         # All three together
         self.cursor.execute("""
@@ -1187,12 +1191,12 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_pdf_name ON metadata (pdf_name);
         """)
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_crawl_date ON metadata (crawl_date);
-        """)
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sub_domain ON metadata (sub_domain);
-        """)
+        # self.conn.execute("""
+        #     CREATE INDEX IF NOT EXISTS idx_crawl_date ON metadata (crawl_date);
+        # """)
+        # self.conn.execute("""
+        #     CREATE INDEX IF NOT EXISTS idx_sub_domain ON metadata (sub_domain);
+        # """)
         self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_pdf_name_sub_domain
             ON metadata (pdf_name, sub_domain);
@@ -1201,10 +1205,10 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
             CREATE INDEX IF NOT EXISTS idx_pdf_name_crawl_date
             ON metadata (pdf_name, crawl_date);
         """)
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sub_domain_crawl_date
-            ON metadata (sub_domain, crawl_date);
-        """)
+        # self.conn.execute("""
+        #     CREATE INDEX IF NOT EXISTS idx_sub_domain_crawl_date
+        #     ON metadata (sub_domain, crawl_date);
+        # """)
         self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_pdf_name_sub_domain_crawl_date
             ON metadata (pdf_name, sub_domain, crawl_date);
