@@ -3,7 +3,6 @@ import pytest
 
 from govscape.indexing import (
     DuckDBMetadataIndex,
-    ImprovedSQLiteMetadataIndex,
     SQLiteMetadataIndex,
 )
 
@@ -53,8 +52,8 @@ _RECORDS = [
 
 
 @pytest.fixture(
-    params=[SQLiteMetadataIndex, ImprovedSQLiteMetadataIndex, DuckDBMetadataIndex],
-    ids=["sqlite", "improved-sqlite", "duckdb"],
+    params=[SQLiteMetadataIndex, DuckDBMetadataIndex],
+    ids=["sqlite", "duckdb"],
 )
 def index(request, tmp_path):
     index_cls = request.param
