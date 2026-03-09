@@ -1,5 +1,8 @@
 # AI modified: 2026-02-21 d8ae3e4a
 # AI modified: 2026-03-01 b6756050
+# AI modified: 2026-03-08 f62d40b8
+# AI modified: 2026-03-09 4efba197
+# AI modified: 2026-03-09 4efba197
 # This file contains the functionality for bulk loading and indexing the data
 # before requests can be served.
 import contextlib
@@ -12,6 +15,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
+import duckdb
 import pyarrow as pa
 from lancedb import connect
 from lancedb.query import MatchQuery, PhraseQuery
@@ -873,10 +877,11 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         if not os.path.exists(self.index_metadata_directory):
             os.makedirs(self.index_metadata_directory)
         self.conn = sqlite3.connect(self.db_path)
+        self.conn.execute("PRAGMA journal_mode = OFF;")
+        self.conn.execute("PRAGMA synchronous = OFF;")
         self.cursor = self.conn.cursor()
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS metadata (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 crawl_url TEXT,
                 crawl_date TEXT,
                 pdf_name TEXT,
@@ -891,9 +896,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         if self.conn is None:
             self.conn = sqlite3.connect(self.db_path)
             self.cursor = self.conn.cursor()
-        self.cursor.execute("DROP INDEX IF EXISTS idx_pdf_name;")
-        self.cursor.execute("DROP INDEX IF EXISTS idx_crawl_date;")
-        self.cursor.execute("DROP INDEX IF EXISTS idx_sub_domain;")
+        self.cursor.execute("DROP INDEX IF EXISTS idx_pdf_name_sub_domain_crawl_date;")
         to_insert = [
             (
                 md.get("crawl_url", ""),
@@ -917,45 +920,151 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self.conn = sqlite3.connect(self.db_path)
         self.cursor = self.conn.cursor()
         if self._total_entries == -1:
-            self.cursor.execute("SELECT MAX(ROWID) FROM metadata")
+            self.cursor.execute("SELECT COUNT(*) FROM metadata")
             self._total_entries = self.cursor.fetchone()[0]
 
     def save_index(self):
         self.conn = sqlite3.connect(self.db_path)
         self.cursor = self.conn.cursor()
+
+        # Set of indexes to speed up:
+        # 1. pdf_name
+        # 2. pdf_name + crawl_date # Adding a separate index here does not help
+        # 3. pdf_name + sub_domain
+        # 4. pdf_name + sub_domain + crawl_date
+
         self.cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_pdf_name ON metadata (pdf_name);
-                            """)
-        self.cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_crawl_date ON metadata (crawl_date);
-                            """)
-        self.cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sub_domain ON metadata (sub_domain);
-                            """)
+            CREATE INDEX IF NOT EXISTS idx_pdf_name_sub_domain_crawl_date
+            ON metadata (pdf_name, sub_domain, crawl_date);""")
+
+        self.cursor.execute("""PRAGMA journal_mode = WAL;""")
+        self.cursor.execute("""PRAGMA optimize;""")
+
         self.conn.commit()
 
     def search(self, pdf_names, filter=None):
-        placeholders = ",".join(f"'{name}'" for name in pdf_names)
+        placeholders = ",".join(["?"] * len(pdf_names))
         query = (
             "SELECT crawl_url, crawl_date, pdf_name, sub_domain, s3_url, page_count "
             f"FROM metadata WHERE pdf_name IN ({placeholders})"
         )
+        params = list(pdf_names)
         if filter:
             for key, value in filter.items():
                 if key == "sub_domain" and value is not None:
-                    query += f" AND sub_domain='{value}'"
+                    query += " AND sub_domain=?"
+                    params.append(value)
                 elif key == "crawled_after" and value is not None:
-                    date = value.replace("-", "")
-                    query += f" AND crawl_date>='{date}'"
+                    query += " AND crawl_date>=?"
+                    params.append(value.replace("-", ""))
                 elif key == "crawled_before" and value is not None:
-                    date = (
-                        value.replace("-", "") + "999999"
-                    )  # Pad out time to capture all times on that date
-                    query += f" AND crawl_date<='{date}'"
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(query)
-        rows = cursor.fetchall()
+                    # Pad out time to capture all times on that date
+                    query += " AND crawl_date<=?"
+                    params.append(value.replace("-", "") + "999999")
+        self.cursor.execute(query, params)
+        rows = self.cursor.fetchall()
+        metadata = {}
+        for row in rows:
+            pdf_name = row[2]
+            row_dict = {
+                "crawl_url": row[0],
+                "crawl_date": f"{row[1][0:4]}-{row[1][4:6]}-{row[1][6:8]}",
+                "pdf_name": row[2],
+                "sub_domain": row[3],
+                "page_count": row[5],
+            }
+            if pdf_name not in metadata:
+                metadata[pdf_name] = [row_dict]
+            else:
+                metadata[pdf_name].append(row_dict)
+        # Return as a dict with lists of dicts representing every time the pdf was
+        # crawled.
+        return metadata
+
+    def total_entries(self):
+        if self._total_entries == -1:
+            self.load_index()
+        return self._total_entries
+
+
+class DuckDBMetadataIndex(AbstractMetadataIndex):
+    def __init__(self, index_metadata_directory):
+        self.index_metadata_directory = index_metadata_directory
+        self.db_path = os.path.join(self.index_metadata_directory, "metadata.duckdb")
+        self.conn = None
+        self._total_entries = -1
+
+    def _connect(self):
+        if self.conn is None:
+            os.makedirs(self.index_metadata_directory, exist_ok=True)
+            self.conn = duckdb.connect(self.db_path)
+
+    def build_index(self):
+        self._connect()
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS metadata (
+                crawl_url TEXT,
+                crawl_date TEXT,
+                pdf_name TEXT,
+                sub_domain TEXT,
+                page_count INTEGER,
+                s3_url TEXT
+            );
+        """)
+
+    def add_batch(self, metadata_dicts):
+        self._connect()
+        # DuckDB is extremely slow to insert directly. (intractably slow)
+        # Inserting via a PyArrow table is orders of magnitude faster.
+        arrow_table = pa.table(
+            {
+                "crawl_url": [md.get("crawl_url", "") for md in metadata_dicts],
+                "crawl_date": [md.get("crawl_date", "") for md in metadata_dicts],
+                "pdf_name": [md.get("pdf_name", "") for md in metadata_dicts],
+                "sub_domain": [md.get("sub_domain", "") for md in metadata_dicts],
+                "page_count": pa.array(
+                    [md.get("page_count", 0) for md in metadata_dicts], type=pa.int32()
+                ),
+                "s3_url": [md.get("s3_url", "") for md in metadata_dicts],
+            }
+        )
+        self.conn.register("_batch", arrow_table)
+        self.conn.execute("INSERT INTO metadata SELECT * FROM _batch")
+        self.conn.unregister("_batch")
+
+    def load_index(self):
+        self._connect()
+        if self._total_entries == -1:
+            result = self.conn.execute("SELECT COUNT(*) FROM metadata").fetchone()
+            self._total_entries = result[0] if result else 0
+
+    def save_index(self):
+        self._connect()
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_pdf_name ON metadata (pdf_name);
+                            """)
+        self.conn.checkpoint()
+
+    def search(self, pdf_names, filter=None):
+        self._connect()
+        placeholders = ", ".join(["?"] * len(pdf_names))
+        query = (
+            "SELECT crawl_url, crawl_date, pdf_name, sub_domain, s3_url, page_count "
+            f"FROM metadata WHERE pdf_name IN ({placeholders})"
+        )
+        params = list(pdf_names)
+        if filter:
+            for key, value in filter.items():
+                if key == "sub_domain" and value is not None:
+                    query += " AND sub_domain = ?"
+                    params.append(value)
+                elif key == "crawled_after" and value is not None:
+                    query += " AND crawl_date >= ?"
+                    params.append(value.replace("-", ""))
+                elif key == "crawled_before" and value is not None:
+                    query += " AND crawl_date <= ?"
+                    params.append(value.replace("-", "") + "999999")
+        rows = self.conn.execute(query, params).fetchall()
         metadata = {}
         for row in rows:
             pdf_name = row[2]
