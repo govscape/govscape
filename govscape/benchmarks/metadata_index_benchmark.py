@@ -1,13 +1,18 @@
 # AI modified: 2026-03-08 f62d40b8
+# AI modified: 2026-03-08 4efba197
+# AI modified: 2026-03-08 4efba197
+# AI modified: 2026-03-08 4efba197
+# AI modified: 2026-03-09 4efba197
 """Benchmark utilities for AbstractMetadataIndex implementations.
 
 This script generates synthetic metadata records on the fly, feeds them
 through available metadata index implementations, and reports basic throughput
 metrics for both ingestion and querying under three filter scenarios:
 
-  - no_filter   : look up pdf_names with no additional constraints
-  - some_filters: filter by sub_domain only
-  - all_filters : filter by sub_domain, crawled_after, and crawled_before
+  - no_filter       : look up pdf_names with no additional constraints
+  - domain_filter   : filter by sub_domain only
+  - date_filter     : filter by crawled_after and crawled_before only
+  - all_filters: filter by sub_domain, crawled_after, and crawled_before
 
 Example:
     poetry run python -m govscape.benchmarks.metadata_index_benchmark \\
@@ -98,17 +103,18 @@ def generate_query_batches(
     Generate query tuples split by scenario.
 
     Returns a dict with keys:
-      - no_filter   : filter is None
-      - some_filters: filter contains sub_domain only
-      - all_filters : filter contains sub_domain, crawled_after, and crawled_before
+      - no_filter         : filter is None
+      - domain_filter     : filter contains sub_domain only
+      - date_filter       : filter contains crawled_after and crawled_before only
+      - all_filters: filter contains sub_domain, crawled_after, and crawled_before
 
     Each scenario gets an equal share of ``num_queries``.
     """
     rng = random.Random(seed)
     pdf_names_pool = [r["pdf_name"] for r in records]
 
-    scenario_count = num_queries // 3
-    remainder = num_queries - scenario_count * 3
+    scenario_count = num_queries // 4
+    remainder = num_queries - scenario_count * 4
 
     def _sample_names() -> list[str]:
         k = min(batch_size, len(pdf_names_pool))
@@ -123,10 +129,20 @@ def generate_query_batches(
 
     no_filter = [(_sample_names(), None) for _ in range(scenario_count)]
 
-    some_filters = [
+    domain_filter = [
         (_sample_names(), {"sub_domain": rng.choice(_SUB_DOMAINS)})
         for _ in range(scenario_count)
     ]
+
+    date_filter = []
+    for _ in range(scenario_count):
+        after, before = _random_date_range()
+        date_filter.append(
+            (
+                _sample_names(),
+                {"crawled_after": after, "crawled_before": before},
+            )
+        )
 
     all_filters = []
     for _ in range(scenario_count + remainder):
@@ -144,7 +160,8 @@ def generate_query_batches(
 
     return {
         "no_filter": no_filter,
-        "some_filters": some_filters,
+        "domain_filter": domain_filter,
+        "date_filter": date_filter,
         "all_filters": all_filters,
     }
 
@@ -161,9 +178,12 @@ class BenchmarkResult:
     no_filter_queries: int
     no_filter_qps: float
     no_filter_avg_ms: float
-    some_filters_queries: int
-    some_filters_qps: float
-    some_filters_avg_ms: float
+    domain_filter_queries: int
+    domain_filter_qps: float
+    domain_filter_avg_ms: float
+    date_filter_queries: int
+    date_filter_qps: float
+    date_filter_avg_ms: float
     all_filters_queries: int
     all_filters_qps: float
     all_filters_avg_ms: float
@@ -213,8 +233,9 @@ def benchmark_index(
     index.load_index()
 
     _, nf_qps, nf_ms = _run_queries(index, query_batches["no_filter"])
-    _, smf_qps, smf_ms = _run_queries(index, query_batches["some_filters"])
-    _, af_qps, af_ms = _run_queries(index, query_batches["all_filters"])
+    _, dmf_qps, dmf_ms = _run_queries(index, query_batches["domain_filter"])
+    _, df_qps, df_ms = _run_queries(index, query_batches["date_filter"])
+    _, ddf_qps, ddf_ms = _run_queries(index, query_batches["all_filters"])
 
     index_size = sum(f.stat().st_size for f in index_dir.rglob("*") if f.is_file())
     total_queries = sum(len(b) for b in query_batches.values())
@@ -228,12 +249,15 @@ def benchmark_index(
         no_filter_queries=len(query_batches["no_filter"]),
         no_filter_qps=nf_qps,
         no_filter_avg_ms=nf_ms,
-        some_filters_queries=len(query_batches["some_filters"]),
-        some_filters_qps=smf_qps,
-        some_filters_avg_ms=smf_ms,
+        domain_filter_queries=len(query_batches["domain_filter"]),
+        domain_filter_qps=dmf_qps,
+        domain_filter_avg_ms=dmf_ms,
+        date_filter_queries=len(query_batches["date_filter"]),
+        date_filter_qps=df_qps,
+        date_filter_avg_ms=df_ms,
         all_filters_queries=len(query_batches["all_filters"]),
-        all_filters_qps=af_qps,
-        all_filters_avg_ms=af_ms,
+        all_filters_qps=ddf_qps,
+        all_filters_avg_ms=ddf_ms,
     )
 
 
@@ -255,7 +279,8 @@ def format_results(results: Iterable[BenchmarkResult]) -> str:
     lines = [header, sep]
     scenarios = [
         ("no_filter", "no_filter_qps", "no_filter_avg_ms"),
-        ("some_filters", "some_filters_qps", "some_filters_avg_ms"),
+        ("domain_filter", "domain_filter_qps", "domain_filter_avg_ms"),
+        ("date_filter", "date_filter_qps", "date_filter_avg_ms"),
         ("all_filters", "all_filters_qps", "all_filters_avg_ms"),
     ]
 
