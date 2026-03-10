@@ -1,12 +1,16 @@
 .git
 .mypy_cache
+.ruff_cache
+.pytest_cache
 __pycache__
 *.pyc
 *.pyo
 *.pyd
 .DS_Store
+.containervenv/
 .venv/
 node_modules/
 interface/
 data/
+docker/
 poetry.lock

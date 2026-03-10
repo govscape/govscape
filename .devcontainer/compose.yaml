@@ -6,6 +6,7 @@ services:
     volumes:
       - ..:/workspace:cached
     command: sleep infinity
+    ipc: "host"
     networks:
       - devnet
 
