@@ -1,4 +1,5 @@
 # AI modified: 2026-03-08 f62d40b8
+# AI modified: 2026-03-14 4a6b1b72
 from flask import current_app
 from flask_restx import Namespace, Resource, fields
 
@@ -23,9 +24,12 @@ pages_response = ns.model(
         "crawl_url": fields.String(description="Most recent crawl URL"),
         "crawl_date": fields.String(description="Most recent crawl date"),
         "sub_domain": fields.String(description="Most recent subdomain"),
+        "has_more_crawls": fields.Boolean(
+            description="True when additional crawls exist beyond returned list"
+        ),
         "crawl_instances": fields.List(
             fields.Nested(crawl_instance_model),
-            description="All crawl instances, newest first",
+            description="Most recent crawl instances, newest first",
         ),
     },
 )

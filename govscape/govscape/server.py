@@ -1,4 +1,5 @@
 # AI modified: 2026-03-08 f62d40b8
+# AI modified: 2026-03-14 4a6b1b72
 # This file defines the logic for serving requests to the user.
 import math
 import os
@@ -45,6 +46,7 @@ class Server:
         self.vector_index_type = config.vector_index_type
         self.keyword_index_type = config.keyword_index_type
         self.k = config.k
+        self.max_crawl_instances = config.max_crawl_instances
 
         # Index configuration
         self.index_config = config.index_config
@@ -175,6 +177,8 @@ class Server:
                     all_records = sorted(
                         metadata, key=lambda r: r.get("crawl_date", ""), reverse=True
                     )
+                    has_more_crawls = len(all_records) > self.max_crawl_instances
+                    limited_records = all_records[: self.max_crawl_instances]
                     newest = all_records[0]
                     jpeg_file = (
                         self.image_directory
@@ -195,13 +199,14 @@ class Server:
                             "crawl_url": newest.get("crawl_url", ""),
                             "crawl_date": newest.get("crawl_date", ""),
                             "sub_domain": newest.get("sub_domain", ""),
+                            "has_more_crawls": has_more_crawls,
                             "crawl_instances": [
                                 {
                                     "crawl_url": r.get("crawl_url", ""),
                                     "crawl_date": r.get("crawl_date", ""),
                                     "sub_domain": r.get("sub_domain", ""),
                                 }
-                                for r in all_records
+                                for r in limited_records
                             ],
                         }
                     )
@@ -252,6 +257,8 @@ class Server:
         # Sort all crawl records newest-first; crawl_date is YYYY-MM-DD so
         # lexicographic descending sort is correct.
         records = sorted(records, key=lambda r: r.get("crawl_date", ""), reverse=True)
+        has_more_crawls = len(records) > self.max_crawl_instances
+        limited_records = records[: self.max_crawl_instances]
         newest = records[0]
 
         crawl_url = newest.get("crawl_url", "")
@@ -268,7 +275,7 @@ class Server:
                 "crawl_date": r.get("crawl_date", ""),
                 "sub_domain": r.get("sub_domain", ""),
             }
-            for r in records
+            for r in limited_records
         ]
 
         return {
@@ -276,6 +283,7 @@ class Server:
             "crawl_url": crawl_url,
             "crawl_date": crawl_date,
             "sub_domain": sub_domain,
+            "has_more_crawls": has_more_crawls,
             "crawl_instances": crawl_instances,
         }
 

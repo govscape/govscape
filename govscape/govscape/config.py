@@ -1,3 +1,4 @@
+# AI modified: 2026-03-14 4a6b1b72
 # These classes should contain all the configuration information necessary for
 # starting the server and serving queries, respectively.
 import numpy as np
@@ -26,7 +27,14 @@ class IndexConfig:
 
 
 class ServerConfig:
-    def __init__(self, index_config: IndexConfig, text_model, visual_model, k=3):
+    def __init__(
+        self,
+        index_config: IndexConfig,
+        text_model,
+        visual_model,
+        k=3,
+        max_crawl_instances=500,
+    ):
         self.index_config = index_config
         self.embedding_directory = index_config.embedding_directory
         self.embedding_img_pg_directory = index_config.embedding_img_pg_directory
@@ -41,6 +49,7 @@ class ServerConfig:
         self.visual_model = visual_model
         self.vector_index_type = index_config.vector_index_type
         self.keyword_index_type = index_config.keyword_index_type
+        self.max_crawl_instances = max_crawl_instances
 
         # define k for top-k
         self.k = k

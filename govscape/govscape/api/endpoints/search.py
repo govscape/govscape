@@ -1,3 +1,4 @@
+# AI modified: 2026-03-14 4a6b1b72
 from flask import current_app, request
 from flask_restx import Namespace, Resource, fields
 
@@ -34,9 +35,12 @@ search_result = ns.model(
         "crawl_date": fields.String(description="Most recent crawl date"),
         "crawl_url": fields.String(description="Most recent crawl URL"),
         "sub_domain": fields.String(description="Most recent subdomain"),
+        "has_more_crawls": fields.Boolean(
+            description="True when additional crawls exist beyond returned list"
+        ),
         "crawl_instances": fields.List(
             fields.Nested(search_crawl_instance),
-            description="All crawl instances, newest first",
+            description="Most recent crawl instances, newest first",
         ),
     },
 )

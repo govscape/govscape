@@ -1,3 +1,4 @@
+# AI modified: 2026-03-14 4a6b1b72
 import argparse
 import os
 import shlex
@@ -47,6 +48,12 @@ def _get_arg_parser():
         "-k", "--top-k", type=int, default=20, help="Number of top results to return"
     )
     parser.add_argument(
+        "--max_crawl_instances",
+        type=int,
+        default=500,
+        help="Maximum number of crawl instances returned per PDF",
+    )
+    parser.add_argument(
         "-i",
         "--vector_index_type",
         default="Memory",
@@ -93,7 +100,11 @@ def _build_app_from_args(args):
     )
 
     server_config = gs.ServerConfig(
-        index_config, text_model, visual_model, k=args.top_k
+        index_config,
+        text_model,
+        visual_model,
+        k=args.top_k,
+        max_crawl_instances=args.max_crawl_instances,
     )
     return gs.Server(server_config)
 

@@ -1,5 +1,6 @@
 <script>
   // AI modified: 2026-03-08 f62d40b8
+  // AI modified: 2026-03-14 4a6b1b72
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
@@ -18,8 +19,7 @@
   let pdfCrawlDate = '';
   let pdfCrawlUrl = '';
   let crawlInstances = [];
-  let crawlHistoryExpanded = false;
-  const CRAWL_COLLAPSE_THRESHOLD = 5;
+  let hasMoreCrawls = false;
 
   async function fetchImages() {
     if (!id) return;
@@ -39,10 +39,10 @@
       if (!pdfSubDomain) pdfSubDomain = data.subDomain || '';
       if (!pdfCrawlDate) pdfCrawlDate = data.crawlDate || '';
       if (!pdfCrawlUrl) pdfCrawlUrl = data.crawlUrl || '';
+      hasMoreCrawls = Boolean(data.hasMoreCrawls);
       crawlInstances = data.crawlInstances || [
         { crawlUrl: pdfCrawlUrl, crawlDate: pdfCrawlDate, subDomain: pdfSubDomain }
       ];
-      crawlHistoryExpanded = false;
 
       const p = parseInt($page.url.searchParams.get('page') || '1', 10);
       const idx = Number.isFinite(p) ? Math.max(0, Math.min(p - 1, Math.max(totalPages - 1, 0))) : 0;
@@ -174,29 +174,29 @@
             <h5 class="modal-title">{(pdfCrawlUrl && pdfCrawlUrl.split('/').pop().replaceAll("\%20", " ")) || (id && id.split('/').pop().replaceAll("%20", " "))}</h5>
             <div class="crawl-history">
               <h6 class="crawl-history-title">Crawl History</h6>
-              <table class="crawl-history-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Site</th>
-                    <th>Source</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each (crawlHistoryExpanded ? crawlInstances : crawlInstances.slice(0, CRAWL_COLLAPSE_THRESHOLD)) as inst}
-                    <tr>
-                    <td class="crawl-date">{inst.crawlDate || 'N/A'}</td>
-                    <td class="crawl-subdomain">{inst.subDomain || 'N/A'}</td>
-                    <td class="crawl-url"><a href={inst.crawlUrl} target="_blank" rel="noopener noreferrer">{inst.crawlUrl || 'N/A'}</a></td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-              {#if crawlInstances.length > CRAWL_COLLAPSE_THRESHOLD}
-                <button class="crawl-history-toggle" on:click={() => crawlHistoryExpanded = !crawlHistoryExpanded}>
-                  {crawlHistoryExpanded ? 'Show less' : `Show ${crawlInstances.length - CRAWL_COLLAPSE_THRESHOLD} more`}
-                </button>
+              {#if hasMoreCrawls}
+                <div class="crawl-history-note">Showing {crawlInstances.length} most recent crawls.</div>
               {/if}
+              <div class="crawl-history-scroll">
+                <table class="crawl-history-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Site</th>
+                      <th>Source</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each crawlInstances as inst}
+                      <tr>
+                      <td class="crawl-date">{inst.crawlDate || 'N/A'}</td>
+                      <td class="crawl-subdomain">{inst.subDomain || 'N/A'}</td>
+                      <td class="crawl-url"><a href={inst.crawlUrl} target="_blank" rel="noopener noreferrer">{inst.crawlUrl || 'N/A'}</a></td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
             </div>
             <div class="action-buttons">
               <button class="btn btn-primary" on:click={downloadPDF}>
@@ -246,6 +246,19 @@
     color: var(--text-color-primary);
   }
 
+  .crawl-history-note {
+    margin-bottom: 0.4rem;
+    font-size: 0.76rem;
+    color: var(--text-color-secondary);
+  }
+
+  .crawl-history-scroll {
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid var(--preview-border-color);
+    border-radius: 6px;
+  }
+
   .crawl-history-table {
     width: 100%;
     border-collapse: collapse;
@@ -275,17 +288,6 @@
 
   .crawl-url a {
     word-break: break-all;
-  }
-
-  .crawl-history-toggle {
-    margin-top: 4px;
-    background: none;
-    border: none;
-    padding: 0;
-    font-size: 0.78rem;
-    color: var(--color-primary);
-    cursor: pointer;
-    text-decoration: underline;
   }
 
   main {
