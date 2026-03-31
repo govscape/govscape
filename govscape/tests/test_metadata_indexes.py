@@ -1,4 +1,5 @@
 # AI modified: 2026-03-09 764fe895
+# AI modified: 2026-03-14 21:55:15 1c688b19
 import pytest
 
 from govscape.indexing import (
@@ -140,3 +141,15 @@ def test_all_filters_combined(index):
 def test_filter_no_matches_returns_empty(index):
     result = index.search(["air_quality.pdf"], {"sub_domain": "nasa.gov"})
     assert result == {}
+
+
+def test_count_filtered_pages(index):
+    # epa.gov rows are page_count values: 42, 55, 44
+    assert index.count_filtered_pages({"sub_domain": "epa.gov"}) == 141
+
+
+def test_get_filtered_pdf_page_counts(index):
+    result = index.get_filtered_pdf_page_counts({"sub_domain": "epa.gov"})
+    # air_quality.pdf appears twice, so max(page_count)=44 is expected.
+    assert result["air_quality.pdf"] == 44
+    assert result["water_quality.pdf"] == 55

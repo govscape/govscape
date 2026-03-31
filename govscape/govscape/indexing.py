@@ -3,6 +3,10 @@
 # AI modified: 2026-03-08 f62d40b8
 # AI modified: 2026-03-09 4efba197
 # AI modified: 2026-03-09 4efba197
+# AI modified: 2026-03-14 21:55:15 1c688b19
+# AI modified: 2026-03-14 22:34:51 1c688b19
+# AI modified: 2026-03-14 22:38:50 1c688b19
+# AI modified: 2026-03-15 03:26:30 1c688b19
 # This file contains the functionality for bulk loading and indexing the data
 # before requests can be served.
 import contextlib
@@ -152,6 +156,13 @@ class AbstractVectorIndex(ABC):
         :return: Total number of embeddings.
         """
 
+    @abstractmethod
+    def get_vectors_for_pdf_page_counts(self, pdf_page_counts):
+        """
+        Return a mapping: {pdf_name: [(page, embedding_vector), ...]} for pages
+        where page < pdf_page_counts[pdf_name].
+        """
+
 
 class FAISSIndex(AbstractVectorIndex):
     def __init__(self, index_directory, index_type="IVFPQ"):
@@ -262,6 +273,35 @@ class FAISSIndex(AbstractVectorIndex):
 
     def total_entries(self):
         return self.faiss_index.ntotal
+
+    def get_vectors_for_pdf_page_counts(self, pdf_page_counts):
+        if not pdf_page_counts:
+            return {}
+
+        candidates = {}
+        for idx, (pdf_name, pdf_page) in enumerate(
+            zip(self.pdf_names, self.pdf_pages, strict=False)
+        ):
+            max_pages = pdf_page_counts.get(pdf_name)
+            if max_pages is None:
+                continue
+            try:
+                page_num = int(pdf_page)
+            except (TypeError, ValueError):
+                continue
+            if page_num < 0 or page_num >= int(max_pages):
+                continue
+            try:
+                vector = np.asarray(
+                    self.faiss_index.reconstruct(idx),
+                    dtype=np.float32,
+                )
+            except Exception:
+                continue
+            if pdf_name not in candidates:
+                candidates[pdf_name] = []
+            candidates[pdf_name].append((str(pdf_page), vector))
+        return candidates
 
 
 class LanceDBVectorIndex(AbstractVectorIndex):
@@ -387,6 +427,34 @@ class LanceDBVectorIndex(AbstractVectorIndex):
         if self.table is None:
             self.load_index()
         return self.table.count_rows()
+
+    def get_vectors_for_pdf_page_counts(self, pdf_page_counts):
+        if self.table is None:
+            self.load_index()
+        if not pdf_page_counts:
+            return {}
+
+        candidates = {}
+        rows = self.table.to_list()
+        for row in rows:
+            pdf_name = str(row.get("pdf_name", ""))
+            if not pdf_name:
+                continue
+            max_pages = pdf_page_counts.get(pdf_name)
+            if max_pages is None:
+                continue
+            try:
+                page_num = int(row.get("page", -1))
+            except (TypeError, ValueError):
+                continue
+            if page_num < 0 or page_num >= int(max_pages):
+                continue
+
+            vector = np.asarray(row.get("vector", []), dtype=np.float32)
+            if pdf_name not in candidates:
+                candidates[pdf_name] = []
+            candidates[pdf_name].append((str(page_num), vector))
+        return candidates
 
 
 class AbstractKeywordIndex(ABC):
@@ -864,6 +932,32 @@ class AbstractMetadataIndex(ABC):
         :return: Total number of embeddings.
         """
 
+    @abstractmethod
+    def count_filtered_pages(self, filter=None):
+        """
+        Return the total number of pages across all metadata rows that satisfy
+        the provided filter.
+        """
+
+    @abstractmethod
+    def get_filtered_pdf_page_counts(self, filter=None):
+        """
+        Return {pdf_name: page_count} for all PDFs that satisfy the provided
+        filter. If a PDF appears multiple times (multiple crawl dates), the
+        maximum page_count is returned for that PDF.
+        """
+
+
+def _normalize_filter_key(filter_dict):
+    if not filter_dict:
+        return ()
+    pairs = []
+    for key in sorted(filter_dict.keys()):
+        value = filter_dict[key]
+        if value is not None:
+            pairs.append((key, str(value)))
+    return tuple(pairs)
+
 
 class SQLiteMetadataIndex(AbstractMetadataIndex):
     def __init__(self, index_metadata_directory):
@@ -872,6 +966,9 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self.conn = None
         self.cursor = None
         self._total_entries = -1
+        self._total_pages = -1
+        self._filtered_pages_cache = {}
+        self._filtered_pdf_page_counts_cache = {}
 
     def build_index(self):
         if not os.path.exists(self.index_metadata_directory):
@@ -897,6 +994,9 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             self.conn = sqlite3.connect(self.db_path)
             self.cursor = self.conn.cursor()
         self.cursor.execute("DROP INDEX IF EXISTS idx_pdf_name_sub_domain_crawl_date;")
+        self.cursor.execute("DROP INDEX IF EXISTS idx_sub_domain_crawl_date;")
+        self.cursor.execute("DROP INDEX IF EXISTS idx_crawl_date;")
+        self.cursor.execute("DROP INDEX IF EXISTS idx_sub_domain_pdf_name_page_count;")
         to_insert = [
             (
                 md.get("crawl_url", ""),
@@ -915,6 +1015,9 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             to_insert,
         )
         self.conn.commit()
+        self._filtered_pages_cache.clear()
+        self._filtered_pdf_page_counts_cache.clear()
+        self._total_pages = -1
 
     def load_index(self):
         self.conn = sqlite3.connect(self.db_path)
@@ -922,6 +1025,10 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         if self._total_entries == -1:
             self.cursor.execute("SELECT COUNT(*) FROM metadata")
             self._total_entries = self.cursor.fetchone()[0]
+        if self._total_pages == -1:
+            self.cursor.execute("SELECT COALESCE(SUM(page_count), 0) FROM metadata")
+            value = self.cursor.fetchone()
+            self._total_pages = int(value[0]) if value and value[0] is not None else 0
 
     def save_index(self):
         self.conn = sqlite3.connect(self.db_path)
@@ -936,6 +1043,39 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self.cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_pdf_name_sub_domain_crawl_date
             ON metadata (pdf_name, sub_domain, crawl_date);""")
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sub_domain_crawl_date
+            ON metadata (sub_domain, crawl_date);""")
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_crawl_date
+            ON metadata (crawl_date);""")
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sub_domain_pdf_name_page_count
+            ON metadata (sub_domain, pdf_name, page_count);""")
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sub_domain_crawl_date_pdf_name_page_count
+            ON metadata (sub_domain, crawl_date, pdf_name, page_count);""")
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_crawl_date_pdf_name_page_count
+            ON metadata (crawl_date, pdf_name, page_count);""")
+
+        # Persisted aggregate table to accelerate count_filtered_pages queries.
+        self.cursor.execute("DROP TABLE IF EXISTS metadata_page_sums;")
+        self.cursor.execute("""
+            CREATE TABLE metadata_page_sums AS
+            SELECT
+                sub_domain,
+                SUBSTR(crawl_date, 1, 8) AS crawl_day,
+                SUM(page_count) AS total_pages
+            FROM metadata
+            GROUP BY sub_domain, SUBSTR(crawl_date, 1, 8);
+        """)
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_page_sums_sub_domain_crawl_day
+            ON metadata_page_sums (sub_domain, crawl_day);""")
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_page_sums_crawl_day
+            ON metadata_page_sums (crawl_day);""")
 
         self.cursor.execute("""PRAGMA journal_mode = WAL;""")
         self.cursor.execute("""PRAGMA optimize;""")
@@ -943,6 +1083,8 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self.conn.commit()
 
     def search(self, pdf_names, filter=None):
+        if len(pdf_names) == 0:
+            return {}
         placeholders = ",".join(["?"] * len(pdf_names))
         query = (
             "SELECT crawl_url, crawl_date, pdf_name, sub_domain, s3_url, page_count "
@@ -981,6 +1123,62 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         # crawled.
         return metadata
 
+    def count_filtered_pages(self, filter=None):
+        key = _normalize_filter_key(filter)
+        if key in self._filtered_pages_cache:
+            return self._filtered_pages_cache[key]
+        if len(key) == 0:
+            if self._total_pages == -1:
+                self.load_index()
+            self._filtered_pages_cache[key] = self._total_pages
+            return self._total_pages
+
+        query = "SELECT COALESCE(SUM(total_pages), 0) FROM metadata_page_sums WHERE 1=1"
+        params = []
+        if filter:
+            for key, value in filter.items():
+                if key == "sub_domain" and value is not None:
+                    query += " AND sub_domain=?"
+                    params.append(value)
+                elif key == "crawled_after" and value is not None:
+                    query += " AND crawl_day>=?"
+                    params.append(value.replace("-", ""))
+                elif key == "crawled_before" and value is not None:
+                    query += " AND crawl_day<=?"
+                    params.append(value.replace("-", ""))
+
+        self.cursor.execute(query, params)
+        value = self.cursor.fetchone()
+        result = int(value[0]) if value and value[0] is not None else 0
+        self._filtered_pages_cache[key] = result
+        return result
+
+    def get_filtered_pdf_page_counts(self, filter=None):
+        key = _normalize_filter_key(filter)
+        if key in self._filtered_pdf_page_counts_cache:
+            return self._filtered_pdf_page_counts_cache[key]
+
+        query = "SELECT pdf_name, MAX(page_count) FROM metadata WHERE 1=1"
+        params = []
+        if filter:
+            for key, value in filter.items():
+                if key == "sub_domain" and value is not None:
+                    query += " AND sub_domain=?"
+                    params.append(value)
+                elif key == "crawled_after" and value is not None:
+                    query += " AND crawl_date>=?"
+                    params.append(value.replace("-", ""))
+                elif key == "crawled_before" and value is not None:
+                    query += " AND crawl_date<=?"
+                    params.append(value.replace("-", "") + "999999")
+        query += " GROUP BY pdf_name"
+
+        self.cursor.execute(query, params)
+        rows = self.cursor.fetchall()
+        result = {str(row[0]): int(row[1]) for row in rows}
+        self._filtered_pdf_page_counts_cache[key] = result
+        return result
+
     def total_entries(self):
         if self._total_entries == -1:
             self.load_index()
@@ -993,6 +1191,9 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         self.db_path = os.path.join(self.index_metadata_directory, "metadata.duckdb")
         self.conn = None
         self._total_entries = -1
+        self._total_pages = -1
+        self._filtered_pages_cache = {}
+        self._filtered_pdf_page_counts_cache = {}
 
     def _connect(self):
         if self.conn is None:
@@ -1031,22 +1232,72 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         self.conn.register("_batch", arrow_table)
         self.conn.execute("INSERT INTO metadata SELECT * FROM _batch")
         self.conn.unregister("_batch")
+        self._filtered_pages_cache.clear()
+        self._filtered_pdf_page_counts_cache.clear()
+        self._total_pages = -1
 
     def load_index(self):
         self._connect()
         if self._total_entries == -1:
             result = self.conn.execute("SELECT COUNT(*) FROM metadata").fetchone()
             self._total_entries = result[0] if result else 0
+        if self._total_pages == -1:
+            result = self.conn.execute(
+                "SELECT COALESCE(SUM(page_count), 0) FROM metadata"
+            ).fetchone()
+            self._total_pages = (
+                int(result[0]) if result and result[0] is not None else 0
+            )
 
     def save_index(self):
         self._connect()
         self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_pdf_name ON metadata (pdf_name);
                             """)
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sub_domain ON metadata (sub_domain);
+                            """)
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_crawl_date ON metadata (crawl_date);
+                            """)
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sub_domain_crawl_date
+            ON metadata (sub_domain, crawl_date);
+                            """)
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sub_domain_crawl_date_pdf_name_page_count
+            ON metadata (sub_domain, crawl_date, pdf_name, page_count);
+                            """)
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_crawl_date_pdf_name_page_count
+            ON metadata (crawl_date, pdf_name, page_count);
+                            """)
+
+        # Persisted aggregate table to accelerate count_filtered_pages queries.
+        self.conn.execute("DROP TABLE IF EXISTS metadata_page_sums")
+        self.conn.execute("""
+            CREATE TABLE metadata_page_sums AS
+            SELECT
+                sub_domain,
+                SUBSTR(crawl_date, 1, 8) AS crawl_day,
+                SUM(page_count) AS total_pages
+            FROM metadata
+            GROUP BY sub_domain, SUBSTR(crawl_date, 1, 8)
+                            """)
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_page_sums_sub_domain_crawl_day
+            ON metadata_page_sums (sub_domain, crawl_day)
+                            """)
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_page_sums_crawl_day
+            ON metadata_page_sums (crawl_day)
+                            """)
         self.conn.checkpoint()
 
     def search(self, pdf_names, filter=None):
         self._connect()
+        if len(pdf_names) == 0:
+            return {}
         placeholders = ", ".join(["?"] * len(pdf_names))
         query = (
             "SELECT crawl_url, crawl_date, pdf_name, sub_domain, s3_url, page_count "
@@ -1082,6 +1333,62 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         # Return as a dict with lists of dicts representing every time the pdf was
         # crawled.
         return metadata
+
+    def count_filtered_pages(self, filter=None):
+        self._connect()
+        key = _normalize_filter_key(filter)
+        if key in self._filtered_pages_cache:
+            return self._filtered_pages_cache[key]
+        if len(key) == 0:
+            if self._total_pages == -1:
+                self.load_index()
+            self._filtered_pages_cache[key] = self._total_pages
+            return self._total_pages
+
+        query = "SELECT COALESCE(SUM(total_pages), 0) FROM metadata_page_sums WHERE 1=1"
+        params = []
+        if filter:
+            for key, value in filter.items():
+                if key == "sub_domain" and value is not None:
+                    query += " AND sub_domain = ?"
+                    params.append(value)
+                elif key == "crawled_after" and value is not None:
+                    query += " AND crawl_day >= ?"
+                    params.append(value.replace("-", ""))
+                elif key == "crawled_before" and value is not None:
+                    query += " AND crawl_day <= ?"
+                    params.append(value.replace("-", ""))
+
+        row = self.conn.execute(query, params).fetchone()
+        result = int(row[0]) if row and row[0] is not None else 0
+        self._filtered_pages_cache[key] = result
+        return result
+
+    def get_filtered_pdf_page_counts(self, filter=None):
+        self._connect()
+        key = _normalize_filter_key(filter)
+        if key in self._filtered_pdf_page_counts_cache:
+            return self._filtered_pdf_page_counts_cache[key]
+
+        query = "SELECT pdf_name, MAX(page_count) FROM metadata WHERE 1=1"
+        params = []
+        if filter:
+            for key, value in filter.items():
+                if key == "sub_domain" and value is not None:
+                    query += " AND sub_domain = ?"
+                    params.append(value)
+                elif key == "crawled_after" and value is not None:
+                    query += " AND crawl_date >= ?"
+                    params.append(value.replace("-", ""))
+                elif key == "crawled_before" and value is not None:
+                    query += " AND crawl_date <= ?"
+                    params.append(value.replace("-", "") + "999999")
+        query += " GROUP BY pdf_name"
+
+        rows = self.conn.execute(query, params).fetchall()
+        result = {str(row[0]): int(row[1]) for row in rows}
+        self._filtered_pdf_page_counts_cache[key] = result
+        return result
 
     def total_entries(self):
         if self._total_entries == -1:

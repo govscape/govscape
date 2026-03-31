@@ -1,3 +1,6 @@
+# AI modified: 2026-03-14 21:55:15 1c688b19
+# AI modified: 2026-03-15 03:23:45 1c688b19
+# AI modified: 2026-03-15 03:26:30 1c688b19
 from pathlib import Path
 
 import pytest
@@ -31,11 +34,13 @@ class DummyVisualModel:
 class DummyVectorIndex:
     def __init__(self, *args, **kwargs):
         self._entries = 6
+        self.search_calls = 0
 
     def load_index(self):
         pass
 
     def search(self, query_vector, k):
+        self.search_calls += 1
         distances = np.linspace(0.1, 0.6, self._entries, dtype=np.float32)
         pdf_names = [f"doc_{i}.pdf" for i in range(self._entries)]
         pdf_pages = [str(i) for i in range(self._entries)]
@@ -43,6 +48,18 @@ class DummyVectorIndex:
 
     def total_entries(self):
         return self._entries
+
+    def get_vectors_for_pdf_page_counts(self, pdf_page_counts):
+        candidates = {}
+        for i in range(self._entries):
+            pdf_name = f"doc_{i}.pdf"
+            max_pages = pdf_page_counts.get(pdf_name)
+            if max_pages is None or int(max_pages) <= 0:
+                continue
+            candidates[pdf_name] = [
+                ("0", np.full((4,), i, dtype=np.float32)),
+            ]
+        return candidates
 
 
 class DummyKeywordIndex:
@@ -85,6 +102,16 @@ class DummyMetadataIndex:
             ]
             for name in pdf_names
         }
+
+    def count_filtered_pages(self, filters=None):
+        if filters and filters.get("sub_domain") == "narrow.gov":
+            return 2
+        return 12
+
+    def get_filtered_pdf_page_counts(self, filters=None):
+        if filters and filters.get("sub_domain") == "narrow.gov":
+            return {"doc_0.pdf": 1, "doc_1.pdf": 1}
+        return {f"doc_{i}.pdf": 1 for i in range(6)}
 
 
 @pytest.fixture()
@@ -157,3 +184,22 @@ def test_server_keyword_search_uses_keyword_index(server_fixture):
         "keyword_doc_1.pdf",
         "keyword_doc_2.pdf",
     ]
+
+
+def test_vector_search_uses_prefilter_for_selective_filter(server_fixture):
+    server, _ = server_fixture
+    response = server.search(
+        "test query",
+        search_type="textual",
+        filters={"sub_domain": "narrow.gov"},
+    )
+
+    assert len(response["results"]) == 2
+    assert response["results"][0]["pdf"] in ["doc_0.pdf", "doc_1.pdf"]
+
+
+def test_keyword_search_does_not_use_prefilter_branch(server_fixture):
+    server, _ = server_fixture
+    _ = server.search("site:gov", search_type="keyword", filters={"sub_domain": "x"})
+
+    assert server.keyword_index.last_query == "site:gov"
