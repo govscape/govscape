@@ -1,4 +1,5 @@
 <script>
+  // AI modified: 2026-03-14 4a6b1b72
   import { createEventDispatcher, onMount, afterUpdate, onDestroy } from 'svelte';
   import Masonry from 'masonry-layout';
   import { searchStore, searchActions } from '$lib/stores/search';
@@ -67,7 +68,7 @@
     previousPage = currentPage;
   })();
 
-  function handlePDFSelect(pdf, page, crawlDate, crawlUrl, subDomain) {
+  function handlePDFSelect(pdf, page, crawlDate, crawlUrl, subDomain, crawlInstances, hasMoreCrawls) {
     const pdfId = pdf.split('/').pop();
 
     try {
@@ -80,7 +81,7 @@
       });
     } catch (e) {}
 
-    dispatch('pdfSelect', { pdf, page, id: pdfId, crawlDate, crawlUrl, subDomain });
+    dispatch('pdfSelect', { pdf, page, id: pdfId, crawlDate, crawlUrl, subDomain, crawlInstances, hasMoreCrawls });
   }
 
   function updatePageInURL(newPage) {
@@ -148,7 +149,7 @@
   <div class="masonry-wrapper" bind:this={gridElement}>
     {#each results as result (result.pdf + result.page)}
     <div class="grid-item">
-      <div class="result-card" on:click={() => handlePDFSelect(result.pdf, result.page, result.crawlDate, result.crawlUrl, result.subDomain)}>
+      <div class="result-card" on:click={() => handlePDFSelect(result.pdf, result.page, result.crawlDate, result.crawlUrl, result.subDomain, result.crawlInstances, result.hasMoreCrawls)}>
         <div class="image-container">
           <img
             src={result.jpeg}

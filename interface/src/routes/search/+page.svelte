@@ -1,4 +1,5 @@
 <script>
+  // AI modified: 2026-03-14 4a6b1b72
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { searchStore, searchActions } from '$lib/stores/search';
@@ -11,8 +12,8 @@
   let selectedPDF = null;
 
   function handlePDFSelect(event) {
-    const { id, page, crawlDate, crawlUrl, subDomain } = event.detail || {};
-    selectedPDF = { id, page, crawlDate, crawlUrl, subDomain };
+    const { id, page, crawlDate, crawlUrl, subDomain, crawlInstances, hasMoreCrawls } = event.detail || {};
+    selectedPDF = { id, page, crawlDate, crawlUrl, subDomain, crawlInstances, hasMoreCrawls };
     shouldShowPreview = true;
   }
 

@@ -1,3 +1,5 @@
+# AI modified: 2026-03-08 f62d40b8
+# AI modified: 2026-03-14 4a6b1b72
 # This file defines the logic for serving requests to the user.
 import math
 import os
@@ -44,6 +46,7 @@ class Server:
         self.vector_index_type = config.vector_index_type
         self.keyword_index_type = config.keyword_index_type
         self.k = config.k
+        self.max_crawl_instances = config.max_crawl_instances
 
         # Index configuration
         self.index_config = config.index_config
@@ -171,7 +174,12 @@ class Server:
             for distance, name, page_num in zip(D, pdf_names, pdf_pages, strict=False):
                 metadata = pdf_metadata.get(name, None)
                 if metadata:
-                    metadata = metadata[0]  # TODO: Handle multiple crawl dates
+                    all_records = sorted(
+                        metadata, key=lambda r: r.get("crawl_date", ""), reverse=True
+                    )
+                    has_more_crawls = len(all_records) > self.max_crawl_instances
+                    limited_records = all_records[: self.max_crawl_instances]
+                    newest = all_records[0]
                     jpeg_file = (
                         self.image_directory
                         + "/"
@@ -188,9 +196,18 @@ class Server:
                             "page": page_num,
                             "distance": float(distance),
                             "jpeg": jpeg_file,
-                            "crawl_url": metadata.get("crawl_url", ""),
-                            "crawl_date": metadata.get("crawl_date", ""),
-                            "sub_domain": metadata.get("sub_domain", ""),
+                            "crawl_url": newest.get("crawl_url", ""),
+                            "crawl_date": newest.get("crawl_date", ""),
+                            "sub_domain": newest.get("sub_domain", ""),
+                            "has_more_crawls": has_more_crawls,
+                            "crawl_instances": [
+                                {
+                                    "crawl_url": r.get("crawl_url", ""),
+                                    "crawl_date": r.get("crawl_date", ""),
+                                    "sub_domain": r.get("sub_domain", ""),
+                                }
+                                for r in limited_records
+                            ],
                         }
                     )
             if current_k > min(100000, index.total_entries()):
@@ -229,26 +246,45 @@ class Server:
         """
         Get all page images and metadata for a PDF by pdf_id.
         Returns dict with 'images', 'crawl_url', 'crawl_date', 'sub_domain'
-        keys or error message.
+        (newest crawl), and 'crawl_instances' (all crawls, newest first).
         """
         if not pdf_id:
             return {"error": "Missing 'pdf_id' parameter"}, 400
 
         md = self.metadata_index.search([pdf_id]) or {}
-        first = (md.get(pdf_id) or [{}])[0]
-        crawl_url = first.get("crawl_url", "")
-        crawl_date = first.get("crawl_date", "")
-        sub_domain = first.get("sub_domain", "")
-        page_count = int(first.get("page_count", 0))
+        records = md.get(pdf_id) or [{}]
+
+        # Sort all crawl records newest-first; crawl_date is YYYY-MM-DD so
+        # lexicographic descending sort is correct.
+        records = sorted(records, key=lambda r: r.get("crawl_date", ""), reverse=True)
+        has_more_crawls = len(records) > self.max_crawl_instances
+        limited_records = records[: self.max_crawl_instances]
+        newest = records[0]
+
+        crawl_url = newest.get("crawl_url", "")
+        crawl_date = newest.get("crawl_date", "")
+        sub_domain = newest.get("sub_domain", "")
+        page_count = int(newest.get("page_count", 0))
 
         image_dir = os.path.join(self.image_directory, pdf_id)
         images = [f"{image_dir}/{pdf_id}_{i}.jpeg" for i in range(page_count)]
+
+        crawl_instances = [
+            {
+                "crawl_url": r.get("crawl_url", ""),
+                "crawl_date": r.get("crawl_date", ""),
+                "sub_domain": r.get("sub_domain", ""),
+            }
+            for r in limited_records
+        ]
 
         return {
             "images": images,
             "crawl_url": crawl_url,
             "crawl_date": crawl_date,
             "sub_domain": sub_domain,
+            "has_more_crawls": has_more_crawls,
+            "crawl_instances": crawl_instances,
         }
 
     def _get_total_pdfs_count(self):
