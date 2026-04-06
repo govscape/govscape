@@ -1,6 +1,7 @@
 # AI modified: 2026-03-14 21:55:15 1c688b19
 # AI modified: 2026-03-15 03:23:45 1c688b19
 # AI modified: 2026-03-15 03:26:30 1c688b19
+# AI modified: 2026-04-06 00:10:53 434ce298
 from pathlib import Path
 
 import pytest
@@ -112,6 +113,17 @@ class DummyMetadataIndex:
         if filters and filters.get("sub_domain") == "narrow.gov":
             return {"doc_0.pdf": 1, "doc_1.pdf": 1}
         return {f"doc_{i}.pdf": 1 for i in range(6)}
+
+    def get_vectors_for_pdf_page_counts(self, embedding_type, pdf_page_counts):
+        _ = embedding_type
+        result = {}
+        for i in range(6):
+            pdf_name = f"doc_{i}.pdf"
+            max_pages = pdf_page_counts.get(pdf_name)
+            if max_pages is None or int(max_pages) <= 0:
+                continue
+            result[pdf_name] = [("0", np.full((4,), i, dtype=np.float32))]
+        return result
 
 
 @pytest.fixture()

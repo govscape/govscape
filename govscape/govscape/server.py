@@ -5,6 +5,8 @@
 # AI modified: 2026-03-15 03:14:39 1c688b19
 # AI modified: 2026-03-15 03:23:45 1c688b19
 # AI modified: 2026-03-15 03:26:30 1c688b19
+# AI modified: 2026-04-06 00:10:53 434ce298
+# AI modified: 2026-04-06 02:14:18 434ce298
 # This file defines the logic for serving requests to the user.
 import math
 import os
@@ -227,7 +229,7 @@ class Server:
 
     def _search_with_prefilter_vector(
         self,
-        index,
+        search_type,
         query_embedding,
         filters,
         results_needed_for_page,
@@ -243,7 +245,11 @@ class Server:
             query_vector = query_embedding
         query_vector = np.asarray(query_vector, dtype=np.float32)
 
-        candidate_vectors = index.get_vectors_for_pdf_page_counts(pdf_page_counts)
+        embedding_type = "visual" if search_type == "visual" else "textual"
+        candidate_vectors = self.metadata_index.get_vectors_for_pdf_page_counts(
+            embedding_type,
+            pdf_page_counts,
+        )
         if len(candidate_vectors) == 0:
             return []
 
@@ -327,7 +333,7 @@ class Server:
         ):
             print("Using prefilter strategy")
             search_results = self._search_with_prefilter_vector(
-                index,
+                search_type,
                 query_embedding,
                 filters,
                 results_needed_for_page,

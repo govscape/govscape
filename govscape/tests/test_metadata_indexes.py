@@ -1,6 +1,9 @@
 # AI modified: 2026-03-09 764fe895
 # AI modified: 2026-03-14 21:55:15 1c688b19
+# AI modified: 2026-04-06 00:10:53 434ce298
 import pytest
+
+import numpy as np
 
 from govscape.indexing import (
     DuckDBMetadataIndex,
@@ -153,3 +156,28 @@ def test_get_filtered_pdf_page_counts(index):
     # air_quality.pdf appears twice, so max(page_count)=44 is expected.
     assert result["air_quality.pdf"] == 44
     assert result["water_quality.pdf"] == 55
+
+
+def test_vector_store_roundtrip(index):
+    names = ["air_quality.pdf", "solar_grid.pdf"]
+    pages = ["0", "1"]
+    vectors = [
+        np.asarray([0.1, 0.2, 0.3], dtype=np.float32),
+        np.asarray([0.4, 0.5, 0.6], dtype=np.float32),
+    ]
+
+    index.upsert_vectors_batch("textual", names, pages, vectors)
+    got = index.get_vectors_for_pdf_page_counts(
+        "textual",
+        {
+            "air_quality.pdf": 1,
+            "solar_grid.pdf": 2,
+        },
+    )
+
+    assert "air_quality.pdf" in got
+    assert "solar_grid.pdf" in got
+    got_air = got["air_quality.pdf"][0][1]
+    got_solar = got["solar_grid.pdf"][0][1]
+    assert np.allclose(got_air, vectors[0])
+    assert np.allclose(got_solar, vectors[1])

@@ -1,3 +1,4 @@
+# AI modified: 2026-04-06 00:10:53 434ce298
 import argparse
 import json
 import os
@@ -97,10 +98,15 @@ if __name__ == "__main__":
         LOCAL_DATA_DIR, "performance", "performance_" + REMOTE_INDEX_PREFIX + ".json"
     )
     # 'govscape/data/prod/performance/performance_index.json'
+    REMOTE_METADATA_INDEX_DIR = os.path.join(REMOTE_DATA_DIR, "index_metadata")
+    LOCAL_METADATA_INDEX_DIR = os.path.join(LOCAL_DATA_DIR, "index_metadata")
+    REMOTE_METADATA_DB_PATH = os.path.join(REMOTE_METADATA_INDEX_DIR, "metadata.db")
+    LOCAL_METADATA_DB_PATH = os.path.join(LOCAL_METADATA_INDEX_DIR, "metadata.db")
 
     os.makedirs(LOCAL_DATA_DIR, exist_ok=True)
     os.makedirs(LOCAL_EMBEDDING_DIR, exist_ok=True)
     os.makedirs(LOCAL_INDEX_DIR, exist_ok=True)
+    os.makedirs(LOCAL_METADATA_INDEX_DIR, exist_ok=True)
     os.makedirs(os.path.dirname(LOCAL_CHECKPOINT_PATH), exist_ok=True)
     os.makedirs(os.path.dirname(LOCAL_PERFORMANCE_PATH), exist_ok=True)
 
@@ -134,6 +140,16 @@ if __name__ == "__main__":
             remote_file, os.path.join(LOCAL_INDEX_DIR, os.path.basename(remote_file))
         )
 
+    try:
+        data_loader.download_file(REMOTE_METADATA_DB_PATH, LOCAL_METADATA_DB_PATH)
+    except Exception as e:
+        print(f"No existing metadata DB found for vector store: {e}")
+
+    metadata_index = gs.SQLiteMetadataIndex(LOCAL_METADATA_INDEX_DIR)
+    metadata_index.build_index()
+
+    embedding_type = "visual" if "img_pg" in args.embedding_prefix else "textual"
+
     # Adding Embedding Files to the Index and Uploading to S3
     def process_embedding_files(embedding_files):
         time_index_start = time.time()
@@ -152,8 +168,10 @@ if __name__ == "__main__":
             embeddings.append(np.load(embedding_file_path))
         print(f"Adding {len(embeddings)} embeddings to the index.")
         embeddings = np.asarray(embeddings)
+        metadata_index.upsert_vectors_batch(embedding_type, names, pages, embeddings)
         index.add_batch(embeddings, names, pages)
         index.save_index()
+        metadata_index.save_index()
 
         pipeline_times["embedding_indexing_time"] += time.time() - time_index_start
 
@@ -162,6 +180,8 @@ if __name__ == "__main__":
         # UPLOADING Indexes TO S3 HERE
         data_loader.upload_directory(LOCAL_INDEX_DIR, REMOTE_INDEX_DIR)
         print("finished uploading index")
+        data_loader.upload_file(LOCAL_METADATA_DB_PATH, REMOTE_METADATA_DB_PATH)
+        print("finished uploading metadata vector store")
         time2 = time.time()
 
         pipeline_times["upload"] += time2 - time1

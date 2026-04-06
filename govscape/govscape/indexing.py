@@ -7,6 +7,7 @@
 # AI modified: 2026-03-14 22:34:51 1c688b19
 # AI modified: 2026-03-14 22:38:50 1c688b19
 # AI modified: 2026-03-15 03:26:30 1c688b19
+# AI modified: 2026-04-06 00:10:53 434ce298
 # This file contains the functionality for bulk loading and indexing the data
 # before requests can be served.
 import contextlib
@@ -947,6 +948,19 @@ class AbstractMetadataIndex(ABC):
         maximum page_count is returned for that PDF.
         """
 
+    @abstractmethod
+    def upsert_vectors_batch(self, embedding_type, pdf_names, pages, vectors):
+        """
+        Persist vectors for (embedding_type, pdf_name, page) records.
+        """
+
+    @abstractmethod
+    def get_vectors_for_pdf_page_counts(self, embedding_type, pdf_page_counts):
+        """
+        Return {pdf_name: [(page, embedding_vector), ...]} for pages where
+        page < pdf_page_counts[pdf_name] and matching embedding_type.
+        """
+
 
 def _normalize_filter_key(filter_dict):
     if not filter_dict:
@@ -969,6 +983,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self._total_pages = -1
         self._filtered_pages_cache = {}
         self._filtered_pdf_page_counts_cache = {}
+        self._vector_cache = {}
 
     def build_index(self):
         if not os.path.exists(self.index_metadata_directory):
@@ -985,6 +1000,15 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
                 sub_domain TEXT,
                 page_count INTEGER,
                 s3_url TEXT
+            );
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS metadata_vectors (
+                embedding_type TEXT,
+                pdf_name TEXT,
+                page INTEGER,
+                vector BLOB,
+                PRIMARY KEY (embedding_type, pdf_name, page)
             );
         """)
         self.conn.commit()
@@ -1058,6 +1082,9 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self.cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_crawl_date_pdf_name_page_count
             ON metadata (crawl_date, pdf_name, page_count);""")
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_vectors_embedding_pdf_page
+            ON metadata_vectors (embedding_type, pdf_name, page);""")
 
         # Persisted aggregate table to accelerate count_filtered_pages queries.
         self.cursor.execute("DROP TABLE IF EXISTS metadata_page_sums;")
@@ -1184,6 +1211,66 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             self.load_index()
         return self._total_entries
 
+    def upsert_vectors_batch(self, embedding_type, pdf_names, pages, vectors):
+        if not pdf_names:
+            return
+        rows = []
+        for pdf_name, page, vector in zip(pdf_names, pages, vectors, strict=False):
+            vector_np = np.asarray(vector, dtype=np.float32)
+            if vector_np.ndim > 1:
+                vector_np = vector_np.reshape(-1)
+            rows.append(
+                (
+                    str(embedding_type),
+                    str(pdf_name),
+                    int(page),
+                    vector_np.tobytes(),
+                )
+            )
+
+        self.cursor.executemany(
+            """
+            INSERT OR REPLACE INTO metadata_vectors
+                (embedding_type, pdf_name, page, vector)
+            VALUES (?, ?, ?, ?)
+            """,
+            rows,
+        )
+        self.conn.commit()
+        self._vector_cache.clear()
+
+    def get_vectors_for_pdf_page_counts(self, embedding_type, pdf_page_counts):
+        if not pdf_page_counts:
+            return {}
+
+        cache_key = (str(embedding_type), tuple(sorted(pdf_page_counts.items())))
+        if cache_key in self._vector_cache:
+            return self._vector_cache[cache_key]
+
+        pdf_names = list(pdf_page_counts.keys())
+        placeholders = ",".join(["?"] * len(pdf_names))
+        query = (
+            "SELECT pdf_name, page, vector FROM metadata_vectors "
+            "WHERE embedding_type=? "
+            f"AND pdf_name IN ({placeholders})"
+        )
+        params = [str(embedding_type)] + pdf_names
+        self.cursor.execute(query, params)
+        rows = self.cursor.fetchall()
+
+        result = {}
+        for pdf_name, page, vector_blob in rows:
+            max_pages = pdf_page_counts.get(pdf_name)
+            if max_pages is None or int(page) >= int(max_pages):
+                continue
+            vector = np.frombuffer(vector_blob, dtype=np.float32).copy()
+            if pdf_name not in result:
+                result[pdf_name] = []
+            result[pdf_name].append((str(page), vector))
+
+        self._vector_cache[cache_key] = result
+        return result
+
 
 class DuckDBMetadataIndex(AbstractMetadataIndex):
     def __init__(self, index_metadata_directory):
@@ -1194,6 +1281,7 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         self._total_pages = -1
         self._filtered_pages_cache = {}
         self._filtered_pdf_page_counts_cache = {}
+        self._vector_cache = {}
 
     def _connect(self):
         if self.conn is None:
@@ -1210,6 +1298,14 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
                 sub_domain TEXT,
                 page_count INTEGER,
                 s3_url TEXT
+            );
+        """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS metadata_vectors (
+                embedding_type TEXT,
+                pdf_name TEXT,
+                page INTEGER,
+                vector BLOB
             );
         """)
 
@@ -1271,6 +1367,10 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_crawl_date_pdf_name_page_count
             ON metadata (crawl_date, pdf_name, page_count);
+                            """)
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_vectors_embedding_pdf_page
+            ON metadata_vectors (embedding_type, pdf_name, page);
                             """)
 
         # Persisted aggregate table to accelerate count_filtered_pages queries.
@@ -1394,3 +1494,75 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         if self._total_entries == -1:
             self.load_index()
         return self._total_entries
+
+    def upsert_vectors_batch(self, embedding_type, pdf_names, pages, vectors):
+        if not pdf_names:
+            return
+        self._connect()
+
+        embedding_types = []
+        out_pdf_names = []
+        out_pages = []
+        out_vectors = []
+        for pdf_name, page, vector in zip(pdf_names, pages, vectors, strict=False):
+            vector_np = np.asarray(vector, dtype=np.float32)
+            if vector_np.ndim > 1:
+                vector_np = vector_np.reshape(-1)
+            embedding_types.append(str(embedding_type))
+            out_pdf_names.append(str(pdf_name))
+            out_pages.append(int(page))
+            out_vectors.append(vector_np.tobytes())
+
+        arrow_table = pa.table(
+            {
+                "embedding_type": embedding_types,
+                "pdf_name": out_pdf_names,
+                "page": out_pages,
+                "vector": out_vectors,
+            }
+        )
+        self.conn.register("_vector_batch", arrow_table)
+        self.conn.execute(
+            """
+            DELETE FROM metadata_vectors
+            USING _vector_batch
+            WHERE metadata_vectors.embedding_type = _vector_batch.embedding_type
+              AND metadata_vectors.pdf_name = _vector_batch.pdf_name
+              AND metadata_vectors.page = _vector_batch.page
+            """
+        )
+        self.conn.execute("INSERT INTO metadata_vectors SELECT * FROM _vector_batch")
+        self.conn.unregister("_vector_batch")
+        self._vector_cache.clear()
+
+    def get_vectors_for_pdf_page_counts(self, embedding_type, pdf_page_counts):
+        if not pdf_page_counts:
+            return {}
+        self._connect()
+
+        cache_key = (str(embedding_type), tuple(sorted(pdf_page_counts.items())))
+        if cache_key in self._vector_cache:
+            return self._vector_cache[cache_key]
+
+        pdf_names = list(pdf_page_counts.keys())
+        placeholders = ", ".join(["?"] * len(pdf_names))
+        query = (
+            "SELECT pdf_name, page, vector FROM metadata_vectors "
+            "WHERE embedding_type = ? "
+            f"AND pdf_name IN ({placeholders})"
+        )
+        params = [str(embedding_type)] + pdf_names
+        rows = self.conn.execute(query, params).fetchall()
+
+        result = {}
+        for pdf_name, page, vector_blob in rows:
+            max_pages = pdf_page_counts.get(pdf_name)
+            if max_pages is None or int(page) >= int(max_pages):
+                continue
+            vector = np.frombuffer(vector_blob, dtype=np.float32).copy()
+            if pdf_name not in result:
+                result[pdf_name] = []
+            result[pdf_name].append((str(page), vector))
+
+        self._vector_cache[cache_key] = result
+        return result
