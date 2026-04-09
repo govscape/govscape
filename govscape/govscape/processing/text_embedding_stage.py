@@ -55,11 +55,9 @@ class TextEmbeddingStage(ProcessingStage):
         self.embeddings_path = embeddings_path
         self.model = _build_text_model(model_type)
 
-    def validate(self) -> list[str]:
-        errors = []
+    def validate(self) -> None:
         if not os.path.isdir(self.txts_path):
-            errors.append(f"Text input directory does not exist: {self.txts_path}")
-        return errors
+            raise ValueError(f"Text input directory does not exist: {self.txts_path}")
 
     def run(self):
         sentences, embed_file_paths = _collect_texts_and_paths(

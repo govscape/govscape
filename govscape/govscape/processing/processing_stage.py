@@ -3,8 +3,8 @@ from abc import ABC, abstractmethod
 
 class ProcessingStage(ABC):
     @abstractmethod
-    def validate(self) -> list[str]:
-        """Return a list of validation error messages. Empty list means valid."""
+    def validate(self) -> None:
+        """Raise ValueError if inputs are invalid."""
 
     @abstractmethod
     def run(self):

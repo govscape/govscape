@@ -70,11 +70,9 @@ class PDFExtractionStage(ProcessingStage):
         self.pdf_files = pdf_files
         self.cpu_count = cpu_count
 
-    def validate(self) -> list[str]:
-        errors = []
+    def validate(self) -> None:
         if not os.path.isdir(self.pdfs_path):
-            errors.append(f"PDFs input directory does not exist: {self.pdfs_path}")
-        return errors
+            raise ValueError(f"PDFs input directory does not exist: {self.pdfs_path}")
 
     def run(self):
         os.makedirs(self.txts_path, exist_ok=True)

@@ -31,11 +31,9 @@ class PageImageEmbeddingStage(ProcessingStage):
         self.model = _build_visual_model(model_type)
         self.cpu_count = cpu_count
 
-    def validate(self) -> list[str]:
-        errors = []
+    def validate(self) -> None:
         if not os.path.isdir(self.img_path):
-            errors.append(f"Image input directory does not exist: {self.img_path}")
-        return errors
+            raise ValueError(f"Image input directory does not exist: {self.img_path}")
 
     def run(self):
         os.makedirs(self.embeddings_img_path, exist_ok=True)
