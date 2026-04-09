@@ -15,6 +15,9 @@ import pypdfium2
 from PIL import Image, ImageFile
 from sentence_transformers import LoggingHandler
 
+# New imports for OCR and OCR Engines
+from .ocr_engines import OlmOCREngine, OCRmyPDFEngine, PaddleOCREngine, EasyOCREngine, OCREngine
+
 from .text_embedding_models import (
     BGE_TextEmbeddingModel,
     BGESmall_TextEmbeddingModel,
@@ -49,7 +52,7 @@ def natural_key(s):
 
 
 class PDFsToEmbeddings:
-    def __init__(self, pdf_directory, data_dir, text_model_type, visual_model_type):
+    def __init__(self, pdf_directory, data_dir, text_model_type, visual_model_type, ocr_engine_type=" OlmOCR"):
         self.pdfs_path = pdf_directory
         self.txts_path = data_dir + "/txt"
         self.img_path = data_dir + "/img"
@@ -78,6 +81,19 @@ class PDFsToEmbeddings:
             self.visual_model = Dummy_VisualEmbeddingModel()
         else:
             raise ValueError("Unsupported model type")
+
+	if ocr_engine_type == "OlmOCR":
+	    self.ocr_engine = OlmOCREngine()
+	elif ocr_engine_type == "OCRmyPDF":
+	    self.ocr_engine = OCRmyPDFEngine()
+	elif ocr_engine_type == "PaddleOCR":
+	    self.ocr_engine = PaddleOCREngine()
+	elif ocr_engine_type == "EasyOCR":
+	    self.ocr_engine = EasyOCREngine()
+	elif ocr_engine_type == "None":
+	    self.ocr_engine = None
+	else:
+	    raise ValueError("Unsupported OCR engine type")
 
     # converts a single pdf file to txt and img files (one of each per page)
     @staticmethod
@@ -153,6 +169,58 @@ class PDFsToEmbeddings:
                         self.img_path,
                         self.pdfs_path,
                         self.metadata_dir,
+                        file,
+                    )
+                    for file in pdf_files
+                ],
+            )
+        return sum(results)
+
+    # Create a specific directory for this PDF's OCR output
+    # Perform OCR and get text content
+    # Save the OCR results as a single text file for the entire document
+    # The structure for extracted images/text per page is different.
+    def _perform_ocr_on_file(ocr_engine: OCREngine, pdfs_path: str, txts_path: str, pdf_file: str) -> bool:
+	pdf_name = os.path.splitext(os.path.basename(pdf_file))[0]
+        pdf_path = os.path.join(pdfs_path, pdf_file)
+        # Create a specific directory for this PDF's OCR output
+        pdf_ocr_txt_subdir = os.path.join(txts_path, pdf_name)
+        os.makedirs(pdf_ocr_txt_subdir, exist_ok=True)
+
+	try:
+	    logging.info(f"Starting OCR on {pdf_file} using {ocr_engine.name}")
+	    ocr_text = ocr_engine.process(pdf_path)
+            ocr_file_path = os.path.join(pdf_ocr_txt_subdir, f"{pdf_name}_ocr.txt")
+	    with open(ocr_file_path, "w", encoding="utf-8") as text_file:
+	        text_file.write(ocr_text)
+	    logging.info(f"Completed OCR on {pdf_file}")
+	    return True
+	except Exception as e:
+	    logging.error(f"Failed to OCR {pdf_file}: {e}")
+	    return False
+
+
+    def convert_pdfs_to_ocr_txts(self, pdf_files):
+        """
+        Uses multiprocessing to perform OCR on all given PDF files.
+        """
+        if not self.ocr_engine:
+            logging.warning("OCR Engine not initialized, skipping OCR stage.")
+            return 0
+            
+        if not os.path.exists(self.txts_path):
+            os.makedirs(self.txts_path)
+            
+        ctx = get_context("spawn") # Use "spawn" for safer multiprocessing with heavy libraries
+        with ctx.Pool(processes=self.cpu_count) as pool:
+            # Prepare arguments: (self.ocr_engine, self.pdfs_path, self.txts_path, file) for each pdf
+            results = pool.starmap(
+                self._perform_ocr_on_file,
+                [
+                    (
+                        self.ocr_engine,
+                        self.pdfs_path,
+                        self.txts_path,
                         file,
                     )
                     for file in pdf_files
@@ -306,6 +374,7 @@ class PDFsToEmbeddings:
             json_file_path = os.path.join(pdf_metadata_dir, "metadata.json")
             with open(json_file_path, "w") as json_file:
                 json.dump(json_data, json_file, indent=4)
+
     def convert_subdirs_to_embeddings(txt_path, embed_path):
         if not os.path.exists(embed_path):
             os.makedirs(embed_path)
@@ -325,17 +394,28 @@ class PDFsToEmbeddings:
             if not os.path.exists(embedding_dir):
                 os.makedirs(embedding_dir)
 
-            # all txt files in the txt subdir
-            txt_files = os.listdir(txt_subdir_path)
-
-            for txt_file in txt_files:
-                txt_path = os.path.join(txt_subdir_path, txt_file)
-                text = read_txt_file(txt_path)
-                output_path = os.path.join(
-                    embedding_dir, txt_file.replace(".txt", ".npy")
-                )
+            # Check if an OCR output file exists for this PDF
+            ocr_file_path = os.path.join(txt_subdir_path, f"{embed_name}_ocr.txt")
+            if os.path.exists(ocr_file_path):
+                # Use the OCR text for embeddings
+                logging.info(f"Using OCR output for embedding {embed_name}")
+                text = read_txt_file(ocr_file_path)
+                output_path = os.path.join(embedding_dir, f"{embed_name}_ocr.npy")
                 text_batch.append(text)
                 file_batch.append(output_path)
+            else:
+                # Use the original per-page text files
+                logging.info(f"Using standard text extraction for embedding {embed_name}")
+                txt_files = [f for f in os.listdir(txt_subdir_path) if f.endswith(".txt")]
+                
+                for txt_file in txt_files:
+                    txt_path = os.path.join(txt_subdir_path, txt_file)
+                    text = read_txt_file(txt_path)
+                    output_path = os.path.join(
+                        embedding_dir, txt_file.replace(".txt", ".npy")
+                    )
+                    text_batch.append(text)
+                    file_batch.append(output_path)
 
         return text_batch, file_batch
 
@@ -390,8 +470,11 @@ class PDFsToEmbeddings:
     # overall pipeline
     # -------------------------------------------------------------------------------
     def pdfs_to_embeddings(
-        self, pdf_files, do_text_embedding, do_img_embedding, do_metadata_collection
+        self, pdf_files, do_text_embedding, do_img_embedding, do_metadata_collection, do_ocr=False
     ):
+        """
+        The main method for the pipeline, now including an OCR stage.
+        """
         time1 = time.time()
         pdfs_successfully_parsed = 0
         if do_text_embedding or do_img_embedding or do_metadata_collection:
@@ -402,28 +485,46 @@ class PDFsToEmbeddings:
         print(
             f"% pdfs successfully parsed: {pdfs_successfully_parsed} / {len(pdf_files)}"
         )
-
+        
         time2 = time.time()
+
+        # --- New Stage 2: OCR ---
+        pdfs_successfully_ocred = 0
+        if do_ocr:
+            print(f"Applying {self.ocr_engine.name if self.ocr_engine else 'Unknown'} OCR to PDFs")
+            pdfs_successfully_ocred = self.convert_pdfs_to_ocr_txts(pdf_files)
+            print(f"% pdfs successfully OCRed: {pdfs_successfully_ocred} / {len(pdf_files)}")
+        # ------------------------
+
+        time3 = time.time()
+
         if do_text_embedding:
             print("Converting txts to embeddings")
+            # compute_text_embeddings internally uses convert_subdirs_to_embeddings, 
+            # which we have modified to look for OCR files.
             self.compute_text_embeddings()
-        time3 = time.time()
+        
+        time4 = time.time()
 
         if do_img_embedding:
             self.compute_image_embeddings()
 
-        time4 = time.time()
+        time5 = time.time()
 
-        pdf_to_txt_img_metadata = time2 - time1
-        text_embed_time = time3 - time2
-        img_embed_time = time4 - time3
+        # Calculate durations for reporting
+        pdf_to_txt_img_metadata_time = time2 - time1
+        ocr_time = time3 - time2
+        text_embed_time = time4 - time3
+        img_embed_time = time5 - time4
 
-        print("pdf -> txt, img, metadata time: ", pdf_to_txt_img_metadata)
+        print("pdf -> txt, img, metadata time: ", pdf_to_txt_img_metadata_time)
+        print("ocr time: ", ocr_time)
         print("txt -> embed time: ", text_embed_time)
         print("img per page -> embed time: ", img_embed_time)
 
         return (
-            pdf_to_txt_img_metadata,
+            pdf_to_txt_img_metadata_time,
+            ocr_time,
             text_embed_time,
             img_embed_time,
         )
