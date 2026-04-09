@@ -9,16 +9,6 @@ from .processing import (
     PDFExtractionStage,
     TextEmbeddingStage,
 )
-from .text_embedding_models import (
-    BGE_TextEmbeddingModel,
-    BGESmall_TextEmbeddingModel,
-    Dummy_TextEmbeddingModel,
-    ST_TextEmbeddingModel,
-)
-from .visual_embedding_models import (
-    CLIP_VisualEmbeddingModel,
-    Dummy_VisualEmbeddingModel,
-)
 
 logging.basicConfig(
     format="%(asctime)s - %(message)s",
@@ -40,26 +30,10 @@ class PDFProcessingPipeline:
         self.index_keyword_directory = data_dir + "/index_keyword"
         self.metadata_dir = data_dir + "/metadata"
         self.cpu_count = os.cpu_count()
+        self.text_model_type = text_model_type
+        self.visual_model_type = visual_model_type
 
-        if text_model_type == "ST":
-            self.text_model = ST_TextEmbeddingModel()
-        elif text_model_type == "BGE":
-            self.text_model = BGE_TextEmbeddingModel()
-        elif text_model_type == "BGESmall":
-            self.text_model = BGESmall_TextEmbeddingModel()
-        elif text_model_type == "Dummy":
-            self.text_model = Dummy_TextEmbeddingModel()
-        else:
-            raise ValueError("Unsupported model type")
-
-        if visual_model_type == "CLIP":
-            self.visual_model = CLIP_VisualEmbeddingModel()
-        elif visual_model_type == "Dummy":
-            self.visual_model = Dummy_VisualEmbeddingModel()
-        else:
-            raise ValueError("Unsupported model type")
-
-    def pdfs_to_embeddings(
+    def process_pdfs(
         self, pdf_files, do_text_embedding, do_img_embedding, do_metadata_collection
     ):
         pdf_extraction_stage = PDFExtractionStage(
@@ -73,12 +47,12 @@ class PDFProcessingPipeline:
         text_embedding_stage = TextEmbeddingStage(
             txts_path=self.txts_path,
             embeddings_path=self.embeddings_path,
-            text_model=self.text_model,
+            model_type=self.text_model_type,
         )
         page_image_embedding_stage = PageImageEmbeddingStage(
             img_path=self.img_path,
             embeddings_img_path=self.embeddings_img_path,
-            visual_model=self.visual_model,
+            model_type=self.visual_model_type,
             cpu_count=self.cpu_count,
         )
 
@@ -95,7 +69,7 @@ class PDFProcessingPipeline:
 
         time1 = time.time()
         pdfs_successfully_parsed = 0
-        if do_text_embedding or do_img_embedding or do_metadata_collection:
+        if run_extraction:
             print("Converting pdfs to txts and page images")
             pdfs_successfully_parsed = pdf_extraction_stage.run()
         print(

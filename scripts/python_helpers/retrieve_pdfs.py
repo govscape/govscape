@@ -48,7 +48,7 @@ def main():
         for idx, i in enumerate(range(0, len(df), batch_size))
     ]
     df = None
-    with multiprocessing.get_context("fork").Pool(processes=num_processes) as pool:
+    with multiprocessing.get_context("spawn").Pool(processes=num_processes) as pool:
         pool.starmap(retrieve_and_store_pdfs, batches)
 
 

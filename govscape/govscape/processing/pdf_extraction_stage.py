@@ -78,7 +78,7 @@ class PDFExtractionStage(ProcessingStage):
 
     def run(self):
         os.makedirs(self.txts_path, exist_ok=True)
-        ctx = get_context("forkserver")
+        ctx = get_context("spawn")
         with ctx.Pool(processes=self.cpu_count) as pool:
             results = pool.starmap(
                 _convert_single_pdf,

@@ -3,6 +3,10 @@ from multiprocessing import get_context
 
 import numpy as np
 
+from ..visual_embedding_models import (
+    CLIP_VisualEmbeddingModel,
+    Dummy_VisualEmbeddingModel,
+)
 from .processing_stage import ProcessingStage
 
 
@@ -12,11 +16,19 @@ def _save_embeddings_batch(embed_and_paths):
         np.save(output_path, embedding)
 
 
+def _build_visual_model(model_type):
+    if model_type == "CLIP":
+        return CLIP_VisualEmbeddingModel()
+    if model_type == "Dummy":
+        return Dummy_VisualEmbeddingModel()
+    raise ValueError(f"Unsupported visual model type: {model_type}")
+
+
 class PageImageEmbeddingStage(ProcessingStage):
-    def __init__(self, img_path, embeddings_img_path, visual_model, cpu_count):
+    def __init__(self, img_path, embeddings_img_path, model_type, cpu_count):
         self.img_path = img_path
         self.embeddings_img_path = embeddings_img_path
-        self.visual_model = visual_model
+        self.model = _build_visual_model(model_type)
         self.cpu_count = cpu_count
 
     def validate(self) -> list[str]:
@@ -46,7 +58,7 @@ class PageImageEmbeddingStage(ProcessingStage):
                     )
 
         print("Embedding this many images: ", len(img_paths))
-        emb = self.visual_model.encode_images(img_paths)
+        emb = self.model.encode_images(img_paths)
         print("Embeddings computed. Shape:", emb.shape)
 
         self._save_embeddings_parallel(emb, embedding_paths)
