@@ -36,7 +36,7 @@ def process_pdfs(
     metadata_dir = os.path.join(local_data_dir, "metadata")
 
     # PROCESS PDFS HERE
-    pdf_to_txt_img_time, text_embed_time, img_embed_time = processor.pdfs_to_embeddings(
+    pdf_to_txt_img_time, text_embed_time, img_embed_time = processor.process_pdfs(
         pdf_files, do_text_embedding, do_img_embedding, do_metadata_collection
     )
     pipeline_times["pdf_to_txt_img_time"] += pdf_to_txt_img_time
@@ -252,7 +252,7 @@ if __name__ == "__main__":
             local_dir=LOCAL_PDF_DIR,
         )
 
-        processor = gs.PDFsToEmbeddings(
+        processor = gs.PDFProcessingPipeline(
             LOCAL_PDF_DIR, LOCAL_DATA_DIR, args.text_model_type, args.visual_model_type
         )
 
