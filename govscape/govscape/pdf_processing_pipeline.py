@@ -10,7 +10,13 @@ from .processing import (
 
 
 class PDFProcessingPipeline:
-    def __init__(self, pdf_directory, data_dir, text_model_type, visual_model_type):
+    def __init__(
+        self,
+        pdf_directory: str,
+        data_dir: str,
+        text_model_type: str,
+        visual_model_type: str,
+    ):
         self.pdfs_path = pdf_directory
         self.txts_path = data_dir + "/txt"
         self.img_path = data_dir + "/img"
@@ -23,7 +29,11 @@ class PDFProcessingPipeline:
         self.visual_model_type = visual_model_type
 
     def process_pdfs(
-        self, pdf_files, do_text_embedding, do_img_embedding, do_metadata_collection
+        self,
+        pdf_files: list[str],
+        do_text_embedding: bool,
+        do_img_embedding: bool,
+        do_metadata_collection: bool,
     ):
 
         run_extraction = do_text_embedding or do_img_embedding or do_metadata_collection

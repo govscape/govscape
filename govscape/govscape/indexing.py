@@ -24,6 +24,8 @@ from whoosh.filedb.filestore import FileStorage
 from whoosh.index import create_in
 from whoosh.qparser import QueryParser
 
+from .query import EqualityPredicate, Predicate, RangePredicate
+
 lucene = None
 _LUCENE_LOADED = False
 # Prevents two threads from racing through initVM() simultaneously.
@@ -852,9 +854,9 @@ class AbstractMetadataIndex(ABC):
         """
 
     @abstractmethod
-    def search(self, pdf_names, filter):
+    def search(self, pdf_names, predicates):
         """
-        Return the metadata for the pdfs in 'pdf_names' that satisfy 'filter'.
+        Return the metadata for the pdfs in 'pdf_names' that satisfy all 'predicates'.
         """
 
     @abstractmethod
@@ -863,6 +865,11 @@ class AbstractMetadataIndex(ABC):
         Returns the total number of documents in the index.
         :return: Total number of embeddings.
         """
+
+    @staticmethod
+    def _normalize_crawl_date(date_str: str) -> str:
+        """Truncate crawl_date to YYYYMMDD, stripping any trailing time component."""
+        return date_str[:8]
 
 
 class SQLiteMetadataIndex(AbstractMetadataIndex):
@@ -900,7 +907,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         to_insert = [
             (
                 md.get("crawl_url", ""),
-                md.get("crawl_date", ""),
+                self._normalize_crawl_date(md.get("crawl_date", "")),
                 md.get("pdf_name", ""),
                 md.get("sub_domain", ""),
                 md.get("page_count", 0),
@@ -917,7 +924,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self.conn.commit()
 
     def load_index(self):
-        self.conn = sqlite3.connect(self.db_path)
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.cursor = self.conn.cursor()
         if self._total_entries == -1:
             self.cursor.execute("SELECT COUNT(*) FROM metadata")
@@ -942,33 +949,34 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
 
         self.conn.commit()
 
-    def search(self, pdf_names, filter=None):
+    def search(self, pdf_names, predicates: list[Predicate] | None = None):
+        cursor = self.conn.cursor()
         placeholders = ",".join(["?"] * len(pdf_names))
         query = (
             "SELECT crawl_url, crawl_date, pdf_name, sub_domain, s3_url, page_count "
             f"FROM metadata WHERE pdf_name IN ({placeholders})"
         )
         params = list(pdf_names)
-        if filter:
-            for key, value in filter.items():
-                if key == "sub_domain" and value is not None:
-                    query += " AND sub_domain=?"
-                    params.append(value)
-                elif key == "crawled_after" and value is not None:
-                    query += " AND crawl_date>=?"
-                    params.append(value.replace("-", ""))
-                elif key == "crawled_before" and value is not None:
-                    # Pad out time to capture all times on that date
-                    query += " AND crawl_date<=?"
-                    params.append(value.replace("-", "") + "999999")
-        self.cursor.execute(query, params)
-        rows = self.cursor.fetchall()
+        if predicates:
+            for predicate in predicates:
+                if isinstance(predicate, EqualityPredicate):
+                    query += " AND " + predicate.field_name + " = ?"
+                    params.append(predicate.value)
+                elif isinstance(predicate, RangePredicate):
+                    if predicate.min_val is not None:
+                        query += " AND " + predicate.field_name + " >= ?"
+                        params.append(predicate.min_val)
+                    if predicate.max_val is not None:
+                        query += " AND " + predicate.field_name + " <= ?"
+                        params.append(predicate.max_val)
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
         metadata = {}
         for row in rows:
             pdf_name = row[2]
             row_dict = {
                 "crawl_url": row[0],
-                "crawl_date": f"{row[1][0:4]}-{row[1][4:6]}-{row[1][6:8]}",
+                "crawl_date": row[1],
                 "pdf_name": row[2],
                 "sub_domain": row[3],
                 "page_count": row[5],
@@ -1019,7 +1027,10 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         arrow_table = pa.table(
             {
                 "crawl_url": [md.get("crawl_url", "") for md in metadata_dicts],
-                "crawl_date": [md.get("crawl_date", "") for md in metadata_dicts],
+                "crawl_date": [
+                    self._normalize_crawl_date(md.get("crawl_date", ""))
+                    for md in metadata_dicts
+                ],
                 "pdf_name": [md.get("pdf_name", "") for md in metadata_dicts],
                 "sub_domain": [md.get("sub_domain", "") for md in metadata_dicts],
                 "page_count": pa.array(
@@ -1045,32 +1056,33 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
                             """)
         self.conn.checkpoint()
 
-    def search(self, pdf_names, filter=None):
+    def search(self, pdf_names: list[str], predicates: list[Predicate] | None = None):
         self._connect()
         placeholders = ", ".join(["?"] * len(pdf_names))
         query = (
             "SELECT crawl_url, crawl_date, pdf_name, sub_domain, s3_url, page_count "
             f"FROM metadata WHERE pdf_name IN ({placeholders})"
         )
-        params = list(pdf_names)
-        if filter:
-            for key, value in filter.items():
-                if key == "sub_domain" and value is not None:
-                    query += " AND sub_domain = ?"
-                    params.append(value)
-                elif key == "crawled_after" and value is not None:
-                    query += " AND crawl_date >= ?"
-                    params.append(value.replace("-", ""))
-                elif key == "crawled_before" and value is not None:
-                    query += " AND crawl_date <= ?"
-                    params.append(value.replace("-", "") + "999999")
+        params: list = list(pdf_names)
+        if predicates:
+            for predicate in predicates:
+                if isinstance(predicate, EqualityPredicate):
+                    query += " AND " + predicate.field_name + " = ?"
+                    params.append(predicate.value)
+                elif isinstance(predicate, RangePredicate):
+                    if predicate.min_val is not None:
+                        query += " AND " + predicate.field_name + " >= ?"
+                        params.append(predicate.min_val)
+                    if predicate.max_val is not None:
+                        query += " AND " + predicate.field_name + " <= ?"
+                        params.append(predicate.max_val)
         rows = self.conn.execute(query, params).fetchall()
         metadata = {}
         for row in rows:
             pdf_name = row[2]
             row_dict = {
                 "crawl_url": row[0],
-                "crawl_date": f"{row[1][0:4]}-{row[1][4:6]}-{row[1][6:8]}",
+                "crawl_date": row[1],
                 "pdf_name": row[2],
                 "sub_domain": row[3],
                 "page_count": row[5],

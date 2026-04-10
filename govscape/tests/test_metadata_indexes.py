@@ -1,10 +1,11 @@
-# AI modified: 2026-03-09 764fe895
+# AI modified: 20260309 764fe895
 import pytest
 
 from govscape.indexing import (
     DuckDBMetadataIndex,
     SQLiteMetadataIndex,
 )
+from govscape.query import EqualityPredicate, RangePredicate
 
 _RECORDS = [
     {
@@ -71,7 +72,7 @@ def test_total_entries(index):
     assert index.total_entries() == len(_RECORDS)
 
 
-def test_no_filter_returns_matching_records(index):
+def test_no_predicate_returns_matching_records(index):
     result = index.search(["air_quality.pdf", "solar_grid.pdf"])
     assert set(result.keys()) == {"air_quality.pdf", "solar_grid.pdf"}
     # air_quality.pdf was crawled twice
@@ -84,19 +85,19 @@ def test_unknown_pdf_name_not_in_result(index):
     assert result == {}
 
 
-def test_no_filter_result_shape(index):
+def test_no_predicate_result_shape(index):
     result = index.search(["solar_grid.pdf"])
     record = result["solar_grid.pdf"][0]
     assert record["pdf_name"] == "solar_grid.pdf"
     assert record["sub_domain"] == "energy.gov"
     assert record["page_count"] == 18
-    # crawl_date must be normalised to YYYY-MM-DD
-    assert record["crawl_date"] == "2023-06-01"
+    # crawl_date must be normalised to YYYYMMDD
+    assert record["crawl_date"] == "20230601"
 
 
-def test_domain_filter(index):
+def test_domain_predicate(index):
     all_names = [r["pdf_name"] for r in _RECORDS]
-    result = index.search(all_names, {"sub_domain": "epa.gov"})
+    result = index.search(all_names, [EqualityPredicate("sub_domain", "epa.gov")])
     for entries in result.values():
         for entry in entries:
             assert entry["sub_domain"] == "epa.gov"
@@ -104,39 +105,40 @@ def test_domain_filter(index):
     assert "climate_data.pdf" not in result
 
 
-def test_date_filter_crawled_after(index):
+def test_date_predicate_crawled_after(index):
     all_names = [r["pdf_name"] for r in _RECORDS]
-    result = index.search(all_names, {"crawled_after": "2023-01-01"})
+    result = index.search(all_names, [RangePredicate("crawl_date", min_val="20230101")])
     for entries in result.values():
         for entry in entries:
-            assert entry["crawl_date"] >= "2023-01-01"
+            assert entry["crawl_date"] >= "20230101"
     assert "climate_data.pdf" not in result
 
 
-def test_date_filter_crawled_before(index):
+def test_date_predicate_crawled_before(index):
     all_names = [r["pdf_name"] for r in _RECORDS]
-    result = index.search(all_names, {"crawled_before": "2022-12-31"})
+    result = index.search(all_names, [RangePredicate("crawl_date", max_val="20221231")])
     for entries in result.values():
         for entry in entries:
-            assert entry["crawl_date"] <= "2022-12-31"
+            assert entry["crawl_date"] <= "20221231"
 
 
-def test_all_filters_combined(index):
+def test_all_predicates_combined(index):
     all_names = [r["pdf_name"] for r in _RECORDS]
     result = index.search(
         all_names,
-        {
-            "sub_domain": "epa.gov",
-            "crawled_after": "2022-01-01",
-            "crawled_before": "2023-12-31",
-        },
+        [
+            EqualityPredicate("sub_domain", "epa.gov"),
+            RangePredicate("crawl_date", min_val="20220101", max_val="20231231"),
+        ],
     )
     for entries in result.values():
         for entry in entries:
             assert entry["sub_domain"] == "epa.gov"
-            assert "2022-01-01" <= entry["crawl_date"] <= "2023-12-31"
+            assert "20220101" <= entry["crawl_date"] <= "20231231"
 
 
-def test_filter_no_matches_returns_empty(index):
-    result = index.search(["air_quality.pdf"], {"sub_domain": "nasa.gov"})
+def test_predicate_no_matches_returns_empty(index):
+    result = index.search(
+        ["air_quality.pdf"], [EqualityPredicate("sub_domain", "nasa.gov")]
+    )
     assert result == {}

@@ -195,7 +195,7 @@
                     <tbody>
                       {#each crawlInstances as inst}
                         <tr>
-                          <td class="crawl-date">{inst.crawlDate || 'N/A'}</td>
+                          <td class="crawl-date">{inst.crawlDate ? inst.crawlDate.replace(/^(\d{4})(\d{2})(\d{2}).*$/, '$1-$2-$3') : 'N/A'}</td>
                           <td class="crawl-subdomain">{inst.subDomain || 'N/A'}</td>
                           <td class="crawl-url"><a href={inst.crawlUrl} target="_blank" rel="noopener noreferrer">{inst.crawlUrl || 'N/A'}</a></td>
                         </tr>

@@ -74,7 +74,7 @@ class DummyMetadataIndex:
     def load_index(self):
         pass
 
-    def search(self, pdf_names, filters=None):
+    def search(self, pdf_names, predicates=None):
         return {
             name: [
                 {
