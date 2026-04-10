@@ -80,7 +80,7 @@ def convert_filters_to_predicates(filters: dict) -> list[Predicate]:
             )
         elif ftype == "crawled_before":
             predicates.append(
-                RangePredicate("crawl_date", max_val=val.replace("-", "") + "999999")
+                RangePredicate("crawl_date", max_val=val.replace("-", ""))
             )
         elif ftype == "sub_domain":
             predicates.append(EqualityPredicate("sub_domain", val))
