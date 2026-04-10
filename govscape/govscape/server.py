@@ -14,6 +14,7 @@ from .config import ServerConfig
 from .filter import Filter
 from .indexing import (
     AbstractKeywordIndex,
+    AbstractVectorIndex,
     FAISSIndex,
     LanceDBKeywordIndex,
     LuceneKeywordIndex,
@@ -21,6 +22,7 @@ from .indexing import (
     SQLiteMetadataIndex,
     WhooshKeywordIndex,
 )
+from .query import Query, Response
 
 
 # basic pipeline developed:
@@ -130,15 +132,19 @@ class Server:
                 unique_pages.append(page)
         return unique_distances, unique_names, unique_pages
 
-    def search(self, query, search_type="textual", filters=None, page=1):
+    def search(self, query: Query) -> Response:
+        search_type = query.search_type
+        filters = query.filters
+        page = query.page
+        index: AbstractKeywordIndex | AbstractVectorIndex
         if search_type == "textual":
-            query_embedding = self.text_model.encode_text(query, is_query=True)
+            query_embedding = self.text_model.encode_text(query.q_text, is_query=True)
             index = self.text_index
         elif search_type == "visual":
-            query_embedding = self.visual_model.encode_text(query)
+            query_embedding = self.visual_model.encode_text(query.q_text)
             index = self.visual_index
         elif search_type == "keyword":
-            query_embedding = query
+            query_embedding = query.q_text
             index = self.keyword_index
         else:
             raise ValueError(f"Unsupported search type: {search_type}")
@@ -147,7 +153,7 @@ class Server:
         results_needed_for_page = (
             page * self.k + 1
         )  # we need one extra result to check if there is a next page
-        search_results = []
+        search_results: list[dict] = []
         old_results_found = -1
         while len(search_results) < results_needed_for_page:
             # Search for the k closest arrays
@@ -231,16 +237,16 @@ class Server:
         total_count = self._get_total_pdfs_count() or 0
         total_pages = math.ceil(total_count / self.k) if total_count else 0
 
-        return {
-            "results": search_results[start_index:end_index],
-            "pagination": {
+        return Response(
+            results=search_results[start_index:end_index],
+            pagination={
                 "page": page,
                 "page_size": self.k,
                 "has_next_page": len(search_results) > end_index,
                 "total_count": total_count,
                 "total_pages": total_pages,
             },
-        }
+        )
 
     def pdf_pages(self, pdf_id):
         """

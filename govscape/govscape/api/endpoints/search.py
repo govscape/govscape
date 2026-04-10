@@ -2,6 +2,8 @@
 from flask import current_app, request
 from flask_restx import Namespace, Resource, fields
 
+from ...query import Query
+
 # Create namespace
 ns = Namespace("search", description="Search operations")
 
@@ -85,17 +87,21 @@ class Search(Resource):
                 "message": "Missing 'search_type' parameter",
             }, 400
 
-        query = data.get("query")
-        if not query.strip():
+        q_text = data.get("query")
+        if not q_text.strip():
             return {"status": "error", "message": "Query cannot be empty"}, 400
 
         search_type = data.get("search_type")
-        if not query.strip():
+        if not search_type.strip():
             return {"status": "error", "message": "search_type cannot be empty"}, 400
 
-        filters = data.get("filters")
-        page = data.get("page", 1)
+        query = Query(
+            q_text=q_text,
+            search_type=search_type,
+            filters=data.get("filters"),
+            page=data.get("page", 1),
+        )
 
         server = current_app.server
 
-        return server.search(query, search_type, filters=filters, page=page)
+        return server.search(query).to_dict()
