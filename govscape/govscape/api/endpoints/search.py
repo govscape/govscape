@@ -2,7 +2,7 @@
 from flask import current_app, request
 from flask_restx import Namespace, Resource, fields
 
-from ...query import Query
+from ...query import EqualityPredicate, Predicate, Query, RangePredicate
 
 # Create namespace
 ns = Namespace("search", description="Search operations")
@@ -69,6 +69,20 @@ search_response = ns.model(
 )
 
 
+def convert_filters_to_predicates(filters: dict) -> list[Predicate]:
+    predicates: list[Predicate] = []
+    for ftype, val in filters.items():
+        if not val:
+            continue
+        if ftype == "crawled_after":
+            predicates.append(RangePredicate("crawl_date", min_val=val))
+        elif ftype == "crawled_before":
+            predicates.append(RangePredicate("crawl_date", max_val=val))
+        elif ftype == "sub_domain":
+            predicates.append(EqualityPredicate("sub_domain", val))
+    return predicates
+
+
 @ns.route("/")
 class Search(Resource):
     @ns.doc("search_documents")
@@ -95,10 +109,13 @@ class Search(Resource):
         if not search_type.strip():
             return {"status": "error", "message": "search_type cannot be empty"}, 400
 
+        predicates: list[Predicate] = []
+        predicates = convert_filters_to_predicates(data.get("filters", {}))
+
         query = Query(
             q_text=q_text,
             search_type=search_type,
-            filters=data.get("filters"),
+            predicates=predicates,
             page=data.get("page", 1),
         )
 

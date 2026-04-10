@@ -24,6 +24,8 @@ from whoosh.filedb.filestore import FileStorage
 from whoosh.index import create_in
 from whoosh.qparser import QueryParser
 
+from .query import EqualityPredicate, Predicate, RangePredicate
+
 lucene = None
 _LUCENE_LOADED = False
 # Prevents two threads from racing through initVM() simultaneously.
@@ -852,9 +854,9 @@ class AbstractMetadataIndex(ABC):
         """
 
     @abstractmethod
-    def search(self, pdf_names, filter):
+    def search(self, pdf_names, predicates):
         """
-        Return the metadata for the pdfs in 'pdf_names' that satisfy 'filter'.
+        Return the metadata for the pdfs in 'pdf_names' that satisfy all 'predicates'.
         """
 
     @abstractmethod
@@ -917,7 +919,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self.conn.commit()
 
     def load_index(self):
-        self.conn = sqlite3.connect(self.db_path)
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.cursor = self.conn.cursor()
         if self._total_entries == -1:
             self.cursor.execute("SELECT COUNT(*) FROM metadata")
@@ -942,27 +944,28 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
 
         self.conn.commit()
 
-    def search(self, pdf_names, filter=None):
+    def search(self, pdf_names, predicates: list[Predicate] | None = None):
+        cursor = self.conn.cursor()
         placeholders = ",".join(["?"] * len(pdf_names))
         query = (
             "SELECT crawl_url, crawl_date, pdf_name, sub_domain, s3_url, page_count "
             f"FROM metadata WHERE pdf_name IN ({placeholders})"
         )
         params = list(pdf_names)
-        if filter:
-            for key, value in filter.items():
-                if key == "sub_domain" and value is not None:
-                    query += " AND sub_domain=?"
-                    params.append(value)
-                elif key == "crawled_after" and value is not None:
-                    query += " AND crawl_date>=?"
-                    params.append(value.replace("-", ""))
-                elif key == "crawled_before" and value is not None:
-                    # Pad out time to capture all times on that date
-                    query += " AND crawl_date<=?"
-                    params.append(value.replace("-", "") + "999999")
-        self.cursor.execute(query, params)
-        rows = self.cursor.fetchall()
+        if predicates:
+            for predicate in predicates:
+                if isinstance(predicate, EqualityPredicate):
+                    query += " AND " + predicate.field_name + " = ?"
+                    params.append(predicate.value)
+                elif isinstance(predicate, RangePredicate):
+                    if predicate.min_val is not None:
+                        query += " AND " + predicate.field_name + " >= ?"
+                        params.append(predicate.min_val.replace("-", ""))
+                    if predicate.max_val is not None:
+                        query += " AND " + predicate.field_name + " <= ?"
+                        params.append(predicate.max_val.replace("-", "") + "999999")
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
         metadata = {}
         for row in rows:
             pdf_name = row[2]
@@ -1045,7 +1048,7 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
                             """)
         self.conn.checkpoint()
 
-    def search(self, pdf_names, filter=None):
+    def search(self, pdf_names, predicates: list[Predicate] | None = None):
         self._connect()
         placeholders = ", ".join(["?"] * len(pdf_names))
         query = (
@@ -1053,17 +1056,18 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
             f"FROM metadata WHERE pdf_name IN ({placeholders})"
         )
         params = list(pdf_names)
-        if filter:
-            for key, value in filter.items():
-                if key == "sub_domain" and value is not None:
-                    query += " AND sub_domain = ?"
-                    params.append(value)
-                elif key == "crawled_after" and value is not None:
-                    query += " AND crawl_date >= ?"
-                    params.append(value.replace("-", ""))
-                elif key == "crawled_before" and value is not None:
-                    query += " AND crawl_date <= ?"
-                    params.append(value.replace("-", "") + "999999")
+        if predicates:
+            for predicate in predicates:
+                if isinstance(predicate, EqualityPredicate):
+                    query += " AND " + predicate.field_name + " = ?"
+                    params.append(predicate.value)
+                elif isinstance(predicate, RangePredicate):
+                    if predicate.min_val is not None:
+                        query += " AND " + predicate.field_name + " >= ?"
+                        params.append(predicate.min_val.replace("-", ""))
+                    if predicate.max_val is not None:
+                        query += " AND " + predicate.field_name + " <= ?"
+                        params.append(predicate.max_val.replace("-", "") + "999999")
         rows = self.conn.execute(query, params).fetchall()
         metadata = {}
         for row in rows:

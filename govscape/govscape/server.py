@@ -11,7 +11,6 @@ from flask_cors import CORS
 
 from .api import init_api
 from .config import ServerConfig
-from .filter import Filter
 from .indexing import (
     AbstractKeywordIndex,
     AbstractVectorIndex,
@@ -87,7 +86,6 @@ class Server:
         self.metadata_index = SQLiteMetadataIndex(self.index_metadata_directory)
         self.metadata_index.load_index()
 
-        self.filt = Filter(config)
         self.s3 = boto3.client("s3")
 
         # Get the absolute path to the build directory
@@ -134,7 +132,7 @@ class Server:
 
     def search(self, query: Query) -> Response:
         search_type = query.search_type
-        filters = query.filters
+        predicates = query.predicates
         page = query.page
         index: AbstractKeywordIndex | AbstractVectorIndex
         if search_type == "textual":
@@ -170,7 +168,7 @@ class Server:
                 f"{search_type}, current_k: {current_k}, "
                 f"results found: {len(D)}"
             )
-            pdf_metadata = self.metadata_index.search(pdf_names, filters)
+            pdf_metadata = self.metadata_index.search(pdf_names, predicates)
             print(
                 "Search type: "
                 f"{search_type}, current_k: {current_k}, results found "
@@ -225,7 +223,7 @@ class Server:
                 break  # If we have enough results for our target page, we can stop.
 
             results_found = len(search_results)
-            if results_found == old_results_found and (len(filters or {}) == 0):
+            if results_found == old_results_found and (len(predicates) == 0):
                 break  # No more results can be found even after increasing k
             old_results_found = results_found
 
