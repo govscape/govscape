@@ -5,6 +5,7 @@ import pytest
 import numpy as np
 
 from govscape.config import IndexConfig, ServerConfig
+from govscape.query import Query, Response
 from govscape.server import Server
 
 
@@ -132,27 +133,26 @@ def test_server_initialization(server_fixture):
 
 def test_server_search_returns_results(server_fixture):
     server, _ = server_fixture
-    response = server.search("test query")
+    response = server.search(Query("test query", search_type="textual"))
 
-    assert isinstance(response, dict)
-    assert "results" in response
-    assert len(response["results"]) == server.config.k
+    assert isinstance(response, Response)
+    assert len(response.results) == server.config.k
 
 
 def test_server_visual_search_returns_results(server_fixture):
     server, _ = server_fixture
-    response = server.search("visual query", search_type="visual")
+    response = server.search(Query("visual query", search_type="visual"))
 
-    assert len(response["results"]) == server.config.k
-    assert all(result["pdf"].startswith("doc_") for result in response["results"])
+    assert len(response.results) == server.config.k
+    assert all(result["pdf"].startswith("doc_") for result in response.results)
 
 
 def test_server_keyword_search_uses_keyword_index(server_fixture):
     server, _ = server_fixture
-    response = server.search("site:gov", search_type="keyword")
+    response = server.search(Query("site:gov", search_type="keyword"))
 
-    assert len(response["results"]) == server.config.k
-    assert [result["pdf"] for result in response["results"]] == [
+    assert len(response.results) == server.config.k
+    assert [result["pdf"] for result in response.results] == [
         "keyword_doc_0.pdf",
         "keyword_doc_1.pdf",
         "keyword_doc_2.pdf",

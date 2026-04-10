@@ -4,10 +4,20 @@
 
 
 class Query:
-    def __init__(self, q_text):
+    def __init__(self, q_text, search_type, filters=None, page=1):
         self.q_text = q_text
+        self.search_type = search_type
+        self.filters = filters
+        self.page = page
 
 
 class Response:
-    def __init__(self, filename):
-        self.filename = filename
+    def __init__(self, results, pagination):
+        self.results = results
+        self.pagination = pagination
+
+    def to_dict(self):
+        return {
+            "results": self.results,
+            "pagination": self.pagination,
+        }
