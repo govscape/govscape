@@ -44,6 +44,7 @@ class Server:
         self.index_metadata_directory = config.index_metadata_directory
         self.image_directory = config.image_directory
         self.stats_file = config.stats_file
+        self.blacklist_file = config.blacklist_file
         self.vector_index_type = config.vector_index_type
         self.keyword_index_type = config.keyword_index_type
         self.k = config.k
@@ -86,6 +87,8 @@ class Server:
         self.metadata_index = SQLiteMetadataIndex(self.index_metadata_directory)
         self.metadata_index.load_index()
 
+        self.blacklist: set[str] = self._load_blacklist()
+
         self.s3 = boto3.client("s3")
 
         # Get the absolute path to the build directory
@@ -115,6 +118,24 @@ class Server:
 
         self.app.server = self  # type: ignore[attr-defined]
         self.api = init_api(self.app)
+
+    def _load_blacklist(self) -> set[str]:
+        path = self.blacklist_file
+        if not os.path.exists(path):
+            print(f"No blacklist file at {path}; starting with empty blacklist")
+            return set()
+        try:
+            with open(path, encoding="utf-8") as f:
+                entries = {
+                    line.strip()
+                    for line in f
+                    if line.strip() and not line.strip().startswith("#")
+                }
+            print(f"Loaded {len(entries)} blacklist entries")
+            return entries
+        except OSError as e:
+            print(f"Warning: failed to read blacklist at {path}: {e}")
+            return set()
 
     @staticmethod
     def deduplicate_responses(D, names, pages):
@@ -161,6 +182,19 @@ class Server:
             D, pdf_names, pdf_pages = self.deduplicate_responses(
                 D, pdf_names, pdf_pages
             )
+
+            if self.blacklist:
+                filtered = [
+                    (d, n, p)
+                    for d, n, p in zip(D, pdf_names, pdf_pages, strict=False)
+                    if n not in self.blacklist
+                ]
+                if filtered:
+                    D, pdf_names, pdf_pages = (
+                        list(x) for x in zip(*filtered, strict=False)
+                    )
+                else:
+                    D, pdf_names, pdf_pages = [], [], []
 
             print(f"Index Search took {time.time() - start} seconds")
             print(
@@ -254,6 +288,9 @@ class Server:
         """
         if not pdf_id:
             return {"error": "Missing 'pdf_id' parameter"}, 400
+
+        if pdf_id in self.blacklist:
+            return {"error": "PDF not found"}, 404
 
         md = self.metadata_index.search([pdf_id]) or {}
         records = md.get(pdf_id) or [{}]
