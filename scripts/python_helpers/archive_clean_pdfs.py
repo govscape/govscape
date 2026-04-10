@@ -1,4 +1,5 @@
 import argparse
+import logging
 import math
 import os
 import time
@@ -7,6 +8,12 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np
 
 from govscape.data_loader import build_data_loader
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+)
 
 # ---------------------------------------------------------------------------
 # to run this file: poetry run python s3_ec2_embedding_pipeline.py

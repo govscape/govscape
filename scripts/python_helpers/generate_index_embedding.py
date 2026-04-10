@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import os
 import shutil
 import time
@@ -9,6 +10,12 @@ import numpy as np
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 
 import govscape as gs
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+)
 
 # ---------------------------------------------------------------------------
 # to run this file: poetry run python generate_index_embedding.py

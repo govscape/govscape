@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import os
 import shutil
 import time
@@ -8,6 +9,12 @@ from urllib.parse import urlparse
 import pandas as pd
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 from govscape.indexing import SQLiteMetadataIndex
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+)
 
 
 def extract_subdomain(url):

@@ -1,9 +1,16 @@
 # AI modified: 2026-03-14 4a6b1b72
 import argparse
+import logging
 import os
 import shlex
 
 import govscape as gs
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+)
 
 
 def _get_arg_parser():

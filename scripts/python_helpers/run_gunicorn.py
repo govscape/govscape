@@ -1,3 +1,4 @@
+import logging
 import os
 import shlex
 import subprocess
@@ -6,6 +7,12 @@ import sys
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 
 from .start_api_server import _get_arg_parser
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+)
 
 
 def download_indices(args):

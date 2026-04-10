@@ -113,6 +113,21 @@ Because the data that lives on the remote backend (i.e. AWS S3) is a core aspect
 - Avoid using `get_` and `set_` prefixes in method names.
 - `get_` and `set_` prefixes are allowed for global getters and setters, such as `util.get_version()`.
 
+### Logging
+
+Use the standard library `logging` module rather than `print` for all diagnostic output:
+
+```python
+import logging
+
+logging.info("Stage started")
+logging.warning("Something unexpected happened")
+logging.error("Something failed: %s", err)
+```
+
+`print` bypasses the logging configuration and cannot be silenced, filtered by level, or redirected by log handlers. The root logger is configured in `pdf_processing_pipeline.py` with `INFO` level — use `logging.debug` for verbose output that should be off by default, and `logging.info` for normal progress messages.
+
+
 ---
 **If you find an error or unclear section, please fix it or open an issue.**
 

@@ -8,7 +8,7 @@ from .indexing import (
     SQLiteMetadataIndex,
     WhooshKeywordIndex,
 )
-from .pdf_to_embed import PDFsToEmbeddings
+from .pdf_processing_pipeline import PDFProcessingPipeline
 from .server import Server
 from .text_embedding_models import (
     BGE_TextEmbeddingModel,
@@ -33,7 +33,7 @@ __all__ = [
     "IndexConfig",
     "LanceDBKeywordIndex",
     "LuceneKeywordIndex",
-    "PDFsToEmbeddings",
+    "PDFProcessingPipeline",
     "RemoteDirectoryIterator",
     "SQLiteKeywordIndex",
     "SQLiteMetadataIndex",
