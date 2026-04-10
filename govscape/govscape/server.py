@@ -290,7 +290,14 @@ class Server:
             return {"error": "Missing 'pdf_id' parameter"}, 400
 
         if pdf_id in self.blacklist:
-            return {"error": "PDF not found"}, 404
+            return {
+                "images": [],
+                "crawl_url": "",
+                "crawl_date": "",
+                "sub_domain": "",
+                "has_more_crawls": False,
+                "crawl_instances": [],
+            }
 
         md = self.metadata_index.search([pdf_id]) or {}
         records = md.get(pdf_id) or [{}]

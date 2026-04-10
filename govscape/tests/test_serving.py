@@ -203,11 +203,18 @@ def test_search_filters_blacklisted_pdfs_keyword(server_fixture_with_blacklist):
     ]
 
 
-def test_pdf_pages_blacklisted_returns_404(server_fixture_with_blacklist):
+def test_pdf_pages_blacklisted_returns_empty_200(server_fixture_with_blacklist):
     server, _ = server_fixture_with_blacklist
     result = server.pdf_pages("doc_0.pdf")
 
-    assert result == ({"error": "PDF not found"}, 404)
+    assert result == {
+        "images": [],
+        "crawl_url": "",
+        "crawl_date": "",
+        "sub_domain": "",
+        "has_more_crawls": False,
+        "crawl_instances": [],
+    }
 
 
 def test_pdf_pages_non_blacklisted_unaffected(server_fixture_with_blacklist):
