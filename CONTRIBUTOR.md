@@ -139,8 +139,10 @@ To do this, you need to start by creating a directory within govscape/data that 
 You can pull this data from the S3 bucket by using:
 
 ```
-poetry run s5cmd cp s3://bcgl-public-bucket/archive-small/PDFs/23A* data/s3_mock/archive/PDFs/
-poetry run s5cmd cp s3://bcgl-public-bucket/archive/2020/CDX/* data/s3_mock/archive/CDX/
+poetry run python scripts/python_helpers/download_test_data.py \
+    --bucket_name bcgl-public-bucket \
+    --local_base_dir data/s3_mock \
+    --num_pdfs 500
 ```
 
 
