@@ -1,14 +1,13 @@
-import argparse
 import json
 import logging
 import os
 import shutil
 import time
-from urllib.parse import urlparse
 
 import duckdb
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 from govscape.indexing import SQLiteMetadataIndex
+from govscape.utils import base_argument_parser, extract_subdomain
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -17,43 +16,13 @@ logging.basicConfig(
 )
 
 
-def extract_subdomain(url):
-    parsed = urlparse(url)
-    hostname = parsed.hostname
-    if hostname is None:
-        return None
-    parts = hostname.split(".")
-    if len(parts) >= 2:
-        return ".".join(parts[-2:])
-    return hostname
-
-
 BATCH_SIZE = 100000
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Process CDX files from S3.")
+    parser = base_argument_parser(description="Generate metadata index")
     parser.add_argument(
         "--cdx_parquet_key", required=True, help="S3 Key for CDX parquet file"
-    )
-    parser.add_argument(
-        "--remote_data_dir", required=True, help="Remote Data Directory"
-    )
-    parser.add_argument(
-        "--num_pages_to_process",
-        type=int,
-        default=100,
-        help="Number of metadata files to process from S3",
-    )
-    parser.add_argument(
-        "--backend", choices=["s3", "local"], default="s3", help="Data backend to use"
-    )
-    parser.add_argument("--bucket_name", help="S3 bucket name")
-    parser.add_argument(
-        "--local_base_dir",
-        type=str,
-        default="data",
-        help="Base directory for local backend",
     )
     args = parser.parse_args()
     BUCKET_NAME = args.bucket_name

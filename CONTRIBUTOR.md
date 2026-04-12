@@ -139,7 +139,7 @@ To do this, you need to start by creating a directory within govscape/data that 
 You can pull this data from the S3 bucket by using:
 
 ```
-poetry run python scripts/python_helpers/download_test_data.py \
+poetry run python scripts/data_prep/download_test_data.py \
     --bucket_name bcgl-public-bucket \
     --local_base_dir data/s3_mock \
     --num_pdfs 500
@@ -151,7 +151,7 @@ poetry run python scripts/python_helpers/download_test_data.py \
 To create the (dummy) embeddings & additional metadata, first run:
 
 ```
-poetry run python scripts/python_helpers/run_embedding_pipeline.py --num_pages_to_process 5 \
+poetry run python scripts/pipeline/run_embedding_pipeline.py --num_pages_to_process 5 \
     --batch_size 100 --backend 'local' --local_base_dir 'data/s3_mock' --pdf_dir 'archive/PDFs/' \
     --remote_data_dir "test-serving" --text_model_type 'Dummy' --visual_model_type 'Dummy'
 ```
@@ -160,19 +160,19 @@ Next, create the indices:
 ```
 
 # Run the embeddings pipeline
-poetry run python scripts/python_helpers/generate_index_embedding.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --embedding_prefix "embeddings" --remote_data_dir 'test-serving' --out_index_prefix 'index'
+poetry run python scripts/indexing/generate_index_embedding.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --embedding_prefix "embeddings" --remote_data_dir 'test-serving' --out_index_prefix 'index'
 
-poetry run python scripts/python_helpers/generate_index_embedding.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --embedding_prefix "embeddings_img_pg" --remote_data_dir 'test-serving'  --out_index_prefix 'index_img_pg'
+poetry run python scripts/indexing/generate_index_embedding.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --embedding_prefix "embeddings_img_pg" --remote_data_dir 'test-serving'  --out_index_prefix 'index_img_pg'
 
-poetry run python scripts/python_helpers/generate_index_keyword.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --keyword_index_type 'SQLite'
+poetry run python scripts/indexing/generate_index_keyword.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --keyword_index_type 'SQLite'
 
-poetry run python scripts/python_helpers/generate_index_metadata.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --cdx_parquet_key  'archive/CDX/pdf_metadata.parquet'
+poetry run python scripts/indexing/generate_index_metadata.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --cdx_parquet_key  'archive/CDX/pdf_metadata.parquet'
 ```
 
 At this point, all of the indices required to run the API server have been created. To start the API server locally, run:
 
 ```
-poetry run python -m scripts.python_helpers.run_gunicorn --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_directory 'test-serving' --text_model 'Dummy' --visual_model 'Dummy' --keyword_index_type 'SQLite' --vector_index_type 'Memory'
+poetry run python -m scripts.serving.run_gunicorn --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_directory 'test-serving' --text_model 'Dummy' --visual_model 'Dummy' --keyword_index_type 'SQLite' --vector_index_type 'Memory'
 ```
 
 To start the web server locally, in a separate terminal run:

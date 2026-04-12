@@ -80,7 +80,7 @@ def main():
             "gunicorn",
             "-c",
             "gunicorn.conf.py",
-            "scripts.python_helpers.start_api_server:create_app()",
+            "scripts.serving.start_api_server:create_app()",
         ]
 
     parser = _get_arg_parser()

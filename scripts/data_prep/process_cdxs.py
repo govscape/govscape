@@ -1,14 +1,13 @@
-import argparse
 import gzip
 import json
 import logging
 import os
 import re
 from multiprocessing import Pool, cpu_count
-from urllib.parse import urlparse
 
 import pandas as pd
 from govscape.data_loader import build_data_loader
+from govscape.utils import base_argument_parser
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -109,19 +108,8 @@ def process_cdx_batch(args):
     return entries
 
 
-def extract_subdomain(url):
-    parsed = urlparse(url)
-    hostname = parsed.hostname
-    if hostname is None:
-        return None
-    parts = hostname.split(".")
-    if len(parts) >= 2:
-        return ".".join(parts[-2:])
-    return hostname
-
-
 def main():
-    parser = argparse.ArgumentParser(description="Process CDX files from S3.")
+    parser = base_argument_parser(description="Process CDX files from S3.")
     parser.add_argument("--bucket", required=True, help="S3 bucket name")
     parser.add_argument(
         "--cdx_file_paths",
@@ -137,15 +125,6 @@ def main():
         type=int,
         default=2 * cpu_count(),
         help="Number of parallel workers",
-    )
-    parser.add_argument(
-        "--backend", choices=["s3", "local"], default="s3", help="Data backend to use"
-    )
-    parser.add_argument(
-        "--local_base_dir",
-        type=str,
-        default="data",
-        help="Base directory for local backend",
     )
     args = parser.parse_args()
 

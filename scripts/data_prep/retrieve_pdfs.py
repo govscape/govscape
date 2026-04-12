@@ -1,4 +1,3 @@
-import argparse
 import logging
 import multiprocessing
 import os
@@ -7,6 +6,7 @@ import time
 import pandas as pd
 import requests
 from govscape.data_loader import build_data_loader
+from govscape.utils import base_argument_parser
 from warcio.archiveiterator import ArchiveIterator
 
 logging.basicConfig(
@@ -17,22 +17,13 @@ logging.basicConfig(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Retrieve PDFs from S3 & store them.")
+    parser = base_argument_parser(description="Retrieve PDFs from S3 & store them.")
     parser.add_argument("--bucket", required=True, help="S3 bucket name")
     parser.add_argument(
         "--cdx_parquet", required=True, help="File containing paths to CDX files in S3"
     )
     parser.add_argument(
         "--output_dir", required=True, help="Directory to save output files"
-    )
-    parser.add_argument(
-        "--backend", choices=["s3", "local"], default="s3", help="Data backend to use"
-    )
-    parser.add_argument(
-        "--local_base_dir",
-        type=str,
-        default="data",
-        help="Base directory for local backend",
     )
     args = parser.parse_args()
 

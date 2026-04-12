@@ -1,4 +1,3 @@
-import argparse
 import json
 import logging
 import os
@@ -8,6 +7,7 @@ import time
 import numpy as np
 
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
+from govscape.utils import base_argument_parser
 
 import govscape as gs
 
@@ -28,23 +28,8 @@ logging.basicConfig(
 
 if __name__ == "__main__":
     # FIELDS TO SET --------------------------------------------------------
-    parser = argparse.ArgumentParser(description="S3 EC2 Embedding Pipeline")
-    parser.add_argument(
-        "--num_pages_to_process",
-        type=int,
-        default=100,
-        help="Number of pages to process from S3",
-    )
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=350000,
-        help="Number of pages to process at a time",
-    )
-    parser.add_argument("--bucket_name", type=str, help="S3 Bucket Name")
-    parser.add_argument(
-        "--remote_data_dir", type=str, help="Remote Directory for input data"
-    )
+    parser = base_argument_parser(description="Generate embedding index")
+    parser.set_defaults(batch_size=350000)
     parser.add_argument(
         "--embedding_prefix", type=str, help="S3 Prefix for embedding files"
     )
@@ -54,15 +39,6 @@ if __name__ == "__main__":
         type=str,
         choices=["FAISS"],
         help='Type of index to create (e.g., "FAISS")',
-    )
-    parser.add_argument(
-        "--backend", choices=["s3", "local"], default="s3", help="Data backend to use"
-    )
-    parser.add_argument(
-        "--local_base_dir",
-        type=str,
-        default="data",
-        help="Base directory for local backend",
     )
     args = parser.parse_args()
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process

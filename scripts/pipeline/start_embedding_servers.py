@@ -21,13 +21,13 @@ rm /home/ubuntu/govscape/progress.json || true && \
 /home/ubuntu/.local/bin/poetry lock >> /home/ubuntu/govscape/log.txt && \
 /home/ubuntu/.local/bin/poetry install >> /home/ubuntu/govscape/log.txt && \
 /home/ubuntu/.local/bin/poetry run python \
-    scripts/python_helpers/s3_embedding_pipeline.py \
+    scripts/pipeline/run_embedding_pipeline.py \
     --num_pages_to_process {num_pages} \
     --batch_size 100000 \
     --bucket_name 'bcgl-public-bucket' \
     --pdf_dir 'archive/2020/PDFs/' \
-    --data_dir 'dev-serving/' \
-    --model_type 'BGE' \
+    --remote_data_dir 'dev-serving/' \
+    --text_model_type 'BGE' \
     --num_servers {num_servers} \
     --server_id {server_id} \
     --do_text_embedding 0 \

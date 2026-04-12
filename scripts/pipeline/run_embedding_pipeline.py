@@ -1,4 +1,3 @@
-import argparse
 import json
 import logging
 import os
@@ -6,6 +5,7 @@ import shutil
 import time
 
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
+from govscape.utils import base_argument_parser, str2bool
 
 import govscape as gs
 
@@ -14,10 +14,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     level=logging.INFO,
 )
-
-# ---------------------------------------------------------------------------
-# to run this file: poetry run python s3_ec2_embedding_pipeline.py
-# ---------------------------------------------------------------------------
 
 
 # processing the pdfs: running through embedding pipeline and uploading to s3
@@ -91,35 +87,12 @@ def process_pdfs(
     print("pipeline times: ", pipeline_times)
 
 
-# Fix for annoying argparse behavior with booleans
-def str2bool(v):
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ("yes", "true", "t", "y", "1"):
-        return True
-    if v.lower() in ("no", "false", "f", "n", "0"):
-        return False
-    raise argparse.ArgumentTypeError("Boolean value expected.")
-
-
 if __name__ == "__main__":
     # overall method that gets the files in batches and runs them through the
     # pipeline
     def main():
         # FIELDS TO SET --------------------------------------------------------
-        parser = argparse.ArgumentParser(description="S3 EC2 Embedding Pipeline")
-        parser.add_argument(
-            "--num_pages_to_process",
-            type=int,
-            default=100,
-            help="Number of pages to process from S3",
-        )
-        parser.add_argument(
-            "--batch_size",
-            type=int,
-            default=1000,
-            help="Number of pdfs to process at a time",
-        )
+        parser = base_argument_parser(description="S3 EC2 Embedding Pipeline")
         parser.add_argument(
             "--text_model_type",
             type=str,
@@ -159,23 +132,7 @@ if __name__ == "__main__":
             help="Whether to do metadata collection",
             default=True,
         )
-        parser.add_argument(
-            "--backend",
-            choices=["s3", "local"],
-            default="s3",
-            help="Data backend to use",
-        )
-        parser.add_argument("--bucket_name", type=str, help="S3 Bucket Name")
-        parser.add_argument(
-            "--local_base_dir",
-            type=str,
-            default="data",
-            help="Base directory for local backend",
-        )
         parser.add_argument("--pdf_dir", type=str, help="Directory containing PDFs")
-        parser.add_argument(
-            "--remote_data_dir", type=str, help="Directory for output data"
-        )
         args = parser.parse_args()
         NUM_PAGES_TO_PROCESS = args.num_pages_to_process
         BATCH_SIZE = args.batch_size

@@ -1,4 +1,3 @@
-import argparse
 import logging
 import math
 import os
@@ -8,16 +7,13 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np
 
 from govscape.data_loader import build_data_loader
+from govscape.utils import base_argument_parser
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     level=logging.INFO,
 )
-
-# ---------------------------------------------------------------------------
-# to run this file: poetry run python s3_ec2_embedding_pipeline.py
-# ---------------------------------------------------------------------------
 
 
 def _copy_digest(data_loader, dirty_prefix, clean_prefix, digest):
@@ -52,20 +48,8 @@ def _safe_future_result(future):
 
 if __name__ == "__main__":
     # FIELDS TO SET --------------------------------------------------------
-    parser = argparse.ArgumentParser(description="S3 EC2 Embedding Pipeline")
-    parser.add_argument(
-        "--num_pages_to_process",
-        type=int,
-        default=1000000,
-        help="Number of pages to process from S3",
-    )
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=1000000,
-        help="Number of pages to process at a time",
-    )
-    parser.add_argument("--bucket_name", type=str, help="S3 Bucket Name")
+    parser = base_argument_parser(description="Archive clean PDFs")
+    parser.set_defaults(num_pages_to_process=1000000, batch_size=1000000)
     parser.add_argument(
         "--metadata_prefix", type=str, help="S3 Directory for metadata data"
     )
@@ -74,15 +58,6 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--dirty_data_prefix", type=str, help="S3 Directory for output data"
-    )
-    parser.add_argument(
-        "--backend", choices=["s3", "local"], default="s3", help="Data backend to use"
-    )
-    parser.add_argument(
-        "--local_base_dir",
-        type=str,
-        default="data",
-        help="Base directory for local backend",
     )
     args = parser.parse_args()
 
@@ -101,9 +76,6 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------------------
     PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
     DATA_DIR = os.path.join(PROJECT_ROOT, "data", "prod")
-
-    txt_directory = os.path.join(DATA_DIR, "txt")
-    index_keyword_directory = os.path.join(DATA_DIR, "index_keyword")
 
     # Token to track of which pages have already been processed.
     progress_path = "clean_copy_progress.json"
