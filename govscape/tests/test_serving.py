@@ -88,8 +88,7 @@ class DummyMetadataIndex:
         }
 
 
-@pytest.fixture()
-def server_fixture(tmp_path, monkeypatch):
+def _build_server_fixture(tmp_path, monkeypatch, blacklist_text: str | None = None):
     data_dir = tmp_path / "data"
     (data_dir / "embeddings").mkdir(parents=True)
     (data_dir / "embeddings_img_pg").mkdir(parents=True)
@@ -100,6 +99,8 @@ def server_fixture(tmp_path, monkeypatch):
     (data_dir / "img").mkdir(parents=True)
     (data_dir / "metadata").mkdir(parents=True)
     (data_dir / "total_pdfs.txt").write_text("0")
+    if blacklist_text is not None:
+        (data_dir / "blacklist.txt").write_text(blacklist_text)
 
     monkeypatch.setattr("govscape.server.FAISSIndex", DummyVectorIndex)
     monkeypatch.setattr("govscape.server.LanceDBKeywordIndex", DummyKeywordIndex)
@@ -116,6 +117,17 @@ def server_fixture(tmp_path, monkeypatch):
 
     server_config = ServerConfig(index_config, text_model, visual_model, k=3)
     return Server(server_config), index_config
+
+
+@pytest.fixture()
+def server_fixture(tmp_path, monkeypatch):
+    return _build_server_fixture(tmp_path, monkeypatch)
+
+
+@pytest.fixture()
+def server_fixture_with_blacklist(tmp_path, monkeypatch):
+    blacklist_text = "doc_0.pdf\n# takedown ticket-1234\n\n  keyword_doc_0.pdf  \n"
+    return _build_server_fixture(tmp_path, monkeypatch, blacklist_text=blacklist_text)
 
 
 def test_server_initialization(server_fixture):
@@ -157,3 +169,57 @@ def test_server_keyword_search_uses_keyword_index(server_fixture):
         "keyword_doc_1.pdf",
         "keyword_doc_2.pdf",
     ]
+
+
+def test_blacklist_missing_file_is_empty(server_fixture):
+    server, _ = server_fixture
+    assert server.blacklist == set()
+
+
+def test_blacklist_loads_from_file(server_fixture_with_blacklist):
+    server, _ = server_fixture_with_blacklist
+    assert server.blacklist == {"doc_0.pdf", "keyword_doc_0.pdf"}
+
+
+def test_search_filters_blacklisted_pdfs_textual(server_fixture_with_blacklist):
+    server, _ = server_fixture_with_blacklist
+    response = server.search(Query("test", search_type="textual"))
+
+    returned = [r["pdf"] for r in response.results]
+    assert "doc_0.pdf" not in returned
+    assert len(response.results) == server.config.k
+
+
+def test_search_filters_blacklisted_pdfs_keyword(server_fixture_with_blacklist):
+    server, _ = server_fixture_with_blacklist
+    response = server.search(Query("site:gov", search_type="keyword"))
+
+    returned = [r["pdf"] for r in response.results]
+    assert "keyword_doc_0.pdf" not in returned
+    assert returned == [
+        "keyword_doc_1.pdf",
+        "keyword_doc_2.pdf",
+        "keyword_doc_3.pdf",
+    ]
+
+
+def test_pdf_pages_blacklisted_returns_empty_200(server_fixture_with_blacklist):
+    server, _ = server_fixture_with_blacklist
+    result = server.pdf_pages("doc_0.pdf")
+
+    assert result == {
+        "images": [],
+        "crawl_url": "",
+        "crawl_date": "",
+        "sub_domain": "",
+        "has_more_crawls": False,
+        "crawl_instances": [],
+    }
+
+
+def test_pdf_pages_non_blacklisted_unaffected(server_fixture_with_blacklist):
+    server, _ = server_fixture_with_blacklist
+    result = server.pdf_pages("doc_1.pdf")
+
+    assert isinstance(result, dict)
+    assert "images" in result
