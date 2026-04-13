@@ -1,6 +1,9 @@
+# AI modified: 2026-04-12 18:24:13 fddc6344a807a84c8b9161bd3ffeded5153c5e27
+# AI modified: 2026-04-12 18:35:40 fddc6344a807a84c8b9161bd3ffeded5153c5e27
 # AI modified: 2026-03-09 764fe895
 # AI modified: 2026-03-14 21:55:15 1c688b19
 # AI modified: 2026-04-06 00:10:53 434ce298
+# AI modified: 2026-04-12 23:51:04 fddc6344a807a84c8b9161bd3ffeded5153c5e27
 import pytest
 
 import numpy as np
@@ -141,14 +144,38 @@ def test_all_filters_combined(index):
             assert "2022-01-01" <= entry["crawl_date"] <= "2023-12-31"
 
 
+def test_unknown_filter_keys_are_ignored_in_search(index):
+    all_names = [r["pdf_name"] for r in _RECORDS]
+    baseline = index.search(all_names, {"sub_domain": "epa.gov"})
+    with_unknown = index.search(
+        all_names,
+        {
+            "sub_domain": "epa.gov",
+            "unknown_key": "ignored-value",
+        },
+    )
+
+    assert with_unknown == baseline
+
+
 def test_filter_no_matches_returns_empty(index):
     result = index.search(["air_quality.pdf"], {"sub_domain": "nasa.gov"})
     assert result == {}
 
 
-def test_count_filtered_pages(index):
-    # epa.gov rows are page_count values: 42, 55, 44
-    assert index.count_filtered_pages({"sub_domain": "epa.gov"}) == 141
+def test_count_filtered_documents(index):
+    assert index.count_filtered_documents({"sub_domain": "epa.gov"}) == 2
+
+
+def test_unknown_filter_keys_are_ignored_in_document_counts(index):
+    baseline = index.count_filtered_documents({"sub_domain": "epa.gov"})
+    with_unknown = index.count_filtered_documents(
+        {
+            "sub_domain": "epa.gov",
+            "unknown_key": "ignored-value",
+        }
+    )
+    assert with_unknown == baseline
 
 
 def test_get_filtered_pdf_page_counts(index):

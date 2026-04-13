@@ -26,7 +26,14 @@ class IndexConfig:
 
 
 class ServerConfig:
-    def __init__(self, index_config: IndexConfig, text_model, visual_model, k=3):
+    def __init__(
+        self,
+        index_config: IndexConfig,
+        text_model,
+        visual_model,
+        k=3,
+        prefilter_document_threshold=1000,
+    ):
         self.index_config = index_config
         self.embedding_directory = index_config.embedding_directory
         self.embedding_img_pg_directory = index_config.embedding_img_pg_directory
@@ -44,6 +51,7 @@ class ServerConfig:
 
         # define k for top-k
         self.k = k
+        self.prefilter_document_threshold = prefilter_document_threshold
 
         # define embedding size
         self.text_d = self.text_model.d

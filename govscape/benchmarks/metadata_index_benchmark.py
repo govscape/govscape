@@ -7,6 +7,8 @@
 # AI modified: 2026-03-14 22:34:51 1c688b19
 # AI modified: 2026-03-14 22:38:50 1c688b19
 # AI modified: 2026-03-14 22:38:50 1c688b19
+# AI modified: 2026-04-12 23:51:04 fddc6344a807a84c8b9161bd3ffeded5153c5e27
+# AI modified: 2026-04-13 00:04:26 fddc6344a807a84c8b9161bd3ffeded5153c5e27
 """Benchmark utilities for AbstractMetadataIndex implementations.
 
 This script generates synthetic metadata records on the fly, feeds them
@@ -17,11 +19,6 @@ metrics for both ingestion and querying under three filter scenarios:
   - domain_filter   : filter by sub_domain only
   - date_filter     : filter by crawled_after and crawled_before only
   - all_filters: filter by sub_domain, crawled_after, and crawled_before
-
-It also benchmarks aggregate metadata methods used by adaptive retrieval:
-
-    - count_filtered_pages
-    - get_filtered_pdf_page_counts
 
 Example:
     poetry run python -m govscape.benchmarks.metadata_index_benchmark \\
@@ -204,11 +201,6 @@ class BenchmarkResult:
     all_filters_queries: int
     all_filters_qps: float
     all_filters_avg_ms: float
-    # Aggregate API timings (filter-only calls)
-    count_filtered_pages_qps: float
-    count_filtered_pages_avg_ms: float
-    get_filtered_pdf_page_counts_qps: float
-    get_filtered_pdf_page_counts_avg_ms: float
 
 
 def _run_queries(
@@ -222,26 +214,6 @@ def _run_queries(
     for pdf_names, filt in queries:
         t0 = time.perf_counter()
         index.search(pdf_names, filt)
-        latencies.append(time.perf_counter() - t0)
-    total = sum(latencies)
-    qps = len(latencies) / total if total else float("inf")
-    avg_ms = statistics.mean(latencies) * 1000
-    return total, qps, avg_ms
-
-
-def _run_filter_only_queries(
-    index: AbstractMetadataIndex,
-    filters: Sequence[dict | None],
-    method_name: str,
-) -> tuple[float, float, float]:
-    """Run filter-only aggregate methods and return (total_s, q/s, avg_ms)."""
-    if not filters:
-        return 0.0, 0.0, 0.0
-    method = getattr(index, method_name)
-    latencies: list[float] = []
-    for filt in filters:
-        t0 = time.perf_counter()
-        method(filt)
         latencies.append(time.perf_counter() - t0)
     total = sum(latencies)
     qps = len(latencies) / total if total else float("inf")
@@ -279,24 +251,6 @@ def benchmark_index(
     _, df_qps, df_ms = _run_queries(index, query_batches["date_filter"])
     _, ddf_qps, ddf_ms = _run_queries(index, query_batches["all_filters"])
 
-    # Filter-only aggregate API benchmark set; these APIs are only used for
-    # selective active filters in adaptive search, so we only use all_filters.
-    aggregate_filters: list[dict | None] = []
-    for scenario_name, scenario_queries in query_batches.items():
-        if scenario_name != "all_filters":
-            continue
-        aggregate_filters.extend([filt for _, filt in scenario_queries])
-    _, cfp_qps, cfp_ms = _run_filter_only_queries(
-        index,
-        aggregate_filters,
-        "count_filtered_pages",
-    )
-    _, gfppc_qps, gfppc_ms = _run_filter_only_queries(
-        index,
-        aggregate_filters,
-        "get_filtered_pdf_page_counts",
-    )
-
     index_size = sum(f.stat().st_size for f in index_dir.rglob("*") if f.is_file())
     total_queries = sum(len(b) for b in query_batches.values())
     return BenchmarkResult(
@@ -318,10 +272,6 @@ def benchmark_index(
         all_filters_queries=len(query_batches["all_filters"]),
         all_filters_qps=ddf_qps,
         all_filters_avg_ms=ddf_ms,
-        count_filtered_pages_qps=cfp_qps,
-        count_filtered_pages_avg_ms=cfp_ms,
-        get_filtered_pdf_page_counts_qps=gfppc_qps,
-        get_filtered_pdf_page_counts_avg_ms=gfppc_ms,
     )
 
 
@@ -346,16 +296,6 @@ def format_results(results: Iterable[BenchmarkResult]) -> str:
         ("domain_filter", "domain_filter_qps", "domain_filter_avg_ms"),
         ("date_filter", "date_filter_qps", "date_filter_avg_ms"),
         ("all_filters", "all_filters_qps", "all_filters_avg_ms"),
-        (
-            "count_pages",
-            "count_filtered_pages_qps",
-            "count_filtered_pages_avg_ms",
-        ),
-        (
-            "pdf_page_counts",
-            "get_filtered_pdf_page_counts_qps",
-            "get_filtered_pdf_page_counts_avg_ms",
-        ),
     ]
 
     for res in results:

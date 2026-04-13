@@ -1,7 +1,10 @@
+# AI modified: 2026-04-12 18:24:13 fddc6344a807a84c8b9161bd3ffeded5153c5e27
+# AI modified: 2026-04-12 18:35:40 fddc6344a807a84c8b9161bd3ffeded5153c5e27
 # AI modified: 2026-03-14 21:55:15 1c688b19
 # AI modified: 2026-03-15 03:23:45 1c688b19
 # AI modified: 2026-03-15 03:26:30 1c688b19
 # AI modified: 2026-04-06 00:10:53 434ce298
+# AI modified: 2026-04-12 23:51:04 fddc6344a807a84c8b9161bd3ffeded5153c5e27
 from pathlib import Path
 
 import pytest
@@ -104,10 +107,10 @@ class DummyMetadataIndex:
             for name in pdf_names
         }
 
-    def count_filtered_pages(self, filters=None):
+    def count_filtered_documents(self, filters=None):
         if filters and filters.get("sub_domain") == "narrow.gov":
             return 2
-        return 12
+        return 6
 
     def get_filtered_pdf_page_counts(self, filters=None):
         if filters and filters.get("sub_domain") == "narrow.gov":
@@ -215,3 +218,31 @@ def test_keyword_search_does_not_use_prefilter_branch(server_fixture):
     _ = server.search("site:gov", search_type="keyword", filters={"sub_domain": "x"})
 
     assert server.keyword_index.last_query == "site:gov"
+
+
+def test_prefilter_strategy_disabled_when_filtered_documents_zero(server_fixture):
+    server, _ = server_fixture
+    server.metadata_index.count_filtered_documents = lambda _filters=None: 0
+
+    should_prefilter = server._should_use_prefilter_strategy(
+        "textual",
+        {"sub_domain": "narrow.gov"},
+        server.text_index,
+    )
+
+    assert should_prefilter is False
+
+
+def test_prefilter_vector_path_returns_empty_for_no_candidate_vectors(server_fixture):
+    server, _ = server_fixture
+    server.metadata_index.get_vectors_for_pdf_page_counts = (
+        lambda _embedding_type, _pdf_page_counts: {}
+    )
+
+    response = server.search(
+        "test query",
+        search_type="textual",
+        filters={"sub_domain": "narrow.gov"},
+    )
+
+    assert response["results"] == []

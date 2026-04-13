@@ -1,3 +1,4 @@
+# AI modified: 2026-04-12 18:24:13 fddc6344a807a84c8b9161bd3ffeded5153c5e27
 # AI modified: 2026-03-14 21:55:15 1c688b19
 # AI modified: 2026-03-14 22:34:51 1c688b19
 # AI modified: 2026-03-14 22:38:50 1c688b19
@@ -283,31 +284,26 @@ class Server:
         search_type,
         filters,
         index,
-        results_needed_for_page,
     ):
         if search_type not in ["textual", "visual"]:
             return False
         if not self._has_active_filters(filters):
             return False
 
-        total_entries = max(int(index.total_entries()), 1)
-        filtered_pages = int(self.metadata_index.count_filtered_pages(filters))
-        if filtered_pages <= 0:
+        filtered_documents = int(self.metadata_index.count_filtered_documents(filters))
+        if filtered_documents <= 0:
             return False
 
-        selectivity = min(max(filtered_pages / total_entries, 1e-9), 1.0)
-        estimated_postfilter_work = results_needed_for_page / selectivity
-        estimated_prefilter_work = filtered_pages
+        threshold = int(self.config.prefilter_document_threshold)
+        use_prefilter = filtered_documents <= threshold
 
         print(
             "Filter strategy estimates: "
-            f"search_type={search_type}, filtered_pages={filtered_pages}, "
-            f"selectivity={selectivity:.6f}, "
-            f"post_work={estimated_postfilter_work:.1f}, "
-            f"prefilter_work={estimated_prefilter_work}"
+            f"search_type={search_type}, filtered_documents={filtered_documents}, "
+            f"threshold={threshold}, use_prefilter={use_prefilter}"
         )
 
-        return estimated_prefilter_work < estimated_postfilter_work
+        return use_prefilter
 
     def search(self, query, search_type="textual", filters=None, page=1):
         if search_type == "textual":
@@ -329,7 +325,6 @@ class Server:
             search_type,
             filters,
             index,
-            results_needed_for_page,
         ):
             print("Using prefilter strategy")
             search_results = self._search_with_prefilter_vector(
