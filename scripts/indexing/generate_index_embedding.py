@@ -34,7 +34,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--embedding_type",
         type=str,
-        help="Which embedding type to index [txt, img_pg]",
+        choices=["txt", "img_pg"],
+        help="Which embedding type to index",
         required=True,
     )
     parser.add_argument(
