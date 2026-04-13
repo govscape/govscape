@@ -3,7 +3,7 @@ The data in the S3 Bucket should be laid out as follows:
 * archive-small/PDFs/{digest}.pdf <-- Used for testing on a small scale, holds ~15k PDFs
 * archive/{year}/PDFs/{digest}.pdf
 * archive/{year}/metadata/pdf_metadata.parquet
-* {test,dev,prod}-serving/txt/{digest}/{digest}_{pg_no}.np
+* {test,dev,prod}-serving/txt/{digest}/{digest}_{pg_no}.txt
 * {test,dev,prod}-serving/img/{digest}/{digest}_{pg_no}.jpeg
 * {test,dev,prod}-serving/embeddings/{digest}/{digest}_{pg_no}.np
 * {test,dev,prod}-serving/embeddings_img_pg/{digest}/{digest}_{pg_no}.np
