@@ -233,7 +233,7 @@ class S3DataLoader(DataLoader):
 
     def download_directory(self, remote_prefix: str, local_dir: str) -> None:
         os.makedirs(local_dir, exist_ok=True)
-        normalized_prefix = remote_prefix.rstrip("/") + "/*"
+        normalized_prefix = remote_prefix.rstrip("/") + "/"
         normalized_local_dir = local_dir.rstrip("/") + "/"
         subprocess.run(
             [
@@ -242,7 +242,7 @@ class S3DataLoader(DataLoader):
                 "s5cmd",
                 "--log",
                 "error",
-                "cp",
+                "sync",
                 f"s3://{self.bucket_name}/{normalized_prefix}",
                 normalized_local_dir,
             ],

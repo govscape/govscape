@@ -24,7 +24,7 @@ poetry run gunicorn -c gunicorn.conf.py 'scripts.serving.start_api_server:create
 
 Or use the wrapper to pass your usual CLI app arguments along with Gunicorn:
 ```bash
-poetry run -- python -m scripts/serving/run_gunicorn.py \
+poetry run -- python -m scripts.serving.run_gunicorn \
   -p data/test_data/TechnicalReport234PDFs \
   -d data/test_data \
   -tm ST -vm CLIP -k 20 -i Memory -- \

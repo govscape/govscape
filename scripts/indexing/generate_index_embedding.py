@@ -58,6 +58,14 @@ if __name__ == "__main__":
     REMOTE_DATA_DIR = args.remote_data_dir  # 'prod-serving/'
     local_dm = DataModel(LOCAL_DATA_DIR)
     remote_dm = DataModel(REMOTE_DATA_DIR)
+    REMOTE_EMBEDDING_DIR, REMOTE_INDEX_DIR, LOCAL_EMBEDDING_DIR, LOCAL_INDEX_DIR = (
+        None,
+        None,
+        None,
+        None,
+    )
+    print("Embedding type specified: ", args.embedding_type)
+    print(args.embedding_type == "txt")
     if args.embedding_type == "txt":
         REMOTE_EMBEDDING_DIR = (
             remote_dm.embedding_directory

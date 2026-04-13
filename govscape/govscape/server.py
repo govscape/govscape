@@ -34,24 +34,22 @@ class Server:
     def __init__(self, config: ServerConfig):
         self.config = config
 
-        # Directories
-        self.metadata_directory = config.metadata_directory
-        self.embedding_directory = config.embedding_directory
-        self.embedding_img_pg_directory = config.embedding_img_pg_directory
-        self.index_directory = config.index_directory
-        self.index_img_pg_directory = config.index_img_pg_directory
-        self.index_keyword_directory = config.index_keyword_directory
-        self.index_metadata_directory = config.index_metadata_directory
-        self.image_directory = config.image_directory
-        self.stats_file = config.stats_file
-        self.blacklist_file = config.blacklist_file
+        # Data model — single source of truth for all directory paths
+        self.data_model = config.data_model
+        self.metadata_directory = self.data_model.metadata_directory
+        self.embedding_directory = self.data_model.embedding_directory
+        self.embedding_img_pg_directory = self.data_model.embedding_img_pg_directory
+        self.index_directory = self.data_model.index_directory
+        self.index_img_pg_directory = self.data_model.index_img_pg_directory
+        self.index_keyword_directory = self.data_model.index_keyword_directory
+        self.index_metadata_directory = self.data_model.index_metadata_directory
+        self.image_directory = self.data_model.image_directory
+        self.stats_file = self.data_model.stats_file
+        self.blacklist_file = self.data_model.blacklist_file
         self.vector_index_type = config.vector_index_type
         self.keyword_index_type = config.keyword_index_type
         self.k = config.k
         self.max_crawl_instances = config.max_crawl_instances
-
-        # Data model
-        self.data_model = config.data_model
 
         # Model Params
         self.text_model = config.text_model

@@ -87,9 +87,9 @@ def main():
         print(f"No Existing Index File Found: {e}")
 
     if args.index_type == "SQLite":
-        index = SQLiteMetadataIndex(LOCAL_DATA_DIR)
+        index = SQLiteMetadataIndex(local_dm.index_metadata_directory)
     elif args.index_type == "DuckDB":
-        index = DuckDBMetadataIndex(LOCAL_DATA_DIR)
+        index = DuckDBMetadataIndex(local_dm.index_metadata_directory)
     else:
         raise ValueError("index_type must be either 'SQLite' or 'DuckDB'")
 

@@ -160,9 +160,9 @@ Next, create the indices:
 ```
 
 # Run the embeddings pipeline
-poetry run python scripts/indexing/generate_index_embedding.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --embedding_prefix "embeddings" --remote_data_dir 'test-serving' --out_index_prefix 'index'
+poetry run python scripts/indexing/generate_index_embedding.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --embedding_type "txt" --remote_data_dir 'test-serving'
 
-poetry run python scripts/indexing/generate_index_embedding.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --embedding_prefix "embeddings_img_pg" --remote_data_dir 'test-serving'  --out_index_prefix 'index_img_pg'
+poetry run python scripts/indexing/generate_index_embedding.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --embedding_type "img_pg" --remote_data_dir 'test-serving'
 
 poetry run python scripts/indexing/generate_index_keyword.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --keyword_index_type 'SQLite'
 
