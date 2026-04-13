@@ -1,6 +1,7 @@
 import argparse
 import gzip
 import json
+import logging
 import os
 import re
 from multiprocessing import Pool, cpu_count
@@ -8,6 +9,12 @@ from urllib.parse import urlparse
 
 import pandas as pd
 from govscape.data_loader import build_data_loader
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+)
 
 
 def extract_date_from_crawl_string(crawl_string):

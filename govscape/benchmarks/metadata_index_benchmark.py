@@ -42,6 +42,7 @@ from govscape.indexing import (
     DuckDBMetadataIndex,
     SQLiteMetadataIndex,
 )
+from govscape.query import EqualityPredicate, Predicate, RangePredicate
 
 INDEX_REGISTRY: dict[str, type[AbstractMetadataIndex]] = {
     "sqlite": SQLiteMetadataIndex,
@@ -94,7 +95,7 @@ def generate_metadata(
 
 
 # Type alias for a single query: (pdf_names, filter_dict)
-Query = tuple[list[str], dict | None]
+IndexQuery = tuple[list[str], list[Predicate]]
 
 
 def generate_query_batches(
@@ -102,7 +103,7 @@ def generate_query_batches(
     records: Sequence[dict],
     seed: int,
     batch_size: int = 10,
-) -> dict[str, list[Query]]:
+) -> dict[str, list[IndexQuery]]:
     """
     Generate query tuples split by scenario.
 
@@ -140,35 +141,34 @@ def generate_query_batches(
         after = f"{year:04d}-{month:02d}-{day_after:02d}"
         before = f"{year:04d}-{month:02d}-{day_before:02d}"
         return after, before
+      
+    no_filter: list[IndexQuery] = [(_sample_names(), []) for _ in range(scenario_count)]
 
-    no_filter = [(_sample_names(), None) for _ in range(scenario_count)]
-
-    domain_filter = [
-        (_sample_names(), {"sub_domain": rng.choice(_SUB_DOMAINS)})
+    domain_filter: list[IndexQuery] = [
+        (_sample_names(), [EqualityPredicate("sub_domain", rng.choice(_SUB_DOMAINS))])
         for _ in range(scenario_count)
     ]
 
-    date_filter = []
+    date_filter: list[IndexQuery] = []
     for _ in range(scenario_count):
         after, before = _random_date_range()
         date_filter.append(
             (
                 _sample_names(),
-                {"crawled_after": after, "crawled_before": before},
+                [RangePredicate("crawl_date", min_val=after, max_val=before)],
             )
         )
 
-    all_filters = []
+    all_filters: list[IndexQuery] = []
     for _ in range(scenario_count + remainder):
         after, before = _random_selective_date_range()
         all_filters.append(
             (
                 _sample_names(),
-                {
-                    "sub_domain": rng.choice(_SUB_DOMAINS),
-                    "crawled_after": after,
-                    "crawled_before": before,
-                },
+                [
+                    EqualityPredicate("sub_domain", rng.choice(_SUB_DOMAINS)),
+                    RangePredicate("crawl_date", min_val=after, max_val=before),
+                ],
             )
         )
 
@@ -205,7 +205,7 @@ class BenchmarkResult:
 
 def _run_queries(
     index: AbstractMetadataIndex,
-    queries: Sequence[Query],
+    queries: list[IndexQuery],
 ) -> tuple[float, float, float]:
     """Run all queries, return (total_s, q/s, avg_latency_ms)."""
     if not queries:
@@ -225,7 +225,7 @@ def benchmark_index(
     name: str,
     index_cls: type[AbstractMetadataIndex],
     records: Sequence[dict],
-    query_batches: dict[str, list[Query]],
+    query_batches: dict[str, list[IndexQuery]],
     index_root: Path,
 ) -> BenchmarkResult:
     index_dir = index_root / name
@@ -275,7 +275,7 @@ def benchmark_index(
     )
 
 
-def _fmt_size(n: int) -> str:
+def _fmt_size(n: float) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if n < 1024:
             return f"{n:.1f}{unit}"
@@ -375,7 +375,7 @@ def try_benchmark(
     name: str,
     index_cls: type[AbstractMetadataIndex],
     records: Sequence[dict],
-    query_batches: dict[str, list[Query]],
+    query_batches: dict[str, list[IndexQuery]],
     index_root: Path,
 ) -> BenchmarkResult | None:
     try:

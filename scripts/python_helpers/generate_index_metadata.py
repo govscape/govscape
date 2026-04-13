@@ -1,13 +1,20 @@
 import argparse
 import json
+import logging
 import os
 import shutil
 import time
 from urllib.parse import urlparse
 
-import pandas as pd
+import duckdb
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 from govscape.indexing import SQLiteMetadataIndex
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+)
 
 
 def extract_subdomain(url):
@@ -97,8 +104,6 @@ def main():
     os.makedirs(os.path.dirname(LOCAL_CDX_PATH), exist_ok=True)
     if not os.path.exists(LOCAL_CDX_PATH):
         data_loader.download_file(REMOTE_CDX_PATH, LOCAL_CDX_PATH)
-    cdx_df = pd.read_parquet(LOCAL_CDX_PATH)
-    cdx_df["digest"] = cdx_df["digest"].astype(str).str.replace("sha1:", "")
 
     print("Initializing Index")
 
@@ -135,23 +140,39 @@ def main():
             if row is not None:
                 rows.append(row)
 
-        digest_to_pagecount = pd.DataFrame(rows, columns=["digest", "num_pages"])
-        metadata_df = digest_to_pagecount.merge(cdx_df, on="digest")
+        con = duckdb.connect()
+        con.execute("CREATE TEMP TABLE rows_rel (digest VARCHAR, num_pages BIGINT)")
+        con.executemany(
+            "INSERT INTO rows_rel VALUES (?, ?)",
+            [(r["digest"], r["num_pages"]) for r in rows],
+        )
+        result = con.execute(
+            """
+            SELECT r.digest, r.num_pages, c.url, c.crawl_date
+            FROM rows_rel r
+            INNER JOIN (
+                SELECT REPLACE(digest, 'sha1:', '') AS digest, url, crawl_date
+                FROM read_parquet(?)
+            ) c ON r.digest = c.digest
+            """,
+            [LOCAL_CDX_PATH],
+        ).fetchall()
+        con.close()
 
         print("Building Index")
         index.build_index()
         cur_batch = []
         rows_added = 0
-        for _, row in metadata_df.iterrows():
+        for digest, num_pages, url, crawl_date in result:
             cur_batch.append(
                 {
-                    "crawl_url": row["url"],
-                    "crawl_date": row["crawl_date"],
-                    "pdf_name": row["digest"],
-                    "sub_domain": extract_subdomain(row["url"]),
-                    "page_count": row["num_pages"],
+                    "crawl_url": url,
+                    "crawl_date": crawl_date,
+                    "pdf_name": digest,
+                    "sub_domain": extract_subdomain(url),
+                    "page_count": num_pages,
                     "s3_url": data_loader.to_uri(
-                        os.path.join("archive/2020/PDFs", f"{row['digest']}.pdf")
+                        os.path.join("archive/2020/PDFs", f"{digest}.pdf")
                     ),
                 }
             )

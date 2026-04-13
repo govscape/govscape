@@ -20,3 +20,7 @@ there are existing AI comments, add yours right after them.
 ## Data Model
 - When working with DataLoader and other code that saves data to a file directory, read the DATA_MODEL.md file and
   ensure that the resulting directory structure is compatible with it.
+
+
+## Testing
+- After major code changes run the relevant portion of the test suite 'poetry run pytest ...', run mypy and fix error, and run pre-commit and fix issues.

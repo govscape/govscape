@@ -41,6 +41,8 @@ from whoosh.filedb.filestore import FileStorage
 from whoosh.index import create_in
 from whoosh.qparser import QueryParser
 
+from .query import EqualityPredicate, Predicate, RangePredicate
+
 lucene = None
 _LUCENE_LOADED = False
 # Prevents two threads from racing through initVM() simultaneously.
@@ -933,9 +935,9 @@ class AbstractMetadataIndex(ABC):
         """
 
     @abstractmethod
-    def search(self, pdf_names, filter):
+    def search(self, pdf_names, predicates):
         """
-        Return the metadata for the pdfs in 'pdf_names' that satisfy 'filter'.
+        Return the metadata for the pdfs in 'pdf_names' that satisfy all 'predicates'.
         """
 
     @abstractmethod
@@ -972,7 +974,11 @@ class AbstractMetadataIndex(ABC):
         Return {pdf_name: [(page, embedding_vector), ...]} for pages where
         page < pdf_page_counts[pdf_name] and matching embedding_type.
         """
-
+        
+    @staticmethod
+    def _normalize_crawl_date(date_str: str) -> str:
+        """Truncate crawl_date to YYYYMMDD, stripping any trailing time component."""
+        return date_str[:8]
 
 def _normalize_filter_key(filter_dict):
     if not filter_dict:
@@ -983,7 +989,6 @@ def _normalize_filter_key(filter_dict):
         if value is not None:
             pairs.append((key, str(value)))
     return tuple(pairs)
-
 
 class SQLiteMetadataIndex(AbstractMetadataIndex):
     def __init__(self, index_metadata_directory):
@@ -1093,7 +1098,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         to_insert_metadata = [
             (
                 md.get("crawl_url", ""),
-                md.get("crawl_date", ""),
+                self._normalize_crawl_date(md.get("crawl_date", "")),
                 md.get("pdf_name", ""),
                 md.get("sub_domain", ""),
                 md.get("page_count", 0),
@@ -1140,7 +1145,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self._reset_filtered_caches()
 
     def load_index(self):
-        self.conn = sqlite3.connect(self.db_path)
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.cursor = self.conn.cursor()
         if self._total_entries == -1:
             self.cursor.execute(f"SELECT COUNT(*) FROM {self._metadata_table}")
@@ -1187,6 +1192,8 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
     def search(self, pdf_names, filter=None):
         if len(pdf_names) == 0:
             return {}
+    def search(self, pdf_names, predicates: list[Predicate] | None = None):
+        cursor = self.conn.cursor()
         placeholders = ",".join(["?"] * len(pdf_names))
         query = (
             "SELECT crawl_url, crawl_date, pdf_name, sub_domain, s3_url, page_count "
@@ -1207,7 +1214,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             pdf_name = row[2]
             row_dict = {
                 "crawl_url": row[0],
-                "crawl_date": f"{row[1][0:4]}-{row[1][4:6]}-{row[1][6:8]}",
+                "crawl_date": row[1],
                 "pdf_name": row[2],
                 "sub_domain": row[3],
                 "page_count": row[5],
@@ -1497,7 +1504,10 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         arrow_table = pa.table(
             {
                 "crawl_url": [md.get("crawl_url", "") for md in metadata_dicts],
-                "crawl_date": [md.get("crawl_date", "") for md in metadata_dicts],
+                "crawl_date": [
+                    self._normalize_crawl_date(md.get("crawl_date", ""))
+                    for md in metadata_dicts
+                ],
                 "pdf_name": [md.get("pdf_name", "") for md in metadata_dicts],
                 "sub_domain": [md.get("sub_domain", "") for md in metadata_dicts],
                 "page_count": pa.array(
@@ -1563,7 +1573,7 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
                             """)
         self.conn.checkpoint()
 
-    def search(self, pdf_names, filter=None):
+    def search(self, pdf_names: list[str], predicates: list[Predicate] | None = None):
         self._connect()
         if len(pdf_names) == 0:
             return {}
@@ -1586,7 +1596,7 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
             pdf_name = row[2]
             row_dict = {
                 "crawl_url": row[0],
-                "crawl_date": f"{row[1][0:4]}-{row[1][4:6]}-{row[1][6:8]}",
+                "crawl_date": row[1],
                 "pdf_name": row[2],
                 "sub_domain": row[3],
                 "page_count": row[5],

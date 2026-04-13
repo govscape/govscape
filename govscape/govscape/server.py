@@ -8,6 +8,8 @@
 # AI modified: 2026-03-15 03:26:30 1c688b19
 # AI modified: 2026-04-06 00:10:53 434ce298
 # AI modified: 2026-04-06 02:14:18 434ce298
+# AI modified: 2026-03-08 f62d40b8
+# AI modified: 2026-03-14 4a6b1b72
 # This file defines the logic for serving requests to the user.
 import math
 import os
@@ -21,9 +23,9 @@ from flask_cors import CORS
 
 from .api import init_api
 from .config import ServerConfig
-from .filter import Filter
 from .indexing import (
     AbstractKeywordIndex,
+    AbstractVectorIndex,
     FAISSIndex,
     LanceDBKeywordIndex,
     LuceneKeywordIndex,
@@ -31,6 +33,7 @@ from .indexing import (
     SQLiteMetadataIndex,
     WhooshKeywordIndex,
 )
+from .query import Query, Response
 
 
 # basic pipeline developed:
@@ -53,9 +56,11 @@ class Server:
         self.index_metadata_directory = config.index_metadata_directory
         self.image_directory = config.image_directory
         self.stats_file = config.stats_file
+        self.blacklist_file = config.blacklist_file
         self.vector_index_type = config.vector_index_type
         self.keyword_index_type = config.keyword_index_type
         self.k = config.k
+        self.max_crawl_instances = config.max_crawl_instances
 
         # Index configuration
         self.index_config = config.index_config
@@ -94,7 +99,8 @@ class Server:
         self.metadata_index = SQLiteMetadataIndex(self.index_metadata_directory)
         self.metadata_index.load_index()
 
-        self.filt = Filter(config)
+        self.blacklist: set[str] = self._load_blacklist()
+
         self.s3 = boto3.client("s3")
 
         # Get the absolute path to the build directory
@@ -125,6 +131,24 @@ class Server:
         self.app.server = self  # type: ignore[attr-defined]
         self.api = init_api(self.app)
 
+    def _load_blacklist(self) -> set[str]:
+        path = self.blacklist_file
+        if not os.path.exists(path):
+            print(f"No blacklist file at {path}; starting with empty blacklist")
+            return set()
+        try:
+            with open(path, encoding="utf-8") as f:
+                entries = {
+                    line.strip()
+                    for line in f
+                    if line.strip() and not line.strip().startswith("#")
+                }
+            print(f"Loaded {len(entries)} blacklist entries")
+            return entries
+        except OSError as e:
+            print(f"Warning: failed to read blacklist at {path}: {e}")
+            return set()
+
     @staticmethod
     def deduplicate_responses(D, names, pages):
         seen = set()
@@ -144,6 +168,23 @@ class Server:
         if not filters:
             return False
         return any(value is not None for value in filters.values())
+
+    def search(self, query: Query) -> Response:
+        search_type = query.search_type
+        predicates = query.predicates
+        page = query.page
+        index: AbstractKeywordIndex | AbstractVectorIndex
+        if search_type == "textual":
+            query_embedding = self.text_model.encode_text(query.q_text, is_query=True)
+            index = self.text_index
+        elif search_type == "visual":
+            query_embedding = self.visual_model.encode_text(query.q_text)
+            index = self.visual_index
+        elif search_type == "keyword":
+            query_embedding = query.q_text
+            index = self.keyword_index
+        else:
+            raise ValueError(f"Unsupported search type: {search_type}")
 
     def _build_search_results(self, distances, pdf_names, pdf_pages, filters):
         pdf_metadata = self.metadata_index.search(pdf_names, filters)
@@ -186,7 +227,10 @@ class Server:
         results_needed_for_page,
     ):
         current_k = self.k * 2
-        search_results = []
+        results_needed_for_page = (
+            page * self.k + 1
+        )  # we need one extra result to check if there is a next page
+        search_results: list[dict] = []
         old_results_found = -1
 
         while len(search_results) < results_needed_for_page:
@@ -196,6 +240,19 @@ class Server:
             D, pdf_names, pdf_pages = self.deduplicate_responses(
                 D, pdf_names, pdf_pages
             )
+
+            if self.blacklist:
+                filtered = [
+                    (d, n, p)
+                    for d, n, p in zip(D, pdf_names, pdf_pages, strict=False)
+                    if n not in self.blacklist
+                ]
+                if filtered:
+                    D, pdf_names, pdf_pages = (
+                        list(x) for x in zip(*filtered, strict=False)
+                    )
+                else:
+                    D, pdf_names, pdf_pages = [], [], []
 
             print(f"Index Search took {time.time() - start} seconds")
             print(
@@ -220,8 +277,8 @@ class Server:
                 break
 
             results_found = len(search_results)
-            if results_found == old_results_found and (len(filters or {}) == 0):
-                break
+            if results_found == old_results_found and (len(predicates) == 0):
+                break  # No more results can be found even after increasing k
             old_results_found = results_found
 
             current_k *= 2
@@ -349,41 +406,70 @@ class Server:
         total_count = self._get_total_pdfs_count() or 0
         total_pages = math.ceil(total_count / self.k) if total_count else 0
 
-        return {
-            "results": search_results[start_index:end_index],
-            "pagination": {
+        return Response(
+            results=search_results[start_index:end_index],
+            pagination={
                 "page": page,
                 "page_size": self.k,
                 "has_next_page": len(search_results) > end_index,
                 "total_count": total_count,
                 "total_pages": total_pages,
             },
-        }
+        )
 
     def pdf_pages(self, pdf_id):
         """
         Get all page images and metadata for a PDF by pdf_id.
         Returns dict with 'images', 'crawl_url', 'crawl_date', 'sub_domain'
-        keys or error message.
+        (newest crawl), and 'crawl_instances' (all crawls, newest first).
         """
         if not pdf_id:
             return {"error": "Missing 'pdf_id' parameter"}, 400
 
+        if pdf_id in self.blacklist:
+            return {
+                "images": [],
+                "crawl_url": "",
+                "crawl_date": "",
+                "sub_domain": "",
+                "has_more_crawls": False,
+                "crawl_instances": [],
+            }
+
         md = self.metadata_index.search([pdf_id]) or {}
-        first = (md.get(pdf_id) or [{}])[0]
-        crawl_url = first.get("crawl_url", "")
-        crawl_date = first.get("crawl_date", "")
-        sub_domain = first.get("sub_domain", "")
-        page_count = int(first.get("page_count", 0))
+        records = md.get(pdf_id) or [{}]
+
+        # Sort all crawl records newest-first; crawl_date is YYYY-MM-DD so
+        # lexicographic descending sort is correct.
+        records = sorted(records, key=lambda r: r.get("crawl_date", ""), reverse=True)
+        has_more_crawls = len(records) > self.max_crawl_instances
+        limited_records = records[: self.max_crawl_instances]
+        newest = records[0]
+
+        crawl_url = newest.get("crawl_url", "")
+        crawl_date = newest.get("crawl_date", "")
+        sub_domain = newest.get("sub_domain", "")
+        page_count = int(newest.get("page_count", 0))
 
         image_dir = os.path.join(self.image_directory, pdf_id)
         images = [f"{image_dir}/{pdf_id}_{i}.jpeg" for i in range(page_count)]
+
+        crawl_instances = [
+            {
+                "crawl_url": r.get("crawl_url", ""),
+                "crawl_date": r.get("crawl_date", ""),
+                "sub_domain": r.get("sub_domain", ""),
+            }
+            for r in limited_records
+        ]
 
         return {
             "images": images,
             "crawl_url": crawl_url,
             "crawl_date": crawl_date,
             "sub_domain": sub_domain,
+            "has_more_crawls": has_more_crawls,
+            "crawl_instances": crawl_instances,
         }
 
     def _get_total_pdfs_count(self):

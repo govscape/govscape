@@ -3,7 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from govscape.pdf_to_embed import PDFsToEmbeddings
+from govscape.pdf_processing_pipeline import PDFProcessingPipeline
+from govscape.processing import (
+    PageImageEmbeddingStage,
+    PDFExtractionStage,
+    TextEmbeddingStage,
+)
+from govscape.processing.pdf_extraction_stage import _convert_single_pdf
 
 
 @pytest.fixture()
@@ -13,7 +19,7 @@ def sample_pipeline(tmp_path):
     shutil.copytree(source_pdfs, pdf_dir)
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    pipeline = PDFsToEmbeddings(str(pdf_dir), str(data_dir), "Dummy", "Dummy")
+    pipeline = PDFProcessingPipeline(str(pdf_dir), str(data_dir), "Dummy", "Dummy")
     pdf_files = sorted(f.name for f in pdf_dir.glob("*.pdf"))
     return pipeline, pdf_files
 
@@ -21,7 +27,7 @@ def sample_pipeline(tmp_path):
 def test_convert_pdf_to_txt_img_and_metadata(sample_pipeline):
     pipeline, pdf_files = sample_pipeline
     assert "govscape_intro.pdf" in pdf_files
-    PDFsToEmbeddings.convert_pdf_to_txt_img_and_metadata(
+    _convert_single_pdf(
         pipeline.txts_path,
         pipeline.img_path,
         pipeline.pdfs_path,
@@ -42,7 +48,14 @@ def test_convert_pdf_to_txt_img_and_metadata(sample_pipeline):
 
 def test_convert_pdfs_to_txt_and_img_creates_outputs(sample_pipeline):
     pipeline, pdf_files = sample_pipeline
-    pipeline.convert_pdfs_to_txt_img_and_metadata(pdf_files)
+    PDFExtractionStage(
+        pdfs_path=pipeline.pdfs_path,
+        txts_path=pipeline.txts_path,
+        img_path=pipeline.img_path,
+        metadata_dir=pipeline.metadata_dir,
+        pdf_files=pdf_files,
+        cpu_count=pipeline.cpu_count,
+    ).run()
 
     txt_base = Path(pipeline.txts_path)
     img_base = Path(pipeline.img_path)
@@ -67,11 +80,82 @@ def test_convert_pdfs_to_txt_and_img_creates_outputs(sample_pipeline):
     assert total_img_files > 0
 
 
-def test_pdfs_to_embeddings_text_only(sample_pipeline):
+def test_pdf_extraction_stage_validate_raises_on_missing_dir(tmp_path):
+    stage = PDFExtractionStage(
+        pdfs_path=str(tmp_path / "nonexistent"),
+        txts_path=str(tmp_path / "txt"),
+        img_path=str(tmp_path / "img"),
+        metadata_dir=str(tmp_path / "metadata"),
+        pdf_files=[],
+        cpu_count=1,
+    )
+    with pytest.raises(ValueError, match="PDFs input directory does not exist"):
+        stage.validate()
+
+
+def test_text_embedding_stage_validate_raises_on_missing_dir(tmp_path):
+    stage = TextEmbeddingStage(
+        txts_path=str(tmp_path / "nonexistent"),
+        embeddings_path=str(tmp_path / "embeddings"),
+        model_type="Dummy",
+    )
+    with pytest.raises(ValueError, match="Text input directory does not exist"):
+        stage.validate()
+
+
+def test_page_image_embedding_stage_validate_raises_on_missing_dir(tmp_path):
+    stage = PageImageEmbeddingStage(
+        img_path=str(tmp_path / "nonexistent"),
+        embeddings_img_path=str(tmp_path / "embeddings_img"),
+        model_type="Dummy",
+        cpu_count=1,
+    )
+    with pytest.raises(ValueError, match="Image input directory does not exist"):
+        stage.validate()
+
+
+def test_pdf_extraction_stage_validate_passes_with_existing_dir(tmp_path):
+    pdfs_dir = tmp_path / "pdfs"
+    pdfs_dir.mkdir()
+    stage = PDFExtractionStage(
+        pdfs_path=str(pdfs_dir),
+        txts_path=str(tmp_path / "txt"),
+        img_path=str(tmp_path / "img"),
+        metadata_dir=str(tmp_path / "metadata"),
+        pdf_files=[],
+        cpu_count=1,
+    )
+    stage.validate()  # should not raise
+
+
+def test_text_embedding_stage_validate_passes_with_existing_dir(tmp_path):
+    txts_dir = tmp_path / "txt"
+    txts_dir.mkdir()
+    stage = TextEmbeddingStage(
+        txts_path=str(txts_dir),
+        embeddings_path=str(tmp_path / "embeddings"),
+        model_type="Dummy",
+    )
+    stage.validate()  # should not raise
+
+
+def test_page_image_embedding_stage_validate_passes_with_existing_dir(tmp_path):
+    img_dir = tmp_path / "img"
+    img_dir.mkdir()
+    stage = PageImageEmbeddingStage(
+        img_path=str(img_dir),
+        embeddings_img_path=str(tmp_path / "embeddings_img"),
+        model_type="Dummy",
+        cpu_count=1,
+    )
+    stage.validate()  # should not raise
+
+
+def test_process_pdfs_text_only(sample_pipeline):
     pipeline, pdf_files = sample_pipeline
 
     # Run the text-only portion of the pipeline; skips heavy image embedding work.
-    timings = pipeline.pdfs_to_embeddings(
+    timings = pipeline.process_pdfs(
         pdf_files,
         do_text_embedding=True,
         do_img_embedding=False,

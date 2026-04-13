@@ -1,3 +1,4 @@
+import logging
 import os
 import shlex
 import subprocess
@@ -6,6 +7,12 @@ import sys
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 
 from .start_api_server import _get_arg_parser
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+)
 
 
 def download_indices(args):
@@ -52,6 +59,14 @@ def download_indices(args):
             if len(downloaded_files) == 0:
                 finished = True
                 print(f"Finished downloading indices from {remote_dir} to {local_dir}")
+
+    remote_blacklist = os.path.join(REMOTE_DATA_DIR, "blacklist.txt")
+    local_blacklist = os.path.join(LOCAL_DATA_DIR, "blacklist.txt")
+    try:
+        data_loader.download_file(remote_blacklist, local_blacklist)
+        print(f"Downloaded blacklist: {remote_blacklist} -> {local_blacklist}")
+    except Exception as e:
+        print(f"No blacklist file to download ({e}); proceeding without one")
 
 
 def main():

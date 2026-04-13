@@ -113,6 +113,21 @@ Because the data that lives on the remote backend (i.e. AWS S3) is a core aspect
 - Avoid using `get_` and `set_` prefixes in method names.
 - `get_` and `set_` prefixes are allowed for global getters and setters, such as `util.get_version()`.
 
+### Logging
+
+Use the standard library `logging` module rather than `print` for all diagnostic output:
+
+```python
+import logging
+
+logging.info("Stage started")
+logging.warning("Something unexpected happened")
+logging.error("Something failed: %s", err)
+```
+
+`print` bypasses the logging configuration and cannot be silenced, filtered by level, or redirected by log handlers. The root logger is configured in `pdf_processing_pipeline.py` with `INFO` level — use `logging.debug` for verbose output that should be off by default, and `logging.info` for normal progress messages.
+
+
 ---
 **If you find an error or unclear section, please fix it or open an issue.**
 
@@ -124,8 +139,10 @@ To do this, you need to start by creating a directory within govscape/data that 
 You can pull this data from the S3 bucket by using:
 
 ```
-poetry run s5cmd cp s3://bcgl-public-bucket/archive-small/PDFs/23A* data/s3_mock/archive/PDFs/
-poetry run s5cmd cp s3://bcgl-public-bucket/archive/2020/CDX/* data/s3_mock/archive/CDX/
+poetry run python scripts/python_helpers/download_test_data.py \
+    --bucket_name bcgl-public-bucket \
+    --local_base_dir data/s3_mock \
+    --num_pdfs 500
 ```
 
 
