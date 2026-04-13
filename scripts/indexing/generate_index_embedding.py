@@ -64,8 +64,6 @@ if __name__ == "__main__":
         None,
         None,
     )
-    print("Embedding type specified: ", args.embedding_type)
-    print(args.embedding_type == "txt")
     if args.embedding_type == "txt":
         REMOTE_EMBEDDING_DIR = (
             remote_dm.embedding_directory
@@ -88,6 +86,9 @@ if __name__ == "__main__":
         LOCAL_INDEX_DIR = (
             local_dm.index_img_pg_directory
         )  # 'govscape/data/prod/index_img_pg/'
+    else:
+        raise ValueError("embedding_type must be either 'txt' or 'img_pg'")
+
     REMOTE_CHECKPOINT_PATH = os.path.join(
         remote_dm.checkpoints_directory,
         "checkpoint_index_" + args.embedding_type + ".json",
