@@ -37,6 +37,7 @@ class Server:
         # Directories
         self.metadata_directory = config.metadata_directory
         self.embedding_directory = config.embedding_directory
+        self.embedding_img_pg_directory = config.embedding_img_pg_directory
         self.index_directory = config.index_directory
         self.index_img_pg_directory = config.index_img_pg_directory
         self.index_keyword_directory = config.index_keyword_directory
