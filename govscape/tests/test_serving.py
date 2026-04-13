@@ -4,7 +4,7 @@ import pytest
 
 import numpy as np
 
-from govscape.config import IndexConfig, ServerConfig
+from govscape.config import ServerConfig
 from govscape.query import Query, Response
 from govscape.server import Server
 
@@ -108,15 +108,18 @@ def _build_server_fixture(tmp_path, monkeypatch, blacklist_text: str | None = No
     monkeypatch.setattr("govscape.server.WhooshKeywordIndex", DummyKeywordIndex)
     monkeypatch.setattr("govscape.server.SQLiteMetadataIndex", DummyMetadataIndex)
 
-    index_config = IndexConfig(
-        str(data_dir), vector_index_type="Memory", keyword_index_type="LanceDB"
-    )
-
     text_model = DummyTextModel()
     visual_model = DummyVisualModel()
 
-    server_config = ServerConfig(index_config, text_model, visual_model, k=3)
-    return Server(server_config), index_config
+    server_config = ServerConfig(
+        str(data_dir),
+        text_model,
+        visual_model,
+        vector_index_type="Memory",
+        keyword_index_type="LanceDB",
+        k=3,
+    )
+    return Server(server_config)
 
 
 @pytest.fixture()
@@ -131,20 +134,21 @@ def server_fixture_with_blacklist(tmp_path, monkeypatch):
 
 
 def test_server_initialization(server_fixture):
-    server, index_config = server_fixture
+    server = server_fixture
+    data_model = server.config.data_model
 
-    assert Path(index_config.index_directory).exists()
-    assert Path(index_config.index_keyword_directory).exists()
-    assert Path(index_config.index_img_pg_directory).exists()
-    assert Path(index_config.image_directory).exists()
+    assert Path(data_model.index_directory).exists()
+    assert Path(data_model.index_keyword_directory).exists()
+    assert Path(data_model.index_img_pg_directory).exists()
+    assert Path(data_model.image_directory).exists()
 
-    assert server.config.index_directory == index_config.index_directory
-    assert server.config.image_directory == index_config.image_directory
+    assert server.config.index_directory == data_model.index_directory
+    assert server.config.image_directory == data_model.image_directory
     assert server.config.k == 3
 
 
 def test_server_search_returns_results(server_fixture):
-    server, _ = server_fixture
+    server = server_fixture
     response = server.search(Query("test query", search_type="textual"))
 
     assert isinstance(response, Response)
@@ -152,7 +156,7 @@ def test_server_search_returns_results(server_fixture):
 
 
 def test_server_visual_search_returns_results(server_fixture):
-    server, _ = server_fixture
+    server = server_fixture
     response = server.search(Query("visual query", search_type="visual"))
 
     assert len(response.results) == server.config.k
@@ -160,7 +164,7 @@ def test_server_visual_search_returns_results(server_fixture):
 
 
 def test_server_keyword_search_uses_keyword_index(server_fixture):
-    server, _ = server_fixture
+    server = server_fixture
     response = server.search(Query("site:gov", search_type="keyword"))
 
     assert len(response.results) == server.config.k
@@ -172,17 +176,17 @@ def test_server_keyword_search_uses_keyword_index(server_fixture):
 
 
 def test_blacklist_missing_file_is_empty(server_fixture):
-    server, _ = server_fixture
+    server = server_fixture
     assert server.blacklist == set()
 
 
 def test_blacklist_loads_from_file(server_fixture_with_blacklist):
-    server, _ = server_fixture_with_blacklist
+    server = server_fixture_with_blacklist
     assert server.blacklist == {"doc_0.pdf", "keyword_doc_0.pdf"}
 
 
 def test_search_filters_blacklisted_pdfs_textual(server_fixture_with_blacklist):
-    server, _ = server_fixture_with_blacklist
+    server = server_fixture_with_blacklist
     response = server.search(Query("test", search_type="textual"))
 
     returned = [r["pdf"] for r in response.results]
@@ -191,7 +195,7 @@ def test_search_filters_blacklisted_pdfs_textual(server_fixture_with_blacklist):
 
 
 def test_search_filters_blacklisted_pdfs_keyword(server_fixture_with_blacklist):
-    server, _ = server_fixture_with_blacklist
+    server = server_fixture_with_blacklist
     response = server.search(Query("site:gov", search_type="keyword"))
 
     returned = [r["pdf"] for r in response.results]
@@ -204,7 +208,7 @@ def test_search_filters_blacklisted_pdfs_keyword(server_fixture_with_blacklist):
 
 
 def test_pdf_pages_blacklisted_returns_empty_200(server_fixture_with_blacklist):
-    server, _ = server_fixture_with_blacklist
+    server = server_fixture_with_blacklist
     result = server.pdf_pages("doc_0.pdf")
 
     assert result == {
@@ -218,7 +222,7 @@ def test_pdf_pages_blacklisted_returns_empty_200(server_fixture_with_blacklist):
 
 
 def test_pdf_pages_non_blacklisted_unaffected(server_fixture_with_blacklist):
-    server, _ = server_fixture_with_blacklist
+    server = server_fixture_with_blacklist
     result = server.pdf_pages("doc_1.pdf")
 
     assert isinstance(result, dict)

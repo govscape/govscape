@@ -1,4 +1,4 @@
-from .config import IndexConfig, ServerConfig
+from .config import DataModel, ServerConfig
 from .data_loader import RemoteDirectoryIterator, build_data_loader
 from .indexing import (
     FAISSIndex,
@@ -26,11 +26,11 @@ __all__ = [
     "BGESmall_TextEmbeddingModel",
     "BGE_TextEmbeddingModel",
     "CLIP_VisualEmbeddingModel",
+    "DataModel",
     "DiskANNIndex",
     "Dummy_TextEmbeddingModel",
     "Dummy_VisualEmbeddingModel",
     "FAISSIndex",
-    "IndexConfig",
     "LanceDBKeywordIndex",
     "LuceneKeywordIndex",
     "PDFProcessingPipeline",

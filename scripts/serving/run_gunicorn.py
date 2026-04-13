@@ -4,6 +4,7 @@ import shlex
 import subprocess
 import sys
 
+from govscape.config import DataModel
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 
 from .start_api_server import _get_arg_parser
@@ -23,28 +24,24 @@ def download_indices(args):
     LOCAL_MOCK_DIR = args.local_base_dir
     REMOTE_DATA_DIR = args.remote_data_directory
     LOCAL_DATA_DIR = args.local_data_directory
-    REMOTE_KEYWORD_INDEX_DIR = os.path.join(REMOTE_DATA_DIR, "index_keyword")
-    LOCAL_KEYWORD_INDEX_DIR = os.path.join(LOCAL_DATA_DIR, "index_keyword")
-    REMOTE_TEXT_EMBEDDING_INDEX_DIR = os.path.join(REMOTE_DATA_DIR, "index")
-    LOCAL_TEXT_EMBEDDING_INDEX_DIR = os.path.join(LOCAL_DATA_DIR, "index")
-    REMOTE_VISUAL_EMBEDDING_INDEX_DIR = os.path.join(REMOTE_DATA_DIR, "index_img_pg")
-    LOCAL_VISUAL_EMBEDDING_INDEX_DIR = os.path.join(LOCAL_DATA_DIR, "index_img_pg")
-    REMOTE_METADATA_INDEX_DIR = os.path.join(REMOTE_DATA_DIR, "index_metadata")
-    LOCAL_METADATA_INDEX_DIR = os.path.join(LOCAL_DATA_DIR, "index_metadata")
+
+    local_dm = DataModel(LOCAL_DATA_DIR)
+    remote_dm = DataModel(REMOTE_DATA_DIR)
+
     REMOTE_CHECKPOINT_PATH = os.path.join(
-        REMOTE_DATA_DIR, "checkpoints", "checkpoint_server.json"
+        remote_dm.checkpoints_directory, "checkpoint_server.json"
     )
     LOCAL_CHECKPOINT_PATH = os.path.join(
-        LOCAL_DATA_DIR, "checkpoints", "checkpoint_server.json"
+        local_dm.checkpoints_directory, "checkpoint_server.json"
     )
     data_loader = build_data_loader(
         args.backend, BUCKET_NAME, local_base_dir=LOCAL_MOCK_DIR
     )
     for remote_dir, local_dir in [
-        (REMOTE_KEYWORD_INDEX_DIR, LOCAL_KEYWORD_INDEX_DIR),
-        (REMOTE_TEXT_EMBEDDING_INDEX_DIR, LOCAL_TEXT_EMBEDDING_INDEX_DIR),
-        (REMOTE_VISUAL_EMBEDDING_INDEX_DIR, LOCAL_VISUAL_EMBEDDING_INDEX_DIR),
-        (REMOTE_METADATA_INDEX_DIR, LOCAL_METADATA_INDEX_DIR),
+        (remote_dm.index_keyword_directory, local_dm.index_keyword_directory),
+        (remote_dm.index_directory, local_dm.index_directory),
+        (remote_dm.index_img_pg_directory, local_dm.index_img_pg_directory),
+        (remote_dm.index_metadata_directory, local_dm.index_metadata_directory),
     ]:
         remote_iter = RemoteDirectoryIterator(
             data_loader,
@@ -60,8 +57,8 @@ def download_indices(args):
                 finished = True
                 print(f"Finished downloading indices from {remote_dir} to {local_dir}")
 
-    remote_blacklist = os.path.join(REMOTE_DATA_DIR, "blacklist.txt")
-    local_blacklist = os.path.join(LOCAL_DATA_DIR, "blacklist.txt")
+    remote_blacklist = remote_dm.blacklist_file
+    local_blacklist = local_dm.blacklist_file
     try:
         data_loader.download_file(remote_blacklist, local_blacklist)
         print(f"Downloaded blacklist: {remote_blacklist} -> {local_blacklist}")

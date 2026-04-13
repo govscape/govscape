@@ -4,6 +4,7 @@ import os
 import shutil
 import time
 
+from govscape.config import DataModel
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 from govscape.utils import base_argument_parser, str2bool
 
@@ -32,11 +33,12 @@ def process_pdfs(
     print("Do_Img_embedding: ", do_img_embedding)
     print("Do_Metadata_collection: ", do_metadata_collection)
 
-    txt_directory = os.path.join(local_data_dir, "txt")
-    image_directory = os.path.join(local_data_dir, "img")
-    embeddings_directory = os.path.join(local_data_dir, "embeddings")
-    embeddings_img_pg_directory = os.path.join(local_data_dir, "embeddings_img_pg")
-    metadata_dir = os.path.join(local_data_dir, "metadata")
+    dm = DataModel(local_data_dir)
+    txt_directory = dm.txt_directory
+    image_directory = dm.image_directory
+    embeddings_directory = dm.embedding_directory
+    embeddings_img_pg_directory = dm.embedding_img_pg_directory
+    metadata_dir = dm.metadata_directory
 
     # PROCESS PDFS HERE
     pdf_to_txt_img_time, text_embed_time, img_embed_time = processor.process_pdfs(
@@ -147,49 +149,37 @@ if __name__ == "__main__":
         LOCAL_DATA_DIR = os.path.join(
             PROJECT_ROOT, "data", "prod"
         )  # "govscape/data/prod"
+        local_dm = DataModel(LOCAL_DATA_DIR)
         LOCAL_PDF_DIR = os.path.join(
             LOCAL_DATA_DIR, "PDFs"
         )  # e.g. "govscape/data/prod/PDFs"
-        LOCAL_TXT_DIR = os.path.join(
-            LOCAL_DATA_DIR, "txt"
-        )  # e.g. "govscape/data/prod/txt"
-        LOCAL_IMG_DIR = os.path.join(
-            LOCAL_DATA_DIR, "img"
-        )  # e.g. "govscape/data/prod/img"
-        LOCAL_EMBEDDINGS_DIR = os.path.join(
-            LOCAL_DATA_DIR, "embeddings"
-        )  # e.g. "govscape/data/prod/embeddings"
-        LOCAL_EMBEDDINGS_IMG_PG_DIR = os.path.join(
-            LOCAL_DATA_DIR, "embeddings_img_pg"
-        )  # e.g. "govscape/data/prod/embeddings_img_pg"
-        LOCAL_METADATA_DIR = os.path.join(
-            LOCAL_DATA_DIR, "metadata"
-        )  # e.g. "govscape/data/prod/metadata"
+        LOCAL_TXT_DIR = local_dm.txt_directory
+        LOCAL_IMG_DIR = local_dm.image_directory
+        LOCAL_EMBEDDINGS_DIR = local_dm.embedding_directory
+        LOCAL_EMBEDDINGS_IMG_PG_DIR = local_dm.embedding_img_pg_directory
+        LOCAL_METADATA_DIR = local_dm.metadata_directory
+        remote_dm = DataModel(REMOTE_DATA_DIR)
         LOCAL_CHECKPOINT_PATH = os.path.join(
-            LOCAL_DATA_DIR,
-            "checkpoints",
+            local_dm.checkpoints_directory,
             f"checkpoint_embedding_pipeline_{args.server_id}.json",
         )
-        # e.g. "govscape/data/prod/checkpoints/checkpoint_embedding_pipeline_0.json"
         REMOTE_CHECKPOINT_PATH = os.path.join(
-            REMOTE_DATA_DIR,
-            "checkpoints",
+            remote_dm.checkpoints_directory,
             f"checkpoint_embedding_pipeline_{args.server_id}.json",
         )
-        # e.g. "prod-serving/checkpoints/checkpoint_embedding_pipeline_0.json"
         LOCAL_PERF_PATH = os.path.join(
-            LOCAL_DATA_DIR, "performance", f"performance_{args.server_id}.json"
+            local_dm.performance_directory,
+            f"performance_{args.server_id}.json",
         )
-        # e.g. "govscape/data/prod/performance/performance_0.json"
         REMOTE_PERF_PATH = os.path.join(
-            REMOTE_DATA_DIR, "performance", f"performance_{args.server_id}.json"
+            remote_dm.performance_directory,
+            f"performance_{args.server_id}.json",
         )
-        # e.g. "prod-serving/performance/performance_0.json"
 
         os.makedirs(LOCAL_DATA_DIR, exist_ok=True)
         os.makedirs(LOCAL_PDF_DIR, exist_ok=True)
-        os.makedirs(os.path.dirname(LOCAL_CHECKPOINT_PATH), exist_ok=True)
-        os.makedirs(os.path.dirname(LOCAL_PERF_PATH), exist_ok=True)
+        os.makedirs(local_dm.checkpoints_directory, exist_ok=True)
+        os.makedirs(local_dm.performance_directory, exist_ok=True)
 
         # ---------------------------------------------------------------------------
         pipeline_times = {

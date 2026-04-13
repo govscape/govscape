@@ -147,6 +147,25 @@ def test_download_file_decompress(tmp_path: Path) -> None:
         assert extracted == expected
 
 
+def test_download_directory(tmp_path: Path) -> None:
+    base_dir = tmp_path / "data"
+    source_dir = tmp_path / "source"
+    download_dir = tmp_path / "download"
+    remote_prefix = "uploaded"
+
+    _touch(source_dir / "subdir_a" / "file_1.txt")
+    _touch(source_dir / "subdir_b" / "file_2.txt")
+    _touch(source_dir / "file_3.txt")
+
+    loader = LocalDataLoader(base_dir=str(base_dir))
+    loader.upload_directory(str(source_dir), remote_prefix)
+    loader.download_directory(remote_prefix, str(download_dir))
+
+    assert (download_dir / "subdir_a" / "file_1.txt").exists()
+    assert (download_dir / "subdir_b" / "file_2.txt").exists()
+    assert (download_dir / "file_3.txt").exists()
+
+
 @pytest.mark.parametrize("use_multiprocessing", [False, True])
 def test_remote_directory_iterator_compressed(
     tmp_path: Path, use_multiprocessing: bool

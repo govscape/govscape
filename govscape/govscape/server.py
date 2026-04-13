@@ -37,7 +37,6 @@ class Server:
         # Directories
         self.metadata_directory = config.metadata_directory
         self.embedding_directory = config.embedding_directory
-        self.embedding_img_pg_directory = config.embedding_img_pg_directory
         self.index_directory = config.index_directory
         self.index_img_pg_directory = config.index_img_pg_directory
         self.index_keyword_directory = config.index_keyword_directory
@@ -50,8 +49,8 @@ class Server:
         self.k = config.k
         self.max_crawl_instances = config.max_crawl_instances
 
-        # Index configuration
-        self.index_config = config.index_config
+        # Data model
+        self.data_model = config.data_model
 
         # Model Params
         self.text_model = config.text_model

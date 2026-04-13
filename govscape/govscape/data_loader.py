@@ -90,6 +90,10 @@ class DataLoader(ABC):
         return extracted_files
 
     @abstractmethod
+    def download_directory(self, remote_prefix: str, local_dir: str) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
     def upload_file(self, local_path: str, remote_path: str) -> None:
         raise NotImplementedError
 
@@ -227,6 +231,24 @@ class S3DataLoader(DataLoader):
             return self._decompress_tar_gz(local_path)
         return [local_path]
 
+    def download_directory(self, remote_prefix: str, local_dir: str) -> None:
+        os.makedirs(local_dir, exist_ok=True)
+        normalized_prefix = remote_prefix.rstrip("/") + "/*"
+        normalized_local_dir = local_dir.rstrip("/") + "/"
+        subprocess.run(
+            [
+                "poetry",
+                "run",
+                "s5cmd",
+                "--log",
+                "error",
+                "cp",
+                f"s3://{self.bucket_name}/{normalized_prefix}",
+                normalized_local_dir,
+            ],
+            check=True,
+        )
+
     def upload_file(self, local_path: str, remote_path: str) -> None:
         self.s3.upload_file(local_path, self.bucket_name, remote_path)
 
@@ -321,6 +343,19 @@ class LocalDataLoader(DataLoader):
         if decompress and local_path.endswith(".tar.gz"):
             return self._decompress_tar_gz(local_path)
         return [local_path]
+
+    def download_directory(self, remote_prefix: str, local_dir: str) -> None:
+        source = self._resolve(remote_prefix)
+        if not os.path.exists(source):
+            return
+        os.makedirs(local_dir, exist_ok=True)
+        for root, _, files in os.walk(source):
+            for filename in files:
+                src_path = os.path.join(root, filename)
+                rel_path = os.path.relpath(src_path, source)
+                dest_path = os.path.join(local_dir, rel_path)
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                shutil.copy2(src_path, dest_path)
 
     def upload_file(self, local_path: str, remote_path: str) -> None:
         dest_path = self._resolve(remote_path)

@@ -6,6 +6,7 @@ import time
 
 import numpy as np
 
+from govscape.config import DataModel
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 from govscape.utils import base_argument_parser
 
@@ -31,9 +32,11 @@ if __name__ == "__main__":
     parser = base_argument_parser(description="Generate embedding index")
     parser.set_defaults(batch_size=350000)
     parser.add_argument(
-        "--embedding_prefix", type=str, help="S3 Prefix for embedding files"
+        "--embedding_type",
+        type=str,
+        help="Which embedding type to index [txt, img_pg]",
+        required=True,
     )
-    parser.add_argument("--out_index_prefix", type=str, help="S3 Prefix for index data")
     parser.add_argument(
         "--index_type",
         type=str,
@@ -53,39 +56,52 @@ if __name__ == "__main__":
     )  # 'govscape/'
     LOCAL_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "prod")  # 'govscape/data/prod/'
     REMOTE_DATA_DIR = args.remote_data_dir  # 'prod-serving/'
-    REMOTE_EMBEDDING_DIR = os.path.join(
-        REMOTE_DATA_DIR, args.embedding_prefix
-    )  # 'prod-serving/embeddings/'
-    LOCAL_EMBEDDING_DIR = os.path.join(
-        LOCAL_DATA_DIR, args.embedding_prefix.replace("/", "")
-    )  # 'govscape/data/prod/embeddings/'
-    REMOTE_INDEX_PREFIX = args.out_index_prefix.rstrip("/")  # 'index', 'index_img_pg'
-    REMOTE_INDEX_DIR = os.path.join(
-        REMOTE_DATA_DIR, REMOTE_INDEX_PREFIX
-    )  # 'prod-serving/index'
-    LOCAL_INDEX_DIR = os.path.join(LOCAL_DATA_DIR, REMOTE_INDEX_PREFIX)
-    # 'govscape/data/prod/index/'
+    local_dm = DataModel(LOCAL_DATA_DIR)
+    remote_dm = DataModel(REMOTE_DATA_DIR)
+    if args.embedding_type == "txt":
+        REMOTE_EMBEDDING_DIR = (
+            remote_dm.embedding_directory
+        )  # 'prod-serving/embeddings/'
+        REMOTE_INDEX_DIR = remote_dm.index_directory  # 'prod-serving/index'
+        LOCAL_EMBEDDING_DIR = (
+            local_dm.embedding_directory
+        )  # 'govscape/data/prod/embeddings/'
+        LOCAL_INDEX_DIR = local_dm.index_directory  # 'govscape/data/prod/index/'
+    elif args.embedding_type == "img_pg":
+        REMOTE_EMBEDDING_DIR = (
+            remote_dm.embedding_img_pg_directory
+        )  # 'prod-serving/embeddings_img_pg/'
+        REMOTE_INDEX_DIR = (
+            remote_dm.index_img_pg_directory
+        )  # 'prod-serving/index_img_pg'
+        LOCAL_EMBEDDING_DIR = (
+            local_dm.embedding_img_pg_directory
+        )  # 'govscape/data/prod/embeddings_img_pg/'
+        LOCAL_INDEX_DIR = (
+            local_dm.index_img_pg_directory
+        )  # 'govscape/data/prod/index_img_pg/'
     REMOTE_CHECKPOINT_PATH = os.path.join(
-        REMOTE_DATA_DIR, "checkpoints", "checkpoint_" + REMOTE_INDEX_PREFIX + ".json"
-    )  # 'prod-serving/checkpoints/index_checkpoint.json'
+        remote_dm.checkpoints_directory,
+        "checkpoint_index_" + args.embedding_type + ".json",
+    )
     LOCAL_CHECKPOINT_PATH = os.path.join(
-        LOCAL_DATA_DIR, "checkpoints", "checkpoint_" + REMOTE_INDEX_PREFIX + ".json"
+        local_dm.checkpoints_directory,
+        "checkpoint_index_" + args.embedding_type + ".json",
     )
-    # 'govscape/data/prod/checkpoints/checkpoint_index.json'
     REMOTE_PERFORMANCE_PATH = os.path.join(
-        REMOTE_DATA_DIR, "performance", "performance_" + REMOTE_INDEX_PREFIX + ".json"
+        remote_dm.performance_directory,
+        "performance_index_" + args.embedding_type + ".json",
     )
-    # 'prod-serving/performance/index_performance.json'
     LOCAL_PERFORMANCE_PATH = os.path.join(
-        LOCAL_DATA_DIR, "performance", "performance_" + REMOTE_INDEX_PREFIX + ".json"
+        local_dm.performance_directory,
+        "performance_index_" + args.embedding_type + ".json",
     )
-    # 'govscape/data/prod/performance/performance_index.json'
 
     os.makedirs(LOCAL_DATA_DIR, exist_ok=True)
     os.makedirs(LOCAL_EMBEDDING_DIR, exist_ok=True)
     os.makedirs(LOCAL_INDEX_DIR, exist_ok=True)
-    os.makedirs(os.path.dirname(LOCAL_CHECKPOINT_PATH), exist_ok=True)
-    os.makedirs(os.path.dirname(LOCAL_PERFORMANCE_PATH), exist_ok=True)
+    os.makedirs(local_dm.checkpoints_directory, exist_ok=True)
+    os.makedirs(local_dm.performance_directory, exist_ok=True)
 
     # ---------------------------------------------------------------------------
     pipeline_times = {

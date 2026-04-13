@@ -102,14 +102,12 @@ def _build_app_from_args(args):
     else:
         raise ValueError(f"Unsupported visual model: {args.visual_model}")
 
-    index_config = gs.IndexConfig(
-        args.local_data_directory, args.vector_index_type, args.keyword_index_type
-    )
-
     server_config = gs.ServerConfig(
-        index_config,
+        args.local_data_directory,
         text_model,
         visual_model,
+        vector_index_type=args.vector_index_type,
+        keyword_index_type=args.keyword_index_type,
         k=args.top_k,
         max_crawl_instances=args.max_crawl_instances,
     )

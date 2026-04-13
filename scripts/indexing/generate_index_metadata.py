@@ -5,8 +5,9 @@ import shutil
 import time
 
 import duckdb
+from govscape.config import DataModel
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
-from govscape.indexing import SQLiteMetadataIndex
+from govscape.indexing import DuckDBMetadataIndex, SQLiteMetadataIndex
 from govscape.utils import base_argument_parser, extract_subdomain
 
 logging.basicConfig(
@@ -24,6 +25,9 @@ def main():
     parser.add_argument(
         "--cdx_parquet_key", required=True, help="S3 Key for CDX parquet file"
     )
+    parser.add_argument(
+        "--index_type", type=str, default="SQLite", help="Type of index to create"
+    )
     args = parser.parse_args()
     BUCKET_NAME = args.bucket_name
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process
@@ -35,23 +39,21 @@ def main():
         "prod",
     )
     REMOTE_DATA_DIR = args.remote_data_dir
+    local_dm = DataModel(LOCAL_DATA_DIR)
+    remote_dm = DataModel(REMOTE_DATA_DIR)
     REMOTE_CDX_PATH = args.cdx_parquet_key
-    REMOTE_METADATA_DIR = os.path.join(REMOTE_DATA_DIR, "metadata")
-    LOCAL_METADATA_DIR = os.path.join(LOCAL_DATA_DIR, "metadata")
     LOCAL_CDX_PATH = os.path.join(LOCAL_DATA_DIR, "CDX", "cdx_metadata.parquet")
-    LOCAL_INDEX_PATH = os.path.join(LOCAL_DATA_DIR, "metadata.db")
-    REMOTE_INDEX_PATH = os.path.join(REMOTE_DATA_DIR, "index_metadata", "metadata.db")
     REMOTE_CHECKPOINT_PATH = os.path.join(
-        REMOTE_DATA_DIR, "checkpoints", "checkpoint_metadata.json"
+        remote_dm.checkpoints_directory, "checkpoint_metadata.json"
     )
     LOCAL_CHECKPOINT_PATH = os.path.join(
-        LOCAL_DATA_DIR, "checkpoints", "checkpoint_metadata.json"
+        local_dm.checkpoints_directory, "checkpoint_metadata.json"
     )
 
     os.makedirs(LOCAL_DATA_DIR, exist_ok=True)
     os.makedirs(os.path.join(LOCAL_DATA_DIR, "CDX"), exist_ok=True)
-    os.makedirs(LOCAL_METADATA_DIR, exist_ok=True)
-    os.makedirs(os.path.dirname(LOCAL_CHECKPOINT_PATH), exist_ok=True)
+    os.makedirs(local_dm.index_metadata_directory, exist_ok=True)
+    os.makedirs(local_dm.checkpoints_directory, exist_ok=True)
 
     # ---------------------------------------------------------------------------
     data_loader = build_data_loader(
@@ -62,10 +64,10 @@ def main():
 
     remote_iter = RemoteDirectoryIterator(
         data_loader,
-        REMOTE_METADATA_DIR,
+        remote_dm.metadata_directory,
         remote_checkpoint_path=REMOTE_CHECKPOINT_PATH,
         local_checkpoint_path=LOCAL_CHECKPOINT_PATH,
-        local_dir=LOCAL_METADATA_DIR,
+        local_dir=local_dm.metadata_directory,
     )
 
     # Download the CDX parquet file from S3
@@ -78,10 +80,18 @@ def main():
 
     # Initialize the SQLite metadata index
     try:
-        data_loader.download_file(REMOTE_INDEX_PATH, LOCAL_INDEX_PATH)
+        data_loader.download_directory(
+            remote_dm.index_metadata_directory, local_dm.index_metadata_directory
+        )
     except Exception as e:
         print(f"No Existing Index File Found: {e}")
-    index = SQLiteMetadataIndex(LOCAL_DATA_DIR)
+
+    if args.index_type == "SQLite":
+        index = SQLiteMetadataIndex(LOCAL_DATA_DIR)
+    elif args.index_type == "DuckDB":
+        index = DuckDBMetadataIndex(LOCAL_DATA_DIR)
+    else:
+        raise ValueError("index_type must be either 'SQLite' or 'DuckDB'")
 
     # Create the metadata table
     index.build_index()
@@ -91,7 +101,7 @@ def main():
     max_files_to_process = NUM_PAGES_TO_PROCESS
     # get the metadata files from backend
     while files_processed < max_files_to_process:
-        os.makedirs(LOCAL_METADATA_DIR, exist_ok=True)
+        os.makedirs(local_dm.metadata_directory, exist_ok=True)
         start_time = time.time()
         print("Downloading Metadata Files from backend")
         batch_limit = min(BATCH_SIZE, max_files_to_process - files_processed)
@@ -156,7 +166,9 @@ def main():
             print(f"Added {rows_added} rows to index")
 
         print("Uploading Index")
-        data_loader.upload_file(LOCAL_INDEX_PATH, REMOTE_INDEX_PATH)
+        data_loader.upload_directory(
+            local_dm.index_metadata_directory, remote_dm.index_metadata_directory
+        )
 
         remote_iter.save_checkpoint()
         files_processed += len(local_paths)
@@ -164,15 +176,17 @@ def main():
             "Files Processed", files_processed, "Total Time:", time.time() - start_time
         )
         try:
-            if os.path.exists(LOCAL_METADATA_DIR):
-                shutil.rmtree(LOCAL_METADATA_DIR)
+            if os.path.exists(local_dm.metadata_directory):
+                shutil.rmtree(local_dm.metadata_directory)
         except Exception as e:
-            print(f"Failed to remove {LOCAL_METADATA_DIR}: {e}")
+            print(f"Failed to remove {local_dm.metadata_directory}: {e}")
     print("Saving Index")
     index.save_index()
 
     print("Uploading Index")
-    data_loader.upload_file(LOCAL_INDEX_PATH, REMOTE_INDEX_PATH)
+    data_loader.upload_directory(
+        local_dm.index_metadata_directory, remote_dm.index_metadata_directory
+    )
 
 
 def _read_metadata_row(filepath):

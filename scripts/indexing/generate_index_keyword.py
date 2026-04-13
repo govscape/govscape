@@ -4,6 +4,7 @@ import os
 import shutil
 import time
 
+from govscape.config import DataModel
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 from govscape.utils import base_argument_parser
 
@@ -37,32 +38,30 @@ if __name__ == "__main__":
     PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
     LOCAL_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "prod")
     REMOTE_DATA_DIR = args.remote_data_dir  # 'prod-serving/'
-    REMOTE_TXT_DIR = os.path.join(REMOTE_DATA_DIR, "txt")
-    LOCAL_TXT_DIR = os.path.join(LOCAL_DATA_DIR, "txt")
-    REMOTE_INDEX_PREFIX = "index_keyword"
-    REMOTE_INDEX_DIR = os.path.join(REMOTE_DATA_DIR, REMOTE_INDEX_PREFIX)
-    LOCAL_INDEX_DIR = os.path.join(LOCAL_DATA_DIR, REMOTE_INDEX_PREFIX)
+
+    local_dm = DataModel(LOCAL_DATA_DIR)
+    remote_dm = DataModel(REMOTE_DATA_DIR)
     REMOTE_CHECKPOINT_PATH = os.path.join(
-        REMOTE_DATA_DIR, "checkpoints", "checkpoint_text_index.json"
+        remote_dm.checkpoints_directory, "checkpoint_text_index.json"
     )
     LOCAL_CHECKPOINT_PATH = os.path.join(
-        LOCAL_DATA_DIR, "checkpoints", "checkpoint_text_index.json"
+        local_dm.checkpoints_directory, "checkpoint_text_index.json"
     )
     REMOTE_PERFORMANCE_PATH = os.path.join(
-        REMOTE_DATA_DIR, "performance", "performance_keyword_index.json"
+        remote_dm.performance_directory, "performance_keyword_index.json"
     )
     LOCAL_PERFORMANCE_PATH = os.path.join(
-        LOCAL_DATA_DIR, "performance", "performance_keyword_index.json"
+        local_dm.performance_directory, "performance_keyword_index.json"
     )
 
     if os.path.isdir(LOCAL_DATA_DIR):
         shutil.rmtree(LOCAL_DATA_DIR, ignore_errors=True)
 
     os.makedirs(LOCAL_DATA_DIR, exist_ok=True)
-    os.makedirs(LOCAL_TXT_DIR, exist_ok=True)
-    os.makedirs(LOCAL_INDEX_DIR, exist_ok=True)
-    os.makedirs(os.path.dirname(LOCAL_CHECKPOINT_PATH), exist_ok=True)
-    os.makedirs(os.path.dirname(LOCAL_PERFORMANCE_PATH), exist_ok=True)
+    os.makedirs(local_dm.txt_directory, exist_ok=True)
+    os.makedirs(local_dm.index_keyword_directory, exist_ok=True)
+    os.makedirs(local_dm.checkpoints_directory, exist_ok=True)
+    os.makedirs(local_dm.performance_directory, exist_ok=True)
 
     # ---------------------------------------------------------------------------
     pipeline_times = {
@@ -81,16 +80,21 @@ if __name__ == "__main__":
 
     remote_iter = RemoteDirectoryIterator(
         data_loader,
-        REMOTE_TXT_DIR,
+        remote_dm.txt_directory,
         remote_checkpoint_path=REMOTE_CHECKPOINT_PATH,
         local_checkpoint_path=LOCAL_CHECKPOINT_PATH,
-        local_dir=LOCAL_TXT_DIR,
+        local_dir=local_dm.txt_directory,
     )
 
-    remote_existing_idx_files = data_loader.list_objects(REMOTE_INDEX_DIR)
+    remote_existing_idx_files = data_loader.list_objects(
+        remote_dm.index_keyword_directory
+    )
     for remote_file in remote_existing_idx_files.keys:
         data_loader.download_file(
-            remote_file, os.path.join(LOCAL_INDEX_DIR, os.path.basename(remote_file))
+            remote_file,
+            os.path.join(
+                local_dm.index_keyword_directory, os.path.basename(remote_file)
+            ),
         )
 
     # uploads dir of files to backend
@@ -101,13 +105,13 @@ if __name__ == "__main__":
     def process_txt_files(txt_files):
         time_index_start = time.time()
         if INDEX_TYPE == "LanceDB":
-            index = gs.LanceDBKeywordIndex(LOCAL_INDEX_DIR)
+            index = gs.LanceDBKeywordIndex(local_dm.index_keyword_directory)
         elif INDEX_TYPE == "SQLite":
-            index = gs.SQLiteKeywordIndex(LOCAL_INDEX_DIR)
+            index = gs.SQLiteKeywordIndex(local_dm.index_keyword_directory)
         elif INDEX_TYPE == "Whoosh":
-            index = gs.WhooshKeywordIndex(LOCAL_INDEX_DIR)
+            index = gs.WhooshKeywordIndex(local_dm.index_keyword_directory)
         elif INDEX_TYPE == "Lucene":
-            index = gs.LuceneKeywordIndex(LOCAL_INDEX_DIR)
+            index = gs.LuceneKeywordIndex(local_dm.index_keyword_directory)
         else:
             raise ValueError(
                 "index_type must be either 'LanceDB', 'SQLite', 'Whoosh', or 'Lucene'"
@@ -118,7 +122,7 @@ if __name__ == "__main__":
         pages = []
         txts = []
         for txt_file in txt_files:
-            txt_file_path = os.path.join(LOCAL_TXT_DIR, txt_file)
+            txt_file_path = os.path.join(local_dm.txt_directory, txt_file)
             if not os.path.exists(txt_file_path):
                 print(f"File {txt_file_path} does not exist. Skipping.")
                 continue
@@ -135,7 +139,9 @@ if __name__ == "__main__":
 
         time1 = time.time()
         # UPLOADING Indexes TO S3 HERE
-        data_loader.upload_directory(LOCAL_INDEX_DIR, REMOTE_INDEX_DIR)
+        data_loader.upload_directory(
+            local_dm.index_keyword_directory, remote_dm.index_keyword_directory
+        )
         print("finished uploading keyword index")
         time2 = time.time()
 
@@ -174,7 +180,7 @@ if __name__ == "__main__":
                 break
 
             local_batch = [
-                os.path.relpath(path, LOCAL_TXT_DIR).replace("\\", "/")
+                os.path.relpath(path, local_dm.txt_directory).replace("\\", "/")
                 for path in local_paths
             ]
             process_txt_files(local_batch)
@@ -194,15 +200,15 @@ if __name__ == "__main__":
 
             # delete the directories except for the indices which will continue to be
             # updated
-            if os.path.exists(LOCAL_TXT_DIR):
-                shutil.rmtree(LOCAL_TXT_DIR)
-                os.makedirs(LOCAL_TXT_DIR, exist_ok=True)
+            if os.path.exists(local_dm.txt_directory):
+                shutil.rmtree(local_dm.txt_directory)
+                os.makedirs(local_dm.txt_directory, exist_ok=True)
 
         # After all batches are processed, clean up the directories
-        if os.path.exists(LOCAL_TXT_DIR):
-            shutil.rmtree(LOCAL_TXT_DIR)
-        if os.path.exists(LOCAL_INDEX_DIR):
-            shutil.rmtree(LOCAL_INDEX_DIR)
+        if os.path.exists(local_dm.txt_directory):
+            shutil.rmtree(local_dm.txt_directory)
+        if os.path.exists(local_dm.index_keyword_directory):
+            shutil.rmtree(local_dm.index_keyword_directory)
 
         overall_end_time = time.time()
         print("TOTAL TIME TO LOAD IS ", (overall_end_time - overall_start_time))
