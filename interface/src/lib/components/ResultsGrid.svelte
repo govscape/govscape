@@ -158,7 +158,7 @@
           />
         </div>
         <div class="result-info">
-          <div class="info-name">{(result.prettyName && result.prettyName !== 'Unknown') ? result.prettyName : result.crawlUrl.split('/').pop().replaceAll("\%20", " ")}</div>
+          <div class="info-name">{result.prettyName || result.crawlUrl.split('/').pop().replaceAll("\%20", " ")}</div>
           <div class="info-subdomain">{result.subDomain || 'Not Available'}</div>
         </div>
       </div>

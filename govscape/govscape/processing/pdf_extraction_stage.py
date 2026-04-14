@@ -20,7 +20,7 @@ def _convert_single_pdf(data_model, pdf_file):
         json_data = {}
         creation_date = pdf.get_metadata_value("CreationDate")
         if len(pretty_name) == 0:
-            pretty_name = "Unknown"
+            pretty_name = ""
         if len(creation_date) == 0:
             creation_date = "Unknown"
         json_data["pretty_name"] = pretty_name
