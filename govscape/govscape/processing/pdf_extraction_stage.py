@@ -15,16 +15,17 @@ def _convert_single_pdf(data_model, pdf_file):
     try:
         pdf = pypdfium2.PdfDocument(pdf_file)
         num_pages = len(pdf)
-        gov_name = pdf.get_metadata_value("Title")
+        pretty_name = pdf.get_metadata_value("Title")
 
         json_data = {}
-        timestamp = pdf.get_metadata_value("CreationDate")
-        if len(gov_name) == 0:
-            gov_name = "Unknown"
-        if len(timestamp) == 0:
-            timestamp = "Unknown"
-        json_data["gov_name"] = gov_name
-        json_data["timestamp"] = timestamp
+        creation_date = pdf.get_metadata_value("CreationDate")
+        if len(pretty_name) == 0:
+            pretty_name = "Unknown"
+        if len(creation_date) == 0:
+            creation_date = "Unknown"
+        json_data["pretty_name"] = pretty_name
+        json_data["digest"] = pdf_name
+        json_data["creation_date"] = creation_date
         json_data["num_pages"] = num_pages
         os.makedirs(data_model.metadata_pdf_directory(pdf_name), exist_ok=True)
         with open(data_model.metadata_file_path(pdf_name), "w") as json_file:

@@ -82,7 +82,6 @@ def generate_metadata(
                 "pdf_name": pdf_name,
                 "sub_domain": sub_domain,
                 "page_count": rng.randint(1, 200),
-                "s3_url": f"s3://govscape/{sub_domain}/{pdf_name}",
             }
         )
     return records

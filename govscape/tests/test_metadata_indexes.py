@@ -11,43 +11,43 @@ _RECORDS = [
     {
         "crawl_url": "https://epa.gov/reports/air_quality.pdf",
         "crawl_date": "20220315",
-        "pdf_name": "air_quality.pdf",
+        "digest": "air_quality.pdf",
+        "pretty_name": "Air Quality Report",
         "sub_domain": "epa.gov",
         "page_count": 42,
-        "s3_url": "s3://govscape/epa.gov/air_quality.pdf",
     },
     {
         "crawl_url": "https://energy.gov/reports/solar_grid.pdf",
         "crawl_date": "20230601",
-        "pdf_name": "solar_grid.pdf",
+        "digest": "solar_grid.pdf",
+        "pretty_name": "Solar Grid Analysis",
         "sub_domain": "energy.gov",
         "page_count": 18,
-        "s3_url": "s3://govscape/energy.gov/solar_grid.pdf",
     },
     {
         "crawl_url": "https://epa.gov/reports/water_quality.pdf",
         "crawl_date": "20240101",
-        "pdf_name": "water_quality.pdf",
+        "digest": "water_quality.pdf",
+        "pretty_name": "Water Quality Study",
         "sub_domain": "epa.gov",
         "page_count": 55,
-        "s3_url": "s3://govscape/epa.gov/water_quality.pdf",
     },
     {
         "crawl_url": "https://nasa.gov/reports/climate_data.pdf",
         "crawl_date": "20210820",
-        "pdf_name": "climate_data.pdf",
+        "digest": "climate_data.pdf",
+        "pretty_name": "Climate Data Summary",
         "sub_domain": "nasa.gov",
         "page_count": 77,
-        "s3_url": "s3://govscape/nasa.gov/climate_data.pdf",
     },
-    # Same pdf_name crawled twice from the same domain on different dates.
+    # Same digest crawled twice from the same domain on different dates.
     {
         "crawl_url": "https://epa.gov/reports/air_quality.pdf",
         "crawl_date": "20230101",
-        "pdf_name": "air_quality.pdf",
+        "digest": "air_quality.pdf",
+        "pretty_name": "Air Quality Report",
         "sub_domain": "epa.gov",
         "page_count": 44,
-        "s3_url": "s3://govscape/epa.gov/air_quality.pdf",
     },
 ]
 
@@ -88,7 +88,8 @@ def test_unknown_pdf_name_not_in_result(index):
 def test_no_predicate_result_shape(index):
     result = index.search(["solar_grid.pdf"])
     record = result["solar_grid.pdf"][0]
-    assert record["pdf_name"] == "solar_grid.pdf"
+    assert record["digest"] == "solar_grid.pdf"
+    assert record["pretty_name"] == "Solar Grid Analysis"
     assert record["sub_domain"] == "energy.gov"
     assert record["page_count"] == 18
     # crawl_date must be normalised to YYYYMMDD
@@ -96,7 +97,7 @@ def test_no_predicate_result_shape(index):
 
 
 def test_domain_predicate(index):
-    all_names = [r["pdf_name"] for r in _RECORDS]
+    all_names = [r["digest"] for r in _RECORDS]
     result = index.search(all_names, [EqualityPredicate("sub_domain", "epa.gov")])
     for entries in result.values():
         for entry in entries:
@@ -106,7 +107,7 @@ def test_domain_predicate(index):
 
 
 def test_date_predicate_crawled_after(index):
-    all_names = [r["pdf_name"] for r in _RECORDS]
+    all_names = [r["digest"] for r in _RECORDS]
     result = index.search(all_names, [RangePredicate("crawl_date", min_val="20230101")])
     for entries in result.values():
         for entry in entries:
@@ -115,7 +116,7 @@ def test_date_predicate_crawled_after(index):
 
 
 def test_date_predicate_crawled_before(index):
-    all_names = [r["pdf_name"] for r in _RECORDS]
+    all_names = [r["digest"] for r in _RECORDS]
     result = index.search(all_names, [RangePredicate("crawl_date", max_val="20221231")])
     for entries in result.values():
         for entry in entries:
@@ -123,7 +124,7 @@ def test_date_predicate_crawled_before(index):
 
 
 def test_all_predicates_combined(index):
-    all_names = [r["pdf_name"] for r in _RECORDS]
+    all_names = [r["digest"] for r in _RECORDS]
     result = index.search(
         all_names,
         [

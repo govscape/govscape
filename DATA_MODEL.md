@@ -31,7 +31,8 @@ The metadata.db database has a table with the columns:
 * id INTEGER PRIMARY KEY AUTOINCREMENT,
 * url TEXT,
 * crawl_date TEXT,
-* pdf_name TEXT,
+* digest TEXT,
+* pretty_name TEXT,
 * sub_domain TEXT,
 * page_count INTEGER
 
