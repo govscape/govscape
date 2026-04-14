@@ -4,6 +4,7 @@ from multiprocessing import get_context
 
 import numpy as np
 
+from ..config import DataModel
 from ..visual_embedding_models import (
     CLIP_VisualEmbeddingModel,
     Dummy_VisualEmbeddingModel,
@@ -26,34 +27,31 @@ def _build_visual_model(model_type):
 
 
 class PageImageEmbeddingStage(ProcessingStage):
-    def __init__(self, img_path, embeddings_img_path, model_type, cpu_count):
-        self.img_path = img_path
-        self.embeddings_img_path = embeddings_img_path
+    def __init__(self, data_model: DataModel, model_type: str, cpu_count: int):
+        self.data_model = data_model
         self.model = _build_visual_model(model_type)
         self.cpu_count = cpu_count
 
     def validate(self) -> None:
-        if not os.path.isdir(self.img_path):
-            raise ValueError(f"Image input directory does not exist: {self.img_path}")
+        if not os.path.isdir(self.data_model.image_directory):
+            raise ValueError(
+                f"Image input directory does not exist: \
+                            {self.data_model.image_directory}"
+            )
 
     def run(self):
-        os.makedirs(self.embeddings_img_path, exist_ok=True)
+        os.makedirs(self.data_model.embedding_img_pg_directory, exist_ok=True)
         img_paths = []
         embedding_paths = []
-        for img_subdir in os.scandir(self.img_path):
+        for img_subdir in os.scandir(self.data_model.image_directory):
             if img_subdir.is_dir():
-                os.makedirs(
-                    os.path.join(self.embeddings_img_path, img_subdir.name),
-                    exist_ok=True,
-                )
+                digest = img_subdir.name
+                embed_dir = self.data_model.embedding_img_pg_pdf_directory(digest)
+                os.makedirs(embed_dir, exist_ok=True)
                 for img_file in os.listdir(img_subdir.path):
                     img_paths.append(os.path.join(img_subdir.path, img_file))
                     embedding_paths.append(
-                        os.path.join(
-                            self.embeddings_img_path,
-                            img_subdir.name,
-                            os.path.splitext(img_file)[0] + ".npy",
-                        )
+                        os.path.join(embed_dir, os.path.splitext(img_file)[0] + ".npy")
                     )
 
         logging.info(f"Embedding {len(img_paths)} images")

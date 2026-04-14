@@ -207,7 +207,7 @@ if __name__ == "__main__":
         )
 
         processor = gs.PDFProcessingPipeline(
-            LOCAL_PDF_DIR, LOCAL_DATA_DIR, args.text_model_type, args.visual_model_type
+            LOCAL_DATA_DIR, args.text_model_type, args.visual_model_type
         )
 
         overall_start_time = time.time()
