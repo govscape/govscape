@@ -36,16 +36,6 @@ class Server:
 
         # Data model — single source of truth for all directory paths
         self.data_model = config.data_model
-        self.metadata_directory = self.data_model.metadata_directory
-        self.embedding_directory = self.data_model.embedding_directory
-        self.embedding_img_pg_directory = self.data_model.embedding_img_pg_directory
-        self.index_directory = self.data_model.index_directory
-        self.index_img_pg_directory = self.data_model.index_img_pg_directory
-        self.index_keyword_directory = self.data_model.index_keyword_directory
-        self.index_metadata_directory = self.data_model.index_metadata_directory
-        self.image_directory = self.data_model.image_directory
-        self.stats_file = self.data_model.stats_file
-        self.blacklist_file = self.data_model.blacklist_file
         self.vector_index_type = config.vector_index_type
         self.keyword_index_type = config.keyword_index_type
         self.k = config.k
@@ -59,30 +49,38 @@ class Server:
         self.visual_d = config.visual_d
 
         if self.vector_index_type == "Memory":
-            self.text_index = FAISSIndex(self.index_directory)
-            self.visual_index = FAISSIndex(self.index_img_pg_directory)
+            self.text_index = FAISSIndex(self.data_model.index_directory)
+            self.visual_index = FAISSIndex(self.data_model.index_img_pg_directory)
         else:
             raise ValueError(f"Unsupported vector index type: {self.vector_index_type}")
         self.text_index.load_index()
         self.visual_index.load_index()
 
         if self.keyword_index_type == "LanceDB":
-            self.keyword_index: AbstractKeywordIndex = LanceDBKeywordIndex(
-                self.index_keyword_directory
+            self.keyword_index = LanceDBKeywordIndex(
+                self.data_model.index_keyword_directory
             )
         elif self.keyword_index_type == "SQLite":
-            self.keyword_index = SQLiteKeywordIndex(self.index_keyword_directory)
+            self.keyword_index = SQLiteKeywordIndex(
+                self.data_model.index_keyword_directory
+            )
         elif self.keyword_index_type == "Whoosh":
-            self.keyword_index = WhooshKeywordIndex(self.index_keyword_directory)
+            self.keyword_index = WhooshKeywordIndex(
+                self.data_model.index_keyword_directory
+            )
         elif self.keyword_index_type == "Lucene":
-            self.keyword_index = LuceneKeywordIndex(self.index_keyword_directory)
+            self.keyword_index = LuceneKeywordIndex(
+                self.data_model.index_keyword_directory
+            )
         else:
             raise ValueError(
                 f"Unsupported keyword index type: {self.keyword_index_type}"
             )
         self.keyword_index.load_index()
 
-        self.metadata_index = SQLiteMetadataIndex(self.index_metadata_directory)
+        self.metadata_index = SQLiteMetadataIndex(
+            self.data_model.index_metadata_directory
+        )
         self.metadata_index.load_index()
 
         self.blacklist: set[str] = self._load_blacklist()
@@ -118,7 +116,7 @@ class Server:
         self.api = init_api(self.app)
 
     def _load_blacklist(self) -> set[str]:
-        path = self.blacklist_file
+        path = self.data_model.blacklist_file
         if not os.path.exists(path):
             print(f"No blacklist file at {path}; starting with empty blacklist")
             return set()
@@ -216,16 +214,7 @@ class Server:
                     has_more_crawls = len(all_records) > self.max_crawl_instances
                     limited_records = all_records[: self.max_crawl_instances]
                     newest = all_records[0]
-                    jpeg_file = (
-                        self.image_directory
-                        + "/"
-                        + name
-                        + "/"
-                        + name
-                        + "_"
-                        + page_num
-                        + ".jpeg"
-                    )
+                    jpeg_file = self.data_model.img_page_path(name, int(page_num))
                     search_results.append(
                         {
                             "pdf": name,
@@ -312,8 +301,7 @@ class Server:
         sub_domain = newest.get("sub_domain", "")
         page_count = int(newest.get("page_count", 0))
 
-        image_dir = os.path.join(self.image_directory, pdf_id)
-        images = [f"{image_dir}/{pdf_id}_{i}.jpeg" for i in range(page_count)]
+        images = [self.data_model.img_page_path(pdf_id, i) for i in range(page_count)]
 
         crawl_instances = [
             {
@@ -337,7 +325,7 @@ class Server:
         if hasattr(self, "_total_pdfs_cache"):
             return self._total_pdfs_cache
 
-        total_pdfs_path = self.stats_file
+        total_pdfs_path = self.data_model.stats_file
 
         if not total_pdfs_path or not os.path.exists(total_pdfs_path):
             return 0

@@ -58,6 +58,16 @@ class DataModel:
     def metadata_file_path(self, digest: str) -> str:
         return os.path.join(self.metadata_directory, digest, "metadata.json")
 
+    def checkpoint_file_path(self, checkpoint_prefix: str) -> str:
+        return os.path.join(
+            self.checkpoints_directory, f"{checkpoint_prefix}_checkpoint.json"
+        )
+
+    def performance_file_path(self, performance_prefix: str) -> str:
+        return os.path.join(
+            self.performance_directory, f"{performance_prefix}_performance.json"
+        )
+
 
 class ServerConfig:
     def __init__(

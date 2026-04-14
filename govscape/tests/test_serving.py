@@ -142,8 +142,8 @@ def test_server_initialization(server_fixture):
     assert Path(data_model.index_img_pg_directory).exists()
     assert Path(data_model.image_directory).exists()
 
-    assert server.index_directory == data_model.index_directory
-    assert server.image_directory == data_model.image_directory
+    assert server.data_model.index_directory == data_model.index_directory
+    assert server.data_model.image_directory == data_model.image_directory
     assert server.config.k == 3
 
 
