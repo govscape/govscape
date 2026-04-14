@@ -2,6 +2,7 @@ import logging
 import os
 import time
 
+from .config import DataModel
 from .processing import (
     PageImageEmbeddingStage,
     PDFExtractionStage,
@@ -12,19 +13,12 @@ from .processing import (
 class PDFProcessingPipeline:
     def __init__(
         self,
-        pdf_directory: str,
         data_dir: str,
         text_model_type: str,
         visual_model_type: str,
     ):
-        self.pdfs_path = pdf_directory
-        self.txts_path = data_dir + "/txt"
-        self.img_path = data_dir + "/img"
-        self.embeddings_path = data_dir + "/embeddings"
-        self.embeddings_img_path = data_dir + "/embeddings_img_pg"
-        self.index_keyword_directory = data_dir + "/index_keyword"
-        self.metadata_dir = data_dir + "/metadata"
-        self.cpu_count = os.cpu_count()
+        self.data_model = DataModel(data_dir)
+        self.cpu_count = os.cpu_count() or 1
         self.text_model_type = text_model_type
         self.visual_model_type = visual_model_type
 
@@ -35,7 +29,6 @@ class PDFProcessingPipeline:
         do_img_embedding: bool,
         do_metadata_collection: bool,
     ):
-
         run_extraction = do_text_embedding or do_img_embedding or do_metadata_collection
 
         time1 = time.time()
@@ -43,10 +36,7 @@ class PDFProcessingPipeline:
         if run_extraction:
             logging.info("Converting pdfs to txts and page images")
             pdf_extraction_stage = PDFExtractionStage(
-                pdfs_path=self.pdfs_path,
-                txts_path=self.txts_path,
-                img_path=self.img_path,
-                metadata_dir=self.metadata_dir,
+                data_model=self.data_model,
                 pdf_files=pdf_files,
                 cpu_count=self.cpu_count,
             )
@@ -60,8 +50,7 @@ class PDFProcessingPipeline:
         if do_text_embedding:
             logging.info("Converting txts to embeddings")
             text_embedding_stage = TextEmbeddingStage(
-                txts_path=self.txts_path,
-                embeddings_path=self.embeddings_path,
+                data_model=self.data_model,
                 model_type=self.text_model_type,
             )
             text_embedding_stage.validate()
@@ -71,8 +60,7 @@ class PDFProcessingPipeline:
         if do_img_embedding:
             logging.info("Converting imgs to embeddings")
             page_image_embedding_stage = PageImageEmbeddingStage(
-                img_path=self.img_path,
-                embeddings_img_path=self.embeddings_img_path,
+                data_model=self.data_model,
                 model_type=self.visual_model_type,
                 cpu_count=self.cpu_count,
             )

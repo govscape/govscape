@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from govscape.config import DataModel
 from govscape.pdf_processing_pipeline import PDFProcessingPipeline
 from govscape.processing import (
     PageImageEmbeddingStage,
@@ -19,25 +20,21 @@ def sample_pipeline(tmp_path):
     shutil.copytree(source_pdfs, pdf_dir)
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    pipeline = PDFProcessingPipeline(str(pdf_dir), str(data_dir), "Dummy", "Dummy")
-    pdf_files = sorted(f.name for f in pdf_dir.glob("*.pdf"))
+    pipeline = PDFProcessingPipeline(str(data_dir), "Dummy", "Dummy")
+    pdf_files = sorted(str(f) for f in pdf_dir.glob("*.pdf"))
     return pipeline, pdf_files
 
 
 def test_convert_pdf_to_txt_img_and_metadata(sample_pipeline):
     pipeline, pdf_files = sample_pipeline
-    assert "govscape_intro.pdf" in pdf_files
-    _convert_single_pdf(
-        pipeline.txts_path,
-        pipeline.img_path,
-        pipeline.pdfs_path,
-        pipeline.metadata_dir,
-        "govscape_intro.pdf",
-    )
+    pdf_file = next(f for f in pdf_files if Path(f).name == "govscape_intro.pdf")
+    _convert_single_pdf(pipeline.data_model, pdf_file)
 
     pdf_stem = "govscape_intro"
-    text_path = Path(pipeline.txts_path) / pdf_stem / f"{pdf_stem}_0.txt"
-    image_path = Path(pipeline.img_path) / pdf_stem / f"{pdf_stem}_0.jpeg"
+    text_path = Path(pipeline.data_model.txt_directory) / pdf_stem / f"{pdf_stem}_0.txt"
+    image_path = (
+        Path(pipeline.data_model.image_directory) / pdf_stem / f"{pdf_stem}_0.jpeg"
+    )
 
     assert text_path.exists()
     assert image_path.exists()
@@ -49,16 +46,13 @@ def test_convert_pdf_to_txt_img_and_metadata(sample_pipeline):
 def test_convert_pdfs_to_txt_and_img_creates_outputs(sample_pipeline):
     pipeline, pdf_files = sample_pipeline
     PDFExtractionStage(
-        pdfs_path=pipeline.pdfs_path,
-        txts_path=pipeline.txts_path,
-        img_path=pipeline.img_path,
-        metadata_dir=pipeline.metadata_dir,
+        data_model=pipeline.data_model,
         pdf_files=pdf_files,
         cpu_count=pipeline.cpu_count,
     ).run()
 
-    txt_base = Path(pipeline.txts_path)
-    img_base = Path(pipeline.img_path)
+    txt_base = Path(pipeline.data_model.txt_directory)
+    img_base = Path(pipeline.data_model.image_directory)
 
     expected_dirs = {Path(pdf).stem for pdf in pdf_files}
     txt_dirs = {p.name for p in txt_base.iterdir() if p.is_dir()}
@@ -80,23 +74,21 @@ def test_convert_pdfs_to_txt_and_img_creates_outputs(sample_pipeline):
     assert total_img_files > 0
 
 
-def test_pdf_extraction_stage_validate_raises_on_missing_dir(tmp_path):
+def test_pdf_extraction_stage_validate_raises_on_missing_file(tmp_path):
+    data_model = DataModel(str(tmp_path))
     stage = PDFExtractionStage(
-        pdfs_path=str(tmp_path / "nonexistent"),
-        txts_path=str(tmp_path / "txt"),
-        img_path=str(tmp_path / "img"),
-        metadata_dir=str(tmp_path / "metadata"),
-        pdf_files=[],
+        data_model=data_model,
+        pdf_files=[str(tmp_path / "nonexistent.pdf")],
         cpu_count=1,
     )
-    with pytest.raises(ValueError, match="PDFs input directory does not exist"):
+    with pytest.raises(ValueError, match="PDF file"):
         stage.validate()
 
 
 def test_text_embedding_stage_validate_raises_on_missing_dir(tmp_path):
+    data_model = DataModel(str(tmp_path / "nonexistent"))
     stage = TextEmbeddingStage(
-        txts_path=str(tmp_path / "nonexistent"),
-        embeddings_path=str(tmp_path / "embeddings"),
+        data_model=data_model,
         model_type="Dummy",
     )
     with pytest.raises(ValueError, match="Text input directory does not exist"):
@@ -104,9 +96,9 @@ def test_text_embedding_stage_validate_raises_on_missing_dir(tmp_path):
 
 
 def test_page_image_embedding_stage_validate_raises_on_missing_dir(tmp_path):
+    data_model = DataModel(str(tmp_path / "nonexistent"))
     stage = PageImageEmbeddingStage(
-        img_path=str(tmp_path / "nonexistent"),
-        embeddings_img_path=str(tmp_path / "embeddings_img"),
+        data_model=data_model,
         model_type="Dummy",
         cpu_count=1,
     )
@@ -114,37 +106,33 @@ def test_page_image_embedding_stage_validate_raises_on_missing_dir(tmp_path):
         stage.validate()
 
 
-def test_pdf_extraction_stage_validate_passes_with_existing_dir(tmp_path):
-    pdfs_dir = tmp_path / "pdfs"
-    pdfs_dir.mkdir()
+def test_pdf_extraction_stage_validate_passes_with_existing_files(tmp_path):
+    pdf_file = tmp_path / "test.pdf"
+    pdf_file.touch()
+    data_model = DataModel(str(tmp_path))
     stage = PDFExtractionStage(
-        pdfs_path=str(pdfs_dir),
-        txts_path=str(tmp_path / "txt"),
-        img_path=str(tmp_path / "img"),
-        metadata_dir=str(tmp_path / "metadata"),
-        pdf_files=[],
+        data_model=data_model,
+        pdf_files=[str(pdf_file)],
         cpu_count=1,
     )
     stage.validate()  # should not raise
 
 
 def test_text_embedding_stage_validate_passes_with_existing_dir(tmp_path):
-    txts_dir = tmp_path / "txt"
-    txts_dir.mkdir()
+    data_model = DataModel(str(tmp_path))
+    (tmp_path / "txt").mkdir()
     stage = TextEmbeddingStage(
-        txts_path=str(txts_dir),
-        embeddings_path=str(tmp_path / "embeddings"),
+        data_model=data_model,
         model_type="Dummy",
     )
     stage.validate()  # should not raise
 
 
 def test_page_image_embedding_stage_validate_passes_with_existing_dir(tmp_path):
-    img_dir = tmp_path / "img"
-    img_dir.mkdir()
+    data_model = DataModel(str(tmp_path))
+    (tmp_path / "img").mkdir()
     stage = PageImageEmbeddingStage(
-        img_path=str(img_dir),
-        embeddings_img_path=str(tmp_path / "embeddings_img"),
+        data_model=data_model,
         model_type="Dummy",
         cpu_count=1,
     )
@@ -165,8 +153,8 @@ def test_process_pdfs_text_only(sample_pipeline):
     assert len(timings) == 3
     assert all(isinstance(value, float) for value in timings)
 
-    txt_base = Path(pipeline.txts_path)
-    img_base = Path(pipeline.img_path)
+    txt_base = Path(pipeline.data_model.txt_directory)
+    img_base = Path(pipeline.data_model.image_directory)
 
     for pdf_file in pdf_files:
         stem = Path(pdf_file).stem

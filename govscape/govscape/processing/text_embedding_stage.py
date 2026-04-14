@@ -3,6 +3,7 @@ import os
 
 import numpy as np
 
+from ..config import DataModel
 from ..text_embedding_models import (
     BGE_TextEmbeddingModel,
     BGESmall_TextEmbeddingModel,
@@ -13,25 +14,22 @@ from ..utils import read_txt_file
 from .processing_stage import ProcessingStage
 
 
-def _collect_texts_and_paths(txt_path, embed_path):
-    os.makedirs(embed_path, exist_ok=True)
-
-    txt_subdirs_paths = [
-        txt_subdir.path for txt_subdir in os.scandir(txt_path) if txt_subdir.is_dir()
-    ]
+def _collect_texts_and_paths(data_model: DataModel):
+    os.makedirs(data_model.embedding_directory, exist_ok=True)
 
     text_batch = []
     file_batch = []
-    for txt_subdir_path in txt_subdirs_paths:
-        embed_name = os.path.basename(txt_subdir_path)
-        embedding_dir = os.path.join(embed_path, embed_name)
-        os.makedirs(embedding_dir, exist_ok=True)
+    for txt_subdir in os.scandir(data_model.txt_directory):
+        if not txt_subdir.is_dir():
+            continue
+        digest = txt_subdir.name
+        embed_dir = data_model.embedding_pdf_directory(digest)
+        os.makedirs(embed_dir, exist_ok=True)
 
-        txt_files = os.listdir(txt_subdir_path)
-        for txt_file in txt_files:
-            full_txt_path = os.path.join(txt_subdir_path, txt_file)
+        for txt_file in os.listdir(txt_subdir.path):
+            full_txt_path = os.path.join(txt_subdir.path, txt_file)
             text = read_txt_file(full_txt_path)
-            output_path = os.path.join(embedding_dir, txt_file.replace(".txt", ".npy"))
+            output_path = os.path.join(embed_dir, txt_file.replace(".txt", ".npy"))
             text_batch.append(text)
             file_batch.append(output_path)
 
@@ -51,19 +49,18 @@ def _build_text_model(model_type):
 
 
 class TextEmbeddingStage(ProcessingStage):
-    def __init__(self, txts_path, embeddings_path, model_type):
-        self.txts_path = txts_path
-        self.embeddings_path = embeddings_path
+    def __init__(self, data_model: DataModel, model_type: str):
+        self.data_model = data_model
         self.model = _build_text_model(model_type)
 
     def validate(self) -> None:
-        if not os.path.isdir(self.txts_path):
-            raise ValueError(f"Text input directory does not exist: {self.txts_path}")
+        if not os.path.isdir(self.data_model.txt_directory):
+            raise ValueError(
+                f"Text input directory does not exist: {self.data_model.txt_directory}"
+            )
 
     def run(self):
-        sentences, embed_file_paths = _collect_texts_and_paths(
-            self.txts_path, self.embeddings_path
-        )
+        sentences, embed_file_paths = _collect_texts_and_paths(self.data_model)
         embeddings = self.model.encode_text_batch(sentences)
         logging.info(f"Text embeddings computed. Shape: {embeddings.shape}")
         for embedding, output_path in zip(embeddings, embed_file_paths, strict=False):

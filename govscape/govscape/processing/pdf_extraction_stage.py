@@ -4,18 +4,16 @@ from multiprocessing import get_context
 
 import pypdfium2
 
+from ..config import DataModel
 from .processing_stage import ProcessingStage
 
 
-def _convert_single_pdf(txts_path, imgs_path, pdfs_path, metadata_dir, pdf_file):
+def _convert_single_pdf(data_model, pdf_file):
     pdf_name = os.path.splitext(os.path.basename(pdf_file))[0]
-    pdf_path = os.path.join(pdfs_path, pdf_file)
-    pdf_txt_subdir = os.path.join(txts_path, pdf_name)
-    pdf_img_subdir = os.path.join(imgs_path, pdf_name)
-    os.makedirs(pdf_txt_subdir, exist_ok=True)
-    os.makedirs(pdf_img_subdir, exist_ok=True)
+    os.makedirs(data_model.txt_pdf_directory(pdf_name), exist_ok=True)
+    os.makedirs(data_model.img_pdf_directory(pdf_name), exist_ok=True)
     try:
-        pdf = pypdfium2.PdfDocument(pdf_path)
+        pdf = pypdfium2.PdfDocument(pdf_file)
         num_pages = len(pdf)
         gov_name = pdf.get_metadata_value("Title")
 
@@ -28,12 +26,8 @@ def _convert_single_pdf(txts_path, imgs_path, pdfs_path, metadata_dir, pdf_file)
         json_data["gov_name"] = gov_name
         json_data["timestamp"] = timestamp
         json_data["num_pages"] = num_pages
-        pdf_metadata_dir = os.path.join(
-            metadata_dir, os.path.splitext(os.path.basename(pdf_file))[0]
-        )
-        os.makedirs(pdf_metadata_dir, exist_ok=True)
-        json_file_path = os.path.join(pdf_metadata_dir, "metadata.json")
-        with open(json_file_path, "w") as json_file:
+        os.makedirs(data_model.metadata_pdf_directory(pdf_name), exist_ok=True)
+        with open(data_model.metadata_file_path(pdf_name), "w") as json_file:
             json.dump(json_data, json_file, indent=4)
 
         text = []
@@ -48,47 +42,36 @@ def _convert_single_pdf(txts_path, imgs_path, pdfs_path, metadata_dir, pdf_file)
         return False
 
     for page_num, page_text in enumerate(text):
-        txt_file_path = os.path.join(pdf_txt_subdir, f"{pdf_name}_{page_num}.txt")
         if page_text and len(page_text) != 0:
-            with open(txt_file_path, "w", encoding="utf-8") as text_file:
+            with open(
+                data_model.txt_page_path(pdf_name, page_num), "w", encoding="utf-8"
+            ) as text_file:
                 text_file.write(page_text)
 
-        img_file_path = os.path.join(pdf_img_subdir, f"{pdf_name}_{page_num}.jpeg")
-        image = images[page_num]
-        image.save(img_file_path, format="JPEG")
+        images[page_num].save(
+            data_model.img_page_path(pdf_name, page_num), format="JPEG"
+        )
     return True
 
 
 class PDFExtractionStage(ProcessingStage):
-    def __init__(
-        self, pdfs_path, txts_path, img_path, metadata_dir, pdf_files, cpu_count
-    ):
-        self.pdfs_path = pdfs_path
-        self.txts_path = txts_path
-        self.img_path = img_path
-        self.metadata_dir = metadata_dir
+    def __init__(self, data_model: DataModel, pdf_files: list[str], cpu_count: int):
+        self.data_model = data_model
         self.pdf_files = pdf_files
         self.cpu_count = cpu_count
 
     def validate(self) -> None:
-        if not os.path.isdir(self.pdfs_path):
-            raise ValueError(f"PDFs input directory does not exist: {self.pdfs_path}")
+        missing = [f for f in self.pdf_files if not os.path.isfile(f)]
+        if missing:
+            raise ValueError(
+                f"{len(missing)} PDF file(s) not found, e.g.: {missing[0]}"
+            )
 
     def run(self):
-        os.makedirs(self.txts_path, exist_ok=True)
         ctx = get_context("spawn")
         with ctx.Pool(processes=self.cpu_count) as pool:
             results = pool.starmap(
                 _convert_single_pdf,
-                [
-                    (
-                        self.txts_path,
-                        self.img_path,
-                        self.pdfs_path,
-                        self.metadata_dir,
-                        file,
-                    )
-                    for file in self.pdf_files
-                ],
+                [(self.data_model, pdf_file) for pdf_file in self.pdf_files],
             )
         return sum(results)
