@@ -1,5 +1,7 @@
 # AI modified: 2026-03-08 f62d40b8
 # AI modified: 2026-03-14 4a6b1b72
+# AI modified: 2026-04-19 21:12:31 c1b6021e
+# AI modified: 2026-04-20 00:00:00 c1b6021e
 # This file defines the logic for serving requests to the user.
 import math
 import os
@@ -12,9 +14,8 @@ from flask_cors import CORS
 from .api import init_api
 from .config import ServerConfig
 from .indexing import (
-    AbstractKeywordIndex,
-    AbstractVectorIndex,
     FAISSIndex,
+    HybridVectorMetadataIndex,
     LanceDBKeywordIndex,
     LuceneKeywordIndex,
     SQLiteKeywordIndex,
@@ -83,6 +84,19 @@ class Server:
         )
         self.metadata_index.load_index()
 
+        self.text_hybrid_index = HybridVectorMetadataIndex(
+            self.text_index,
+            self.metadata_index,
+            prefilter_threshold=0.2,
+            vector_store_key="text",
+        )
+        self.visual_hybrid_index = HybridVectorMetadataIndex(
+            self.visual_index,
+            self.metadata_index,
+            prefilter_threshold=0.2,
+            vector_store_key="visual",
+        )
+
         self.blacklist: set[str] = self._load_blacklist()
 
         self.s3 = boto3.client("s3")
@@ -134,12 +148,12 @@ class Server:
             return set()
 
     @staticmethod
-    def deduplicate_responses(D, names, pages):
+    def deduplicate_responses(distances, names, pages):
         seen = set()
         unique_distances = []
         unique_names = []
         unique_pages = []
-        for distance, name, page in zip(D, names, pages, strict=False):
+        for distance, name, page in zip(distances, names, pages, strict=False):
             if name not in seen:
                 seen.add(name)
                 unique_distances.append(distance)
@@ -151,104 +165,111 @@ class Server:
         search_type = query.search_type
         predicates = query.predicates
         page = query.page
-        index: AbstractKeywordIndex | AbstractVectorIndex
-        if search_type == "textual":
-            query_embedding = self.text_model.encode_text(query.q_text, is_query=True)
-            index = self.text_index
-        elif search_type == "visual":
-            query_embedding = self.visual_model.encode_text(query.q_text)
-            index = self.visual_index
-        elif search_type == "keyword":
-            query_embedding = query.q_text
-            index = self.keyword_index
-        else:
-            raise ValueError(f"Unsupported search type: {search_type}")
 
-        current_k = self.k * 2
         results_needed_for_page = (
             page * self.k + 1
         )  # we need one extra result to check if there is a next page
-        search_results: list[dict] = []
-        old_results_found = -1
-        while len(search_results) < results_needed_for_page:
-            # Search for the k closest arrays
+
+        if search_type == "textual":
+            query_embedding = self.text_model.encode_text(query.q_text, is_query=True)
             start = time.time()
-
-            D, pdf_names, pdf_pages = index.search(query_embedding, current_k)
-            D, pdf_names, pdf_pages = self.deduplicate_responses(
-                D, pdf_names, pdf_pages
+            rows, pdf_metadata, state = self.text_hybrid_index.search(
+                query_embedding,
+                predicates,
+                results_needed_for_page,
+                blacklist=self.blacklist,
             )
-
-            if self.blacklist:
-                filtered = [
-                    (d, n, p)
-                    for d, n, p in zip(D, pdf_names, pdf_pages, strict=False)
-                    if n not in self.blacklist
-                ]
-                if filtered:
-                    D, pdf_names, pdf_pages = (
-                        list(x) for x in zip(*filtered, strict=False)
-                    )
-                else:
-                    D, pdf_names, pdf_pages = [], [], []
-
             print(f"Index Search took {time.time() - start} seconds")
             print(
                 "Search type: "
-                f"{search_type}, current_k: {current_k}, "
-                f"results found: {len(D)}"
+                f"{search_type}, strategy: {state.strategy}, "
+                f"results found after filtering: {len(rows)}"
             )
-            pdf_metadata = self.metadata_index.search(pdf_names, predicates)
+            search_results = self._build_search_results(rows, pdf_metadata)
+
+        elif search_type == "visual":
+            query_embedding = self.visual_model.encode_text(query.q_text)
+            start = time.time()
+            rows, pdf_metadata, state = self.visual_hybrid_index.search(
+                query_embedding,
+                predicates,
+                results_needed_for_page,
+                blacklist=self.blacklist,
+            )
+            print(f"Index Search took {time.time() - start} seconds")
             print(
                 "Search type: "
-                f"{search_type}, current_k: {current_k}, results found "
-                f"after filtering: {len(pdf_metadata)}"
+                f"{search_type}, strategy: {state.strategy}, "
+                f"results found after filtering: {len(rows)}"
             )
-            search_results = []
-            for distance, name, page_num in zip(D, pdf_names, pdf_pages, strict=False):
-                metadata = pdf_metadata.get(name, None)
-                if metadata:
-                    all_records = sorted(
-                        metadata, key=lambda r: r.get("crawl_date", ""), reverse=True
+            search_results = self._build_search_results(rows, pdf_metadata)
+
+        elif search_type == "keyword":
+            query_text = query.q_text
+            current_k = self.k * 2
+            search_results: list[dict] = []
+            old_results_found = -1
+
+            while len(search_results) < results_needed_for_page:
+                start = time.time()
+                distances, pdf_names, pdf_pages = self.keyword_index.search(
+                    query_text,
+                    current_k,
+                )
+                distances, pdf_names, pdf_pages = self.deduplicate_responses(
+                    distances,
+                    pdf_names,
+                    pdf_pages,
+                )
+
+                if self.blacklist:
+                    filtered = [
+                        (d, n, p)
+                        for d, n, p in zip(
+                            distances, pdf_names, pdf_pages, strict=False
+                        )
+                        if n not in self.blacklist
+                    ]
+                    if filtered:
+                        distances, pdf_names, pdf_pages = (
+                            list(x) for x in zip(*filtered, strict=False)
+                        )
+                    else:
+                        distances, pdf_names, pdf_pages = [], [], []
+
+                print(f"Index Search took {time.time() - start} seconds")
+                print(
+                    "Search type: "
+                    f"{search_type}, current_k: {current_k}, "
+                    f"results found: {len(distances)}"
+                )
+                pdf_metadata = self.metadata_index.search(pdf_names, predicates)
+                print(
+                    "Search type: "
+                    f"{search_type}, current_k: {current_k}, results found "
+                    f"after filtering: {len(pdf_metadata)}"
+                )
+
+                rows = [
+                    (float(distance), name, str(page_num))
+                    for distance, name, page_num in zip(
+                        distances, pdf_names, pdf_pages, strict=False
                     )
-                    has_more_crawls = len(all_records) > self.max_crawl_instances
-                    limited_records = all_records[: self.max_crawl_instances]
-                    newest = all_records[0]
-                    jpeg_file = self.data_model.img_page_path(name, int(page_num))
-                    search_results.append(
-                        {
-                            "pdf": name,
-                            "page": page_num,
-                            "distance": float(distance),
-                            "jpeg": jpeg_file,
-                            "crawl_url": newest.get("crawl_url", ""),
-                            "crawl_date": newest.get("crawl_date", ""),
-                            "sub_domain": newest.get("sub_domain", ""),
-                            "has_more_crawls": has_more_crawls,
-                            "crawl_instances": [
-                                {
-                                    "crawl_url": r.get("crawl_url", ""),
-                                    "crawl_date": r.get("crawl_date", ""),
-                                    "sub_domain": r.get("sub_domain", ""),
-                                }
-                                for r in limited_records
-                            ],
-                        }
-                    )
-            if current_k > min(100000, index.total_entries()):
-                # TODO: If we have to expand beyond 100k, we should simply do
-                # the filtering first.
-                break
+                ]
+                search_results = self._build_search_results(rows, pdf_metadata)
 
-            if len(search_results) >= results_needed_for_page:
-                break  # If we have enough results for our target page, we can stop.
+                if current_k > min(100000, self.keyword_index.total_entries()):
+                    break
+                if len(search_results) >= results_needed_for_page:
+                    break
 
-            results_found = len(search_results)
-            if results_found == old_results_found and (len(predicates) == 0):
-                break  # No more results can be found even after increasing k
-            old_results_found = results_found
-
-            current_k *= 2  # Double the k until we have enough results
+                results_found = len(search_results)
+                if results_found == old_results_found and len(predicates) == 0:
+                    break
+                old_results_found = results_found
+                current_k *= 2
+        else:
+            raise ValueError(f"Unsupported search type: {search_type}")
 
         start_index = (page - 1) * self.k
         end_index = start_index + self.k
@@ -266,6 +287,40 @@ class Server:
                 "total_pages": total_pages,
             },
         )
+
+    def _build_search_results(self, rows, pdf_metadata):
+        search_results: list[dict] = []
+        for distance, name, page_num in rows:
+            metadata = pdf_metadata.get(name, None)
+            if metadata:
+                all_records = sorted(
+                    metadata, key=lambda r: r.get("crawl_date", ""), reverse=True
+                )
+                has_more_crawls = len(all_records) > self.max_crawl_instances
+                limited_records = all_records[: self.max_crawl_instances]
+                newest = all_records[0]
+                jpeg_file = self.data_model.img_page_path(name, int(page_num))
+                search_results.append(
+                    {
+                        "pdf": name,
+                        "page": page_num,
+                        "distance": float(distance),
+                        "jpeg": jpeg_file,
+                        "crawl_url": newest.get("crawl_url", ""),
+                        "crawl_date": newest.get("crawl_date", ""),
+                        "sub_domain": newest.get("sub_domain", ""),
+                        "has_more_crawls": has_more_crawls,
+                        "crawl_instances": [
+                            {
+                                "crawl_url": r.get("crawl_url", ""),
+                                "crawl_date": r.get("crawl_date", ""),
+                                "sub_domain": r.get("sub_domain", ""),
+                            }
+                            for r in limited_records
+                        ],
+                    }
+                )
+        return search_results
 
     def pdf_pages(self, pdf_id):
         """

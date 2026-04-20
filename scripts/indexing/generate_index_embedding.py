@@ -1,3 +1,5 @@
+# AI modified: 2026-04-20 00:00:00 c1b6021e
+# AI modified: 2026-04-20 00:00:00 4a7a8111
 import json
 import logging
 import os
@@ -8,6 +10,7 @@ import numpy as np
 
 from govscape.config import DataModel
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
+from govscape.indexing import DuckDBMetadataIndex, SQLiteMetadataIndex
 from govscape.utils import base_argument_parser
 
 import govscape as gs
@@ -148,6 +151,19 @@ if __name__ == "__main__":
         time_index_start = time.time()
         index = gs.FAISSIndex(LOCAL_INDEX_DIR)
         index.load_index()
+
+        metadata_index = None
+        duckdb_path = os.path.join(local_dm.index_metadata_directory, "metadata.duckdb")
+        if os.path.exists(duckdb_path):
+            metadata_index = DuckDBMetadataIndex(local_dm.index_metadata_directory)
+        else:
+            # Default to SQLite when metadata index file is not present yet.
+            metadata_index = SQLiteMetadataIndex(local_dm.index_metadata_directory)
+        metadata_index.build_index()
+        metadata_index.load_index()
+
+        vector_store_key = "text" if args.embedding_type == "txt" else "visual"
+
         names = []
         pages = []
         embeddings = []
@@ -159,9 +175,17 @@ if __name__ == "__main__":
             names.append(os.path.basename(os.path.dirname(embedding_file_path)))
             pages.append(embedding_file_path.replace(".npy", "").rpartition("_")[2])
             embeddings.append(np.load(embedding_file_path))
+        if not embeddings:
+            logging.info(
+                "Skipping batch with no valid embeddings after file filtering."
+            )
+            return
         print(f"Adding {len(embeddings)} embeddings to the index.")
-        embeddings = np.asarray(embeddings)
+        embeddings = np.asarray(embeddings, dtype=np.float32)
+
         index.add_batch(embeddings, names, pages)
+        metadata_index.upsert_vectors(vector_store_key, embeddings, names, pages)
+        metadata_index.save_index()
         index.save_index()
 
         pipeline_times["embedding_indexing_time"] += time.time() - time_index_start
