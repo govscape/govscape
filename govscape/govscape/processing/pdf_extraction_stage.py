@@ -15,8 +15,7 @@ def _convert_single_pdf(data_model, pdf_file):
     try:
         pdf = pypdfium2.PdfDocument(pdf_file)
         num_pages = len(pdf)
-        pretty_name = pdf.get_metadata_value("Title")
-
+        pretty_name = pdf.get_metadata_value("Title").strip()
         json_data = {}
         creation_date = pdf.get_metadata_value("CreationDate")
         if len(pretty_name) == 0:
