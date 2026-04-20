@@ -18,14 +18,14 @@ class AbstractMetadataIndex(ABC):
         """
         Instantiate the index in the directory 'self.index_metadata_directory'
         which should store the following data:
-        url, crawl_date, pdf_name, sub_domain
+        url, crawl_date, digest, sub_domain
         """
 
     @abstractmethod
     def add_batch(self, metadata_dicts):
         """
         Add a batch of metadata dictionaries to the index which each
-        contain url, crawl_date, pdf_name, and sub_domain.
+        contain url, crawl_date, digest, and sub_domain.
         """
 
     @abstractmethod
@@ -41,9 +41,9 @@ class AbstractMetadataIndex(ABC):
         """
 
     @abstractmethod
-    def search(self, pdf_names, predicates):
+    def search(self, digests, predicates):
         """
-        Return the metadata for the pdfs in 'pdf_names' that satisfy all 'predicates'.
+        Return the metadata for the pdfs in 'digests' that satisfy all 'predicates'.
         """
 
     @abstractmethod
@@ -78,10 +78,10 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             CREATE TABLE IF NOT EXISTS metadata (
                 crawl_url TEXT,
                 crawl_date TEXT,
-                pdf_name TEXT,
+                digest TEXT,
+                pretty_name TEXT,
                 sub_domain TEXT,
-                page_count INTEGER,
-                s3_url TEXT
+                page_count INTEGER
             );
         """)
         self.conn.commit()
@@ -90,21 +90,21 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         if self.conn is None:
             self.conn = sqlite3.connect(self.db_path)
             self.cursor = self.conn.cursor()
-        self.cursor.execute("DROP INDEX IF EXISTS idx_pdf_name_sub_domain_crawl_date;")
+        self.cursor.execute("DROP INDEX IF EXISTS idx_digest_sub_domain_crawl_date;")
         to_insert = [
             (
                 md.get("crawl_url", ""),
                 self._normalize_crawl_date(md.get("crawl_date", "")),
-                md.get("pdf_name", ""),
+                md.get("digest", ""),
+                md.get("pretty_name", ""),
                 md.get("sub_domain", ""),
                 md.get("page_count", 0),
-                md.get("s3_url", ""),
             )
             for md in metadata_dicts
         ]
         self.cursor.executemany(
             "INSERT INTO metadata ("
-            "crawl_url, crawl_date, pdf_name, sub_domain, page_count, s3_url"
+            "crawl_url, crawl_date, digest, pretty_name, sub_domain, page_count"
             ") VALUES (?, ?, ?, ?, ?, ?)",
             to_insert,
         )
@@ -122,28 +122,28 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self.cursor = self.conn.cursor()
 
         # Set of indexes to speed up:
-        # 1. pdf_name
-        # 2. pdf_name + crawl_date # Adding a separate index here does not help
-        # 3. pdf_name + sub_domain
-        # 4. pdf_name + sub_domain + crawl_date
+        # 1. digest
+        # 2. digest + crawl_date # Adding a separate index here does not help
+        # 3. digest + sub_domain
+        # 4. digest + sub_domain + crawl_date
 
         self.cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_pdf_name_sub_domain_crawl_date
-            ON metadata (pdf_name, sub_domain, crawl_date);""")
+            CREATE INDEX IF NOT EXISTS idx_digest_sub_domain_crawl_date
+            ON metadata (digest, sub_domain, crawl_date);""")
 
         self.cursor.execute("""PRAGMA journal_mode = WAL;""")
         self.cursor.execute("""PRAGMA optimize;""")
 
         self.conn.commit()
 
-    def search(self, pdf_names, predicates: list[Predicate] | None = None):
+    def search(self, digests, predicates: list[Predicate] | None = None):
         cursor = self.conn.cursor()
-        placeholders = ",".join(["?"] * len(pdf_names))
+        placeholders = ",".join(["?"] * len(digests))
         query = (
-            "SELECT crawl_url, crawl_date, pdf_name, sub_domain, s3_url, page_count "
-            f"FROM metadata WHERE pdf_name IN ({placeholders})"
+            "SELECT crawl_url, crawl_date, digest, pretty_name, sub_domain, page_count "
+            f"FROM metadata WHERE digest IN ({placeholders})"
         )
-        params = list(pdf_names)
+        params = list(digests)
         if predicates:
             for predicate in predicates:
                 if isinstance(predicate, EqualityPredicate):
@@ -160,18 +160,19 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         rows = cursor.fetchall()
         metadata = {}
         for row in rows:
-            pdf_name = row[2]
+            digest = row[2]
             row_dict = {
                 "crawl_url": row[0],
                 "crawl_date": row[1],
-                "pdf_name": row[2],
-                "sub_domain": row[3],
+                "digest": row[2],
+                "pretty_name": row[3],
+                "sub_domain": row[4],
                 "page_count": row[5],
             }
-            if pdf_name not in metadata:
-                metadata[pdf_name] = [row_dict]
+            if digest not in metadata:
+                metadata[digest] = [row_dict]
             else:
-                metadata[pdf_name].append(row_dict)
+                metadata[digest].append(row_dict)
         # Return as a dict with lists of dicts representing every time the pdf was
         # crawled.
         return metadata
@@ -200,10 +201,10 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
             CREATE TABLE IF NOT EXISTS metadata (
                 crawl_url TEXT,
                 crawl_date TEXT,
-                pdf_name TEXT,
+                digest TEXT,
+                pretty_name TEXT,
                 sub_domain TEXT,
-                page_count INTEGER,
-                s3_url TEXT
+                page_count INTEGER
             );
         """)
 
@@ -218,12 +219,12 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
                     self._normalize_crawl_date(md.get("crawl_date", ""))
                     for md in metadata_dicts
                 ],
-                "pdf_name": [md.get("pdf_name", "") for md in metadata_dicts],
+                "digest": [md.get("digest", "") for md in metadata_dicts],
+                "pretty_name": [md.get("pretty_name", "") for md in metadata_dicts],
                 "sub_domain": [md.get("sub_domain", "") for md in metadata_dicts],
                 "page_count": pa.array(
                     [md.get("page_count", 0) for md in metadata_dicts], type=pa.int32()
                 ),
-                "s3_url": [md.get("s3_url", "") for md in metadata_dicts],
             }
         )
         self.conn.register("_batch", arrow_table)
@@ -239,18 +240,18 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
     def save_index(self):
         self._connect()
         self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_pdf_name ON metadata (pdf_name);
+            CREATE INDEX IF NOT EXISTS idx_digest ON metadata (digest);
                             """)
         self.conn.checkpoint()
 
-    def search(self, pdf_names: list[str], predicates: list[Predicate] | None = None):
+    def search(self, digests: list[str], predicates: list[Predicate] | None = None):
         self._connect()
-        placeholders = ", ".join(["?"] * len(pdf_names))
+        placeholders = ", ".join(["?"] * len(digests))
         query = (
-            "SELECT crawl_url, crawl_date, pdf_name, sub_domain, s3_url, page_count "
-            f"FROM metadata WHERE pdf_name IN ({placeholders})"
+            "SELECT crawl_url, crawl_date, digest, pretty_name, sub_domain, page_count "
+            f"FROM metadata WHERE digest IN ({placeholders})"
         )
-        params: list = list(pdf_names)
+        params: list = list(digests)
         if predicates:
             for predicate in predicates:
                 if isinstance(predicate, EqualityPredicate):
@@ -266,18 +267,19 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         rows = self.conn.execute(query, params).fetchall()
         metadata = {}
         for row in rows:
-            pdf_name = row[2]
+            digest = row[2]
             row_dict = {
                 "crawl_url": row[0],
                 "crawl_date": row[1],
-                "pdf_name": row[2],
-                "sub_domain": row[3],
+                "digest": row[2],
+                "pretty_name": row[3],
+                "sub_domain": row[4],
                 "page_count": row[5],
             }
-            if pdf_name not in metadata:
-                metadata[pdf_name] = [row_dict]
+            if digest not in metadata:
+                metadata[digest] = [row_dict]
             else:
-                metadata[pdf_name].append(row_dict)
+                metadata[digest].append(row_dict)
         # Return as a dict with lists of dicts representing every time the pdf was
         # crawled.
         return metadata

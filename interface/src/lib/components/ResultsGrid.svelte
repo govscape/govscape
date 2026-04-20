@@ -68,7 +68,7 @@
     previousPage = currentPage;
   })();
 
-  function handlePDFSelect(pdf, page, crawlDate, crawlUrl, subDomain, crawlInstances, hasMoreCrawls) {
+  function handlePDFSelect(pdf, page, crawlDate, crawlUrl, subDomain, crawlInstances, hasMoreCrawls, prettyName) {
     const pdfId = pdf.split('/').pop();
 
     try {
@@ -81,7 +81,7 @@
       });
     } catch (e) {}
 
-    dispatch('pdfSelect', { pdf, page, id: pdfId, crawlDate, crawlUrl, subDomain, crawlInstances, hasMoreCrawls });
+    dispatch('pdfSelect', { pdf, page, id: pdfId, crawlDate, crawlUrl, subDomain, crawlInstances, hasMoreCrawls, prettyName });
   }
 
   function updatePageInURL(newPage) {
@@ -149,7 +149,7 @@
   <div class="masonry-wrapper" bind:this={gridElement}>
     {#each results as result (result.pdf + result.page)}
     <div class="grid-item">
-      <div class="result-card" on:click={() => handlePDFSelect(result.pdf, result.page, result.crawlDate, result.crawlUrl, result.subDomain, result.crawlInstances, result.hasMoreCrawls)}>
+      <div class="result-card" on:click={() => handlePDFSelect(result.pdf, result.page, result.crawlDate, result.crawlUrl, result.subDomain, result.crawlInstances, result.hasMoreCrawls, result.prettyName)}>
         <div class="image-container">
           <img
             src={result.jpeg}
@@ -158,7 +158,7 @@
           />
         </div>
         <div class="result-info">
-          <div class="info-name">{result.crawlUrl.split('/').pop().replaceAll("\%20", " ")}</div>
+          <div class="info-name">{result.prettyName || result.crawlUrl.split('/').pop().replaceAll("\%20", " ")}</div>
           <div class="info-subdomain">{result.subDomain || 'Not Available'}</div>
         </div>
       </div>

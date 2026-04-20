@@ -218,6 +218,7 @@ class Server:
                     search_results.append(
                         {
                             "pdf": name,
+                            "pretty_name": newest.get("pretty_name", ""),
                             "page": page_num,
                             "distance": float(distance),
                             "jpeg": jpeg_file,

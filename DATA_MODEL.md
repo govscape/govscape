@@ -28,10 +28,10 @@ The pdf_metadata.parquet file has the following columns:
 * length : The number of bytes corresponding to the pdf's warc record.
 
 The metadata.db database has a table with the columns:
-* id INTEGER PRIMARY KEY AUTOINCREMENT,
 * url TEXT,
 * crawl_date TEXT,
-* pdf_name TEXT,
+* digest TEXT,
+* pretty_name TEXT,
 * sub_domain TEXT,
 * page_count INTEGER
 

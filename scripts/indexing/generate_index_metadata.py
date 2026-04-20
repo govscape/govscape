@@ -138,6 +138,8 @@ def main():
         ).fetchall()
         con.close()
 
+        pretty_names = {r["digest"]: r.get("pretty_name", "") for r in rows}
+
         print("Building Index")
         index.build_index()
         cur_batch = []
@@ -147,12 +149,10 @@ def main():
                 {
                     "crawl_url": url,
                     "crawl_date": crawl_date,
-                    "pdf_name": digest,
+                    "digest": digest,
+                    "pretty_name": pretty_names.get(digest, ""),
                     "sub_domain": extract_subdomain(url),
                     "page_count": num_pages,
-                    "s3_url": data_loader.to_uri(
-                        os.path.join("archive/2020/PDFs", f"{digest}.pdf")
-                    ),
                 }
             )
             if len(cur_batch) >= 1000:
@@ -194,10 +194,11 @@ def _read_metadata_row(filepath):
         with open(filepath) as f:
             metadata_json = json.load(f)
         digest_val = os.path.dirname(filepath).split("/")[-1]
-        os.remove(filepath)  # Clean up the file after reading
         return {
             "digest": digest_val,
             "num_pages": metadata_json.get("num_pages", None),
+            "creation_date": metadata_json.get("creation_date", None),
+            "pretty_name": metadata_json.get("pretty_name", ""),
         }
     except Exception as exc:
         print(f"Error reading {filepath}: {exc}")
