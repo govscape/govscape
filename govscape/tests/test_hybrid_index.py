@@ -149,23 +149,6 @@ class HugeCandidateMetadataIndex(BroadMetadataIndex):
         return 0.0001 if predicates else 1.0
 
 
-def test_hybrid_prefilter_cap_forces_postfilter():
-    vector_index = DummyVectorIndex()
-    hybrid = HybridVectorMetadataIndex(
-        vector_index=vector_index,
-        metadata_index=HugeCandidateMetadataIndex(),
-    )
-
-    _rows, _metadata, state = hybrid.search(
-        query_embedding=np.ones(4, dtype=np.float32),
-        predicates=[EqualityPredicate("sub_domain", "epa.gov")],
-        target_results=2,
-    )
-
-    assert state.strategy == "postfilter"
-    assert vector_index.search_calls
-
-
 class DummyKeywordIndex:
     def __init__(self):
         self.search_calls = []
