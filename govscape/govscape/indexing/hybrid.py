@@ -204,7 +204,6 @@ class HybridVectorMetadataIndex(AbstractHybridMetadataIndex):
     ):
         safe_selectivity = max(selectivity, 1e-6)
         current_k = int(math.ceil(target_results * (1.0 / safe_selectivity)))
-        old_results_found = -1
         filtered_rows = []
         metadata = {}
 
@@ -220,20 +219,11 @@ class HybridVectorMetadataIndex(AbstractHybridMetadataIndex):
 
             if len(filtered_rows) >= target_results:
                 break
+
             if current_k >= self._index_total_entries():
                 break
 
-            results_found = len(filtered_rows)
-            if results_found == old_results_found and not predicates:
-                break
-            old_results_found = results_found
-
             current_k = min(self._index_total_entries(), current_k * 2)
-            if (
-                current_k == self._index_total_entries()
-                and len(filtered_rows) == old_results_found
-            ):
-                break
 
         return filtered_rows, metadata, current_k
 
@@ -296,7 +286,7 @@ class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
     ):
         safe_selectivity = max(selectivity, 1e-6)
         current_k = int(math.ceil(target_results * (1.0 / safe_selectivity)))
-        old_results_found = -1
+
         filtered_rows = []
         metadata = {}
 
@@ -311,13 +301,9 @@ class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
             if len(filtered_rows) >= target_results:
                 break
 
-            results_found = len(filtered_rows)
-            if results_found == old_results_found and not predicates:
+            if current_k >= self._index_total_entries():
                 break
-            old_results_found = results_found
-            current_k = current_k * 2
 
-            if current_k > self._index_total_entries():
-                break
+            current_k = min(self._index_total_entries(), current_k * 2)
 
         return filtered_rows, metadata, current_k

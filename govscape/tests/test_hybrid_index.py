@@ -137,7 +137,7 @@ def test_hybrid_uses_postfilter_when_broad():
     assert state.strategy == "postfilter"
     assert [name for _, name, _ in rows] == ["doc_1.pdf", "doc_2.pdf"]
     assert set(metadata.keys()) == {"doc_1.pdf", "doc_2.pdf"}
-    assert hybrid.vector_index.search_calls[0] == 2
+    assert hybrid.vector_index.search_calls[0] == 3
 
 
 class HugeCandidateMetadataIndex(BroadMetadataIndex):
