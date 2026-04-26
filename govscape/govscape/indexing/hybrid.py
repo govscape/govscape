@@ -2,38 +2,49 @@
 # AI modified: 2026-04-20 00:00:00 c1b6021e
 # AI modified: 2026-04-20 00:00:00 c1b6021e
 # AI modified: 2026-04-20 00:00:00 c1b6021e
+# AI modified: 2026-04-26 00:00:00 341724af
+# AI modified: 2026-04-26 00:00:00 341724af
+# AI modified: 2026-04-26 00:00:00 341724af
+# AI modified: 2026-04-26 00:00:00 341724af
+# AI modified: 2026-04-26 00:00:00 341724af
+# AI modified: 2026-04-26 00:00:00 341724af
+# AI modified: 2026-04-26 00:00:00 341724af
+# AI modified: 2026-04-26 00:00:00 341724af
+# AI modified: 2026-04-26 00:00:00 341724af
 from __future__ import annotations
 
 import math
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import numpy as np
 
+from .keyword import AbstractKeywordIndex
 from .metadata import AbstractMetadataIndex
 from .vector import AbstractVectorIndex
 
 STRATEGY_PREFILTER = "prefilter"
 STRATEGY_POSTFILTER = "postfilter"
+DEFAULT_PREFILTER_CANDIDATE_CAP = 100000
 
 
 @dataclass
 class HybridSearchState:
     strategy: str
     current_k: int
+    estimated_selectivity: float
+    prefilter_cost: float
+    postfilter_cost: float
 
 
-class HybridVectorMetadataIndex:
+class AbstractHybridMetadataIndex(ABC):
     def __init__(
         self,
-        vector_index: AbstractVectorIndex,
         metadata_index: AbstractMetadataIndex,
-        prefilter_threshold: float = 0.2,
-        vector_store_key: str = "text",
+        prefilter_candidate_cap: int = DEFAULT_PREFILTER_CANDIDATE_CAP,
     ):
-        self.vector_index = vector_index
         self.metadata_index = metadata_index
-        self.prefilter_threshold = prefilter_threshold
-        self.vector_store_key = vector_store_key
+        self.prefilter_candidate_cap = int(max(1, prefilter_candidate_cap))
 
     @staticmethod
     def deduplicate_by_pdf(distances, names, pages):
@@ -46,33 +57,166 @@ class HybridVectorMetadataIndex:
             deduped.append((float(distance), name, str(page)))
         return deduped
 
-    def _choose_strategy(self, predicates) -> str:
-        if not predicates:
-            return STRATEGY_POSTFILTER
-        if not hasattr(self.metadata_index, "estimate_selectivity"):
-            return STRATEGY_POSTFILTER
-        estimated = self.metadata_index.estimate_selectivity(predicates)
-        if estimated <= self.prefilter_threshold:
-            return STRATEGY_PREFILTER
-        return STRATEGY_POSTFILTER
-
-    def _apply_blacklist(self, rows, blacklist):
+    @staticmethod
+    def _apply_blacklist(rows, blacklist):
         if not blacklist:
             return rows
         return [row for row in rows if row[1] not in blacklist]
 
-    def _run_prefilter(self, query_embedding, predicates, target_results, blacklist):
-        if not hasattr(self.metadata_index, "get_candidate_pdf_names"):
-            return [], {}, 0
-        if not hasattr(self.metadata_index, "get_vectors_for_pdf_names"):
-            return [], {}, 0
+    def _metadata_size(self) -> int:
+        return max(0, int(self.metadata_index.total_entries()))
 
-        candidates = self.metadata_index.get_candidate_pdf_names(predicates)
-        if blacklist:
-            candidates = candidates.difference(blacklist)
-        if not candidates:
-            return [], {}, 0
+    def _estimate_selectivity(self, predicates) -> float:
+        if not predicates:
+            return 1.0
+        estimated = float(self.metadata_index.estimate_selectivity(predicates))
+        return max(0.0, min(1.0, estimated))
 
+    def _choose_strategy(
+        self,
+        estimated_selectivity,
+        target_results,
+        metadata_size,
+    ) -> tuple[str, float, float]:
+        safe_selectivity = max(float(estimated_selectivity), 1e-6)
+        prefilter_cost = safe_selectivity * float(metadata_size)
+        postfilter_cost = float(max(1, target_results)) * (1.0 / safe_selectivity)
+
+        strategy = (
+            STRATEGY_PREFILTER
+            if prefilter_cost <= postfilter_cost
+            else STRATEGY_POSTFILTER
+        )
+        return strategy, prefilter_cost, postfilter_cost
+
+    @abstractmethod
+    def _index_total_entries(self) -> int:
+        pass
+
+    @abstractmethod
+    def _run_prefilter(
+        self,
+        query_embedding,
+        predicates,
+        target_results,
+        candidates,
+    ):
+        pass
+
+    @abstractmethod
+    def _run_postfilter(
+        self,
+        query_embedding,
+        predicates,
+        target_results,
+        blacklist,
+        selectivity,
+        max_k,
+    ):
+        pass
+
+    def search(
+        self,
+        query_embedding,
+        predicates,
+        target_results,
+        blacklist=None,
+        max_k=None,
+    ):
+        if blacklist is None:
+            blacklist = set()
+
+        metadata_size = max(1, self._metadata_size())
+        index_limit = max(1, self._index_total_entries())
+        postfilter_max_k = min(max_k or DEFAULT_PREFILTER_CANDIDATE_CAP, index_limit)
+        estimated_selectivity = self._estimate_selectivity(predicates)
+        candidates = None
+
+        # For predicate searches, compute selectivity from actual candidate count
+        # so the planner can choose true prefiltering when filters are selective.
+        if predicates:
+            candidates = self.metadata_index.get_candidate_pdf_names(predicates)
+            if blacklist:
+                candidates = candidates.difference(blacklist)
+            estimated_selectivity = max(
+                0.0,
+                min(1.0, float(len(candidates)) / float(metadata_size)),
+            )
+
+        strategy, prefilter_cost, postfilter_cost = self._choose_strategy(
+            estimated_selectivity,
+            target_results,
+            metadata_size,
+        )
+
+        rows = []
+        metadata = {}
+        current_k = 0
+
+        if strategy == STRATEGY_PREFILTER:
+            if candidates is None:
+                candidates = self.metadata_index.get_candidate_pdf_names(predicates)
+                if blacklist:
+                    candidates = candidates.difference(blacklist)
+
+            if candidates and len(candidates) <= self.prefilter_candidate_cap:
+                rows, metadata, current_k = self._run_prefilter(
+                    query_embedding,
+                    predicates,
+                    target_results,
+                    candidates,
+                )
+            elif candidates and len(candidates) > self.prefilter_candidate_cap:
+                strategy = STRATEGY_POSTFILTER
+
+        if strategy == STRATEGY_POSTFILTER:
+            rows, metadata, current_k = self._run_postfilter(
+                query_embedding,
+                predicates,
+                target_results,
+                blacklist,
+                estimated_selectivity,
+                postfilter_max_k,
+            )
+
+        return (
+            rows,
+            metadata,
+            HybridSearchState(
+                strategy=strategy,
+                current_k=current_k,
+                estimated_selectivity=estimated_selectivity,
+                prefilter_cost=prefilter_cost,
+                postfilter_cost=postfilter_cost,
+            ),
+        )
+
+
+class HybridVectorMetadataIndex(AbstractHybridMetadataIndex):
+    def __init__(
+        self,
+        vector_index: AbstractVectorIndex,
+        metadata_index: AbstractMetadataIndex,
+        vector_store_key: str = "text",
+        prefilter_candidate_cap: int = DEFAULT_PREFILTER_CANDIDATE_CAP,
+    ):
+        super().__init__(
+            metadata_index=metadata_index,
+            prefilter_candidate_cap=prefilter_candidate_cap,
+        )
+        self.vector_index = vector_index
+        self.vector_store_key = vector_store_key
+
+    def _index_total_entries(self) -> int:
+        return self.vector_index.total_entries()
+
+    def _run_prefilter(
+        self,
+        query_embedding,
+        predicates,
+        target_results,
+        candidates,
+    ):
         vectors, names, pages = self.metadata_index.get_vectors_for_pdf_names(
             self.vector_store_key,
             candidates,
@@ -88,8 +232,14 @@ class HybridVectorMetadataIndex:
 
         distances = np.linalg.norm(vectors - query_vec, axis=1)
         order = np.argsort(distances)
-        ranked_rows = [(float(distances[i]), names[i], str(pages[i])) for i in order]
-        ranked_rows = self._apply_blacklist(ranked_rows, blacklist)
+        ranked_distances = [float(distances[i]) for i in order]
+        ranked_names = [names[i] for i in order]
+        ranked_pages = [str(pages[i]) for i in order]
+        ranked_rows = self.deduplicate_by_pdf(
+            ranked_distances,
+            ranked_names,
+            ranked_pages,
+        )
 
         selected_rows = ranked_rows[:target_results]
         selected_names = [name for _, name, _ in selected_rows]
@@ -138,42 +288,97 @@ class HybridVectorMetadataIndex:
 
         return filtered_rows, metadata, current_k
 
-    def search(
+
+class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
+    def __init__(
         self,
-        query_embedding,
+        keyword_index: AbstractKeywordIndex,
+        metadata_index: AbstractMetadataIndex,
+        prefilter_candidate_cap: int = DEFAULT_PREFILTER_CANDIDATE_CAP,
+    ):
+        super().__init__(
+            metadata_index=metadata_index,
+            prefilter_candidate_cap=prefilter_candidate_cap,
+        )
+        self.keyword_index = keyword_index
+
+    def _index_total_entries(self) -> int:
+        return self.keyword_index.total_entries()
+
+    def _run_prefilter(
+        self,
+        query_text,
         predicates,
         target_results,
-        blacklist=None,
-        max_k=None,
+        candidates,
     ):
-        if blacklist is None:
-            blacklist = set()
+        if not candidates:
+            return [], {}, 0
 
-        index_limit = max(1, self.vector_index.total_entries())
-        postfilter_max_k = min(max_k or 100000, index_limit)
-        strategy = self._choose_strategy(predicates)
-        estimated_selectivity = 1.0
-        if predicates and hasattr(self.metadata_index, "estimate_selectivity"):
-            estimated_selectivity = max(
-                0.0,
-                min(1.0, float(self.metadata_index.estimate_selectivity(predicates))),
-            )
+        current_k = max(1, target_results)
+        max_k = min(max(1, len(candidates)), self._index_total_entries())
+        old_results_found = -1
+        filtered_rows = []
+        metadata = {}
 
-        if strategy == STRATEGY_PREFILTER:
-            rows, metadata, current_k = self._run_prefilter(
-                query_embedding,
-                predicates,
-                target_results,
-                blacklist,
+        while len(filtered_rows) < target_results:
+            distances, names, pages = self.keyword_index.search_filtered(
+                query_text,
+                current_k,
+                candidates,
             )
-        else:
-            rows, metadata, current_k = self._run_postfilter(
-                query_embedding,
-                predicates,
-                target_results,
-                blacklist,
-                estimated_selectivity,
-                postfilter_max_k,
-            )
+            # Keep document-level uniqueness in ranking output.
+            deduped = self.deduplicate_by_pdf(distances, names, pages)
+            candidate_names = [name for _, name, _ in deduped]
+            metadata = self.metadata_index.search(candidate_names, predicates)
+            filtered_rows = [row for row in deduped if row[1] in metadata]
 
-        return rows, metadata, HybridSearchState(strategy=strategy, current_k=current_k)
+            if len(filtered_rows) >= target_results:
+                break
+            if current_k >= max_k:
+                break
+
+            results_found = len(filtered_rows)
+            if results_found == old_results_found and not predicates:
+                break
+            old_results_found = results_found
+            current_k = min(max_k, current_k * 2)
+
+        return filtered_rows, metadata, current_k
+
+    def _run_postfilter(
+        self,
+        query_text,
+        predicates,
+        target_results,
+        blacklist,
+        selectivity,
+        max_k,
+    ):
+        safe_selectivity = max(selectivity, 1e-6)
+        initial_k = int(math.ceil(target_results * (1.0 / safe_selectivity)))
+        current_k = max(1, min(max_k, initial_k))
+        old_results_found = -1
+        filtered_rows = []
+        metadata = {}
+
+        while len(filtered_rows) < target_results:
+            distances, names, pages = self.keyword_index.search(query_text, current_k)
+            deduped = self.deduplicate_by_pdf(distances, names, pages)
+            deduped = self._apply_blacklist(deduped, blacklist)
+            candidate_names = [name for _, name, _ in deduped]
+            metadata = self.metadata_index.search(candidate_names, predicates)
+            filtered_rows = [row for row in deduped if row[1] in metadata]
+
+            if len(filtered_rows) >= target_results:
+                break
+            if current_k >= max_k:
+                break
+
+            results_found = len(filtered_rows)
+            if results_found == old_results_found and not predicates:
+                break
+            old_results_found = results_found
+            current_k = min(max_k, current_k * 2)
+
+        return filtered_rows, metadata, current_k

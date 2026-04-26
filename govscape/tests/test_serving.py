@@ -1,3 +1,4 @@
+# AI modified: 2026-04-26 00:00:00 341724af
 from pathlib import Path
 
 import pytest
@@ -69,10 +70,19 @@ class DummyKeywordIndex:
 
 class DummyMetadataIndex:
     def __init__(self, *args, **kwargs):
-        pass
+        self._entries = 1000
 
     def load_index(self):
         pass
+
+    def total_entries(self):
+        return self._entries
+
+    def estimate_selectivity(self, predicates=None):
+        return 1.0 if not predicates else 0.5
+
+    def get_candidate_pdf_names(self, predicates=None):
+        return {f"doc_{i}.pdf" for i in range(self._entries)}
 
     def search(self, pdf_names, predicates=None):
         return {

@@ -2,6 +2,7 @@
 # AI modified: 2026-03-14 4a6b1b72
 # AI modified: 2026-04-19 21:12:31 c1b6021e
 # AI modified: 2026-04-20 00:00:00 c1b6021e
+# AI modified: 2026-04-26 00:00:00 341724af
 # This file defines the logic for serving requests to the user.
 import math
 import os
@@ -15,6 +16,7 @@ from .api import init_api
 from .config import ServerConfig
 from .indexing import (
     FAISSIndex,
+    HybridKeywordMetadataIndex,
     HybridVectorMetadataIndex,
     LanceDBKeywordIndex,
     LuceneKeywordIndex,
@@ -87,14 +89,16 @@ class Server:
         self.text_hybrid_index = HybridVectorMetadataIndex(
             self.text_index,
             self.metadata_index,
-            prefilter_threshold=0.2,
             vector_store_key="text",
         )
         self.visual_hybrid_index = HybridVectorMetadataIndex(
             self.visual_index,
             self.metadata_index,
-            prefilter_threshold=0.2,
             vector_store_key="visual",
+        )
+        self.keyword_hybrid_index = HybridKeywordMetadataIndex(
+            self.keyword_index,
+            self.metadata_index,
         )
 
         self.blacklist: set[str] = self._load_blacklist()
@@ -147,20 +151,6 @@ class Server:
             print(f"Warning: failed to read blacklist at {path}: {e}")
             return set()
 
-    @staticmethod
-    def deduplicate_responses(distances, names, pages):
-        seen = set()
-        unique_distances = []
-        unique_names = []
-        unique_pages = []
-        for distance, name, page in zip(distances, names, pages, strict=False):
-            if name not in seen:
-                seen.add(name)
-                unique_distances.append(distance)
-                unique_names.append(name)
-                unique_pages.append(page)
-        return unique_distances, unique_names, unique_pages
-
     def search(self, query: Query) -> Response:
         search_type = query.search_type
         predicates = query.predicates
@@ -206,68 +196,20 @@ class Server:
 
         elif search_type == "keyword":
             query_text = query.q_text
-            current_k = self.k * 2
-            search_results: list[dict] = []
-            old_results_found = -1
-
-            while len(search_results) < results_needed_for_page:
-                start = time.time()
-                distances, pdf_names, pdf_pages = self.keyword_index.search(
-                    query_text,
-                    current_k,
-                )
-                distances, pdf_names, pdf_pages = self.deduplicate_responses(
-                    distances,
-                    pdf_names,
-                    pdf_pages,
-                )
-
-                if self.blacklist:
-                    filtered = [
-                        (d, n, p)
-                        for d, n, p in zip(
-                            distances, pdf_names, pdf_pages, strict=False
-                        )
-                        if n not in self.blacklist
-                    ]
-                    if filtered:
-                        distances, pdf_names, pdf_pages = (
-                            list(x) for x in zip(*filtered, strict=False)
-                        )
-                    else:
-                        distances, pdf_names, pdf_pages = [], [], []
-
-                print(f"Index Search took {time.time() - start} seconds")
-                print(
-                    "Search type: "
-                    f"{search_type}, current_k: {current_k}, "
-                    f"results found: {len(distances)}"
-                )
-                pdf_metadata = self.metadata_index.search(pdf_names, predicates)
-                print(
-                    "Search type: "
-                    f"{search_type}, current_k: {current_k}, results found "
-                    f"after filtering: {len(pdf_metadata)}"
-                )
-
-                rows = [
-                    (float(distance), name, str(page_num))
-                    for distance, name, page_num in zip(
-                        distances, pdf_names, pdf_pages, strict=False
-                    )
-                ]
-                search_results = self._build_search_results(rows, pdf_metadata)
-
-                if current_k > min(100000, self.keyword_index.total_entries()):
-                    break
-                if len(search_results) >= results_needed_for_page:
-                    break
-
-                results_found = len(search_results)
-                if results_found == old_results_found and len(predicates) == 0:
-                    break
-                old_results_found = results_found
-                current_k *= 2
+            start = time.time()
+            rows, pdf_metadata, state = self.keyword_hybrid_index.search(
+                query_text,
+                predicates,
+                results_needed_for_page,
+                blacklist=self.blacklist,
+            )
+            print(f"Index Search took {time.time() - start} seconds")
+            print(
+                "Search type: "
+                f"{search_type}, strategy: {state.strategy}, "
+                f"results found after filtering: {len(rows)}"
+            )
+            search_results = self._build_search_results(rows, pdf_metadata)
         else:
             raise ValueError(f"Unsupported search type: {search_type}")
 

@@ -1,3 +1,4 @@
+# AI modified: 2026-04-26 00:00:00 341724af
 import pytest
 
 from govscape.indexing import (
@@ -87,3 +88,9 @@ def test_keyword_indexes_round_trip(tmp_path, index_cls, sample_documents):
     assert len(phrase_pdfs) == 1
     assert phrase_pdfs[0] == pdf_names[1]
     assert phrase_pages[0] == str(pages[1])
+
+    allowed = {pdf_names[1]}
+    _, filtered_pdfs, _ = reloaded_index.search_filtered(
+        "resilience", k=5, allowed_names=allowed
+    )
+    assert filtered_pdfs == [pdf_names[1]]
