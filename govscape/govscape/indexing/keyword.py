@@ -599,14 +599,7 @@ class LuceneKeywordIndex(AbstractKeywordIndex):
             doc.add(TextField("text", text if text is not None else "", Field.Store.NO))
             doc.add(
                 StringField(
-                    "pdf_name",
-                    digest if digest is not None else "",
-                    Field.Store.YES,
-                )
-            )
-            doc.add(
-                StringField(
-                    "name",
+                    "digest",
                     digest if digest is not None else "",
                     Field.Store.YES,
                 )
@@ -636,7 +629,7 @@ class LuceneKeywordIndex(AbstractKeywordIndex):
         for sd in hits:
             doc = stored.document(sd.doc)
             scores.append(float(sd.score))
-            digests.append(doc.get("pdf_name"))
+            digests.append(doc.get("digest"))
             pages.append(str(doc.get("page")))
         return scores, digests, pages
 
@@ -668,11 +661,7 @@ class LuceneKeywordIndex(AbstractKeywordIndex):
             name_filter = BooleanQuery.Builder()
             for name in chunk:
                 name_filter.add(
-                    TermQuery(LuceneTerm("name", name)),
-                    BooleanClause.Occur.SHOULD,
-                )
-                name_filter.add(
-                    TermQuery(LuceneTerm("pdf_name", name)),
+                    TermQuery(LuceneTerm("digest", name)),
                     BooleanClause.Occur.SHOULD,
                 )
 

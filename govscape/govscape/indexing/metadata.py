@@ -1,7 +1,4 @@
-# AI modified: 2026-04-19 21:12:31 c1b6021e
-# AI modified: 2026-04-20 00:00:00 c1b6021e
-# AI modified: 2026-04-20 00:00:00 4a7a8111
-# AI modified: 2026-04-26T22:00:43Z eac4f332
+# AI modified
 """Metadata index implementations used by serving and filtering planners."""
 
 import os
@@ -72,21 +69,13 @@ class AbstractMetadataIndex(ABC):
     ) -> set[str]:
         """Return distinct digests that satisfy all predicates."""
 
+    @abstractmethod
     def upsert_vectors(self, vector_store_key, vectors, digests, pages):
         """Upsert vector rows keyed by (vector_store_key, digest, page)."""
-        raise NotImplementedError(
-            f"{type(self).__name__} does not support vector storage"
-        )
 
+    @abstractmethod
     def get_vectors_for_digests(self, vector_store_key, candidate_digests):
         """Return (vectors, digests, pages) for candidate digests."""
-        raise NotImplementedError(
-            f"{type(self).__name__} does not support vector retrieval"
-        )
-
-    def vector_count(self, vector_store_key: str) -> int:
-        """Return number of stored vectors for a vector_store_key."""
-        return 0
 
     @staticmethod
     def _normalize_crawl_date(date_str: str) -> str:
@@ -440,15 +429,6 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
 
         return np.vstack(vectors), digests, pages
 
-    def vector_count(self, vector_store_key: str) -> int:
-        if self.conn is None:
-            self.load_index()
-        row = self.conn.execute(
-            "SELECT COUNT(*) FROM metadata_vectors WHERE vector_store_key = ?",
-            (str(vector_store_key),),
-        ).fetchone()
-        return int(row[0]) if row else 0
-
 
 class DuckDBMetadataIndex(AbstractMetadataIndex):
     def __init__(self, index_metadata_directory, filter_table_specs=None):
@@ -766,11 +746,3 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         pages = [str(row[1]) for row in rows]
         vectors = np.asarray([row[2] for row in rows], dtype=np.float32)
         return vectors, digests, pages
-
-    def vector_count(self, vector_store_key: str) -> int:
-        self._connect()
-        row = self.conn.execute(
-            "SELECT COUNT(*) FROM metadata_vectors WHERE vector_store_key = ?",
-            [str(vector_store_key)],
-        ).fetchone()
-        return int(row[0]) if row else 0

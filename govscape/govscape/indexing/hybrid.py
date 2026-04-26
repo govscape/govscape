@@ -1,16 +1,4 @@
-# AI modified: 2026-04-19 21:12:31 c1b6021e
-# AI modified: 2026-04-20 00:00:00 c1b6021e
-# AI modified: 2026-04-20 00:00:00 c1b6021e
-# AI modified: 2026-04-20 00:00:00 c1b6021e
-# AI modified: 2026-04-26 00:00:00 341724af
-# AI modified: 2026-04-26 00:00:00 341724af
-# AI modified: 2026-04-26 00:00:00 341724af
-# AI modified: 2026-04-26 00:00:00 341724af
-# AI modified: 2026-04-26 00:00:00 341724af
-# AI modified: 2026-04-26 00:00:00 341724af
-# AI modified: 2026-04-26 00:00:00 341724af
-# AI modified: 2026-04-26 00:00:00 341724af
-# AI modified: 2026-04-26 00:00:00 341724af
+# AI modified
 from __future__ import annotations
 
 import math
@@ -25,7 +13,6 @@ from .vector import AbstractVectorIndex
 
 STRATEGY_PREFILTER = "prefilter"
 STRATEGY_POSTFILTER = "postfilter"
-DEFAULT_PREFILTER_CANDIDATE_CAP = 100000
 
 
 @dataclass
@@ -38,49 +25,51 @@ class HybridSearchState:
 
 
 class AbstractHybridMetadataIndex(ABC):
-    def __init__(
-        self,
-        metadata_index: AbstractMetadataIndex,
-        prefilter_candidate_cap: int = DEFAULT_PREFILTER_CANDIDATE_CAP,
-    ):
+    def __init__(self, metadata_index: AbstractMetadataIndex):
         self.metadata_index = metadata_index
-        self.prefilter_candidate_cap = int(max(1, prefilter_candidate_cap))
 
     @staticmethod
-    def deduplicate_by_digest(distances, digests, pages):
-        seen = set()
-        deduped = []
+    def deduplicate_by_digest(
+        distances: list[float], digests: list[str], pages: list[str]
+    ) -> list[tuple[float, str, str]]:
+        seen: set[str] = set()
+
+        deduped: list[tuple[float, str, str]] = []
+
         for distance, digest, page in zip(distances, digests, pages, strict=False):
             if digest in seen:
                 continue
+
             seen.add(digest)
             deduped.append((float(distance), digest, str(page)))
+
         return deduped
 
     @staticmethod
-    def _apply_blacklist(rows, blacklist):
-        if not blacklist:
-            return rows
+    def _apply_blacklist(rows: list[tuple[float, str, str]], blacklist: set[str]):
         return [row for row in rows if row[1] not in blacklist]
 
     def _metadata_size(self) -> int:
-        return max(0, int(self.metadata_index.total_entries()))
+        return self.metadata_index.total_entries()
 
     def _estimate_selectivity(self, predicates) -> float:
         if not predicates:
             return 1.0
-        estimated = float(self.metadata_index.estimate_selectivity(predicates))
-        return max(0.0, min(1.0, estimated))
+        return self.metadata_index.estimate_selectivity(predicates)
 
     def _choose_strategy(
-        self,
-        estimated_selectivity,
-        target_results,
-        metadata_size,
+        self, estimated_selectivity: float, target_results: int
     ) -> tuple[str, float, float]:
-        safe_selectivity = max(float(estimated_selectivity), 1e-6)
-        prefilter_cost = safe_selectivity * float(metadata_size)
-        postfilter_cost = float(max(1, target_results)) * (1.0 / safe_selectivity)
+
+        # Ensure selectivity is not too close to zero.
+        safe_selectivity: float = max(float(estimated_selectivity), 1e-6)
+
+        # Cost model:
+        # cost of prefiltering  = selectivity * size of metadata database
+        # cost of postfiltering = k * 1/selectivity
+
+        prefilter_cost: float = safe_selectivity * float(self._metadata_size())
+        postfilter_cost: float = float(target_results) * (1.0 / safe_selectivity)
 
         strategy = (
             STRATEGY_PREFILTER
@@ -105,13 +94,7 @@ class AbstractHybridMetadataIndex(ABC):
 
     @abstractmethod
     def _run_postfilter(
-        self,
-        query_embedding,
-        predicates,
-        target_results,
-        blacklist,
-        selectivity,
-        max_k,
+        self, query_embedding, predicates, target_results, blacklist, selectivity
     ):
         pass
 
@@ -121,32 +104,14 @@ class AbstractHybridMetadataIndex(ABC):
         predicates,
         target_results,
         blacklist=None,
-        max_k=None,
     ):
         if blacklist is None:
             blacklist = set()
 
-        metadata_size = max(1, self._metadata_size())
-        index_limit = max(1, self._index_total_entries())
-        postfilter_max_k = min(max_k or DEFAULT_PREFILTER_CANDIDATE_CAP, index_limit)
         estimated_selectivity = self._estimate_selectivity(predicates)
-        candidates = None
-
-        # For predicate searches, compute selectivity from actual candidate count
-        # so the planner can choose true prefiltering when filters are selective.
-        if predicates:
-            candidates = self.metadata_index.get_candidate_digests(predicates)
-            if blacklist:
-                candidates = candidates.difference(blacklist)
-            estimated_selectivity = max(
-                0.0,
-                min(1.0, float(len(candidates)) / float(metadata_size)),
-            )
 
         strategy, prefilter_cost, postfilter_cost = self._choose_strategy(
-            estimated_selectivity,
-            target_results,
-            metadata_size,
+            estimated_selectivity, target_results
         )
 
         rows = []
@@ -154,20 +119,15 @@ class AbstractHybridMetadataIndex(ABC):
         current_k = 0
 
         if strategy == STRATEGY_PREFILTER:
-            if candidates is None:
-                candidates = self.metadata_index.get_candidate_digests(predicates)
-                if blacklist:
-                    candidates = candidates.difference(blacklist)
+            candidates = self.metadata_index.get_candidate_digests(predicates)
+            candidates = candidates.difference(blacklist)
 
-            if candidates and len(candidates) <= self.prefilter_candidate_cap:
-                rows, metadata, current_k = self._run_prefilter(
-                    query_embedding,
-                    predicates,
-                    target_results,
-                    candidates,
-                )
-            elif candidates and len(candidates) > self.prefilter_candidate_cap:
-                strategy = STRATEGY_POSTFILTER
+            rows, metadata, current_k = self._run_prefilter(
+                query_embedding,
+                predicates,
+                target_results,
+                candidates,
+            )
 
         if strategy == STRATEGY_POSTFILTER:
             rows, metadata, current_k = self._run_postfilter(
@@ -176,7 +136,6 @@ class AbstractHybridMetadataIndex(ABC):
                 target_results,
                 blacklist,
                 estimated_selectivity,
-                postfilter_max_k,
             )
 
         return (
@@ -198,28 +157,17 @@ class HybridVectorMetadataIndex(AbstractHybridMetadataIndex):
         vector_index: AbstractVectorIndex,
         metadata_index: AbstractMetadataIndex,
         vector_store_key: str = "text",
-        prefilter_candidate_cap: int = DEFAULT_PREFILTER_CANDIDATE_CAP,
     ):
-        super().__init__(
-            metadata_index=metadata_index,
-            prefilter_candidate_cap=prefilter_candidate_cap,
-        )
+        super().__init__(metadata_index=metadata_index)
         self.vector_index = vector_index
         self.vector_store_key = vector_store_key
 
     def _index_total_entries(self) -> int:
         return self.vector_index.total_entries()
 
-    def _run_prefilter(
-        self,
-        query_embedding,
-        predicates,
-        target_results,
-        candidates,
-    ):
+    def _run_prefilter(self, query_embedding, predicates, target_results, candidates):
         vectors, digests, pages = self.metadata_index.get_vectors_for_digests(
-            self.vector_store_key,
-            candidates,
+            self.vector_store_key, candidates
         )
         if len(digests) == 0:
             return [], {}, 0
@@ -253,11 +201,9 @@ class HybridVectorMetadataIndex(AbstractHybridMetadataIndex):
         target_results,
         blacklist,
         selectivity,
-        max_k,
     ):
         safe_selectivity = max(selectivity, 1e-6)
-        initial_k = int(math.ceil(target_results * (1.0 / safe_selectivity)))
-        current_k = max(1, min(max_k, initial_k))
+        current_k = int(math.ceil(target_results * (1.0 / safe_selectivity)))
         old_results_found = -1
         filtered_rows = []
         metadata = {}
@@ -274,7 +220,7 @@ class HybridVectorMetadataIndex(AbstractHybridMetadataIndex):
 
             if len(filtered_rows) >= target_results:
                 break
-            if current_k >= max_k:
+            if current_k >= self._index_total_entries():
                 break
 
             results_found = len(filtered_rows)
@@ -282,8 +228,11 @@ class HybridVectorMetadataIndex(AbstractHybridMetadataIndex):
                 break
             old_results_found = results_found
 
-            current_k = min(max_k, current_k * 2)
-            if current_k == max_k and len(filtered_rows) == old_results_found:
+            current_k = min(self._index_total_entries(), current_k * 2)
+            if (
+                current_k == self._index_total_entries()
+                and len(filtered_rows) == old_results_found
+            ):
                 break
 
         return filtered_rows, metadata, current_k
@@ -291,15 +240,9 @@ class HybridVectorMetadataIndex(AbstractHybridMetadataIndex):
 
 class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
     def __init__(
-        self,
-        keyword_index: AbstractKeywordIndex,
-        metadata_index: AbstractMetadataIndex,
-        prefilter_candidate_cap: int = DEFAULT_PREFILTER_CANDIDATE_CAP,
+        self, keyword_index: AbstractKeywordIndex, metadata_index: AbstractMetadataIndex
     ):
-        super().__init__(
-            metadata_index=metadata_index,
-            prefilter_candidate_cap=prefilter_candidate_cap,
-        )
+        super().__init__(metadata_index=metadata_index)
         self.keyword_index = keyword_index
 
     def _index_total_entries(self) -> int:
@@ -316,11 +259,12 @@ class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
             return [], {}, 0
 
         current_k = max(1, target_results)
-        max_k = min(max(1, len(candidates)), self._index_total_entries())
         old_results_found = -1
         filtered_rows = []
         metadata = {}
 
+        # Since we cannot know in advance how many results will remain after
+        # deduplication, we still need a loop for keyword prefiltering.
         while len(filtered_rows) < target_results:
             distances, digests, pages = self.keyword_index.search_filtered(
                 query_text,
@@ -335,29 +279,23 @@ class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
 
             if len(filtered_rows) >= target_results:
                 break
-            if current_k >= max_k:
+            if current_k >= self._index_total_entries():
                 break
 
             results_found = len(filtered_rows)
             if results_found == old_results_found and not predicates:
                 break
             old_results_found = results_found
-            current_k = min(max_k, current_k * 2)
+
+            current_k = min(self._index_total_entries(), current_k * 2)
 
         return filtered_rows, metadata, current_k
 
     def _run_postfilter(
-        self,
-        query_text,
-        predicates,
-        target_results,
-        blacklist,
-        selectivity,
-        max_k,
+        self, query_text, predicates, target_results, blacklist, selectivity
     ):
         safe_selectivity = max(selectivity, 1e-6)
-        initial_k = int(math.ceil(target_results * (1.0 / safe_selectivity)))
-        current_k = max(1, min(max_k, initial_k))
+        current_k = int(math.ceil(target_results * (1.0 / safe_selectivity)))
         old_results_found = -1
         filtered_rows = []
         metadata = {}
@@ -372,13 +310,14 @@ class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
 
             if len(filtered_rows) >= target_results:
                 break
-            if current_k >= max_k:
-                break
 
             results_found = len(filtered_rows)
             if results_found == old_results_found and not predicates:
                 break
             old_results_found = results_found
-            current_k = min(max_k, current_k * 2)
+            current_k = current_k * 2
+
+            if current_k > self._index_total_entries():
+                break
 
         return filtered_rows, metadata, current_k
