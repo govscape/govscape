@@ -153,7 +153,7 @@
   <div class="modal-backdrop" on:click={closeModal}>
     <div class="modal-content" on:click|stopPropagation>
       <div class="modal-header">
-        <h5 class="modal-title">{pdfData?.crawlUrl?.split('/').pop().replaceAll("\%20", " ") || ''}</h5>
+        <h5 class="modal-title">{pdfData?.prettyName || pdfData?.crawlUrl?.split('/').pop().replaceAll("\%20", " ") || ''}</h5>
         <button class="btn-close" on:click={closeModal}>
           <i class="bi bi-x"></i>
         </button>
