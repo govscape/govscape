@@ -47,14 +47,14 @@ class AbstractHybridMetadataIndex(ABC):
         self.prefilter_candidate_cap = int(max(1, prefilter_candidate_cap))
 
     @staticmethod
-    def deduplicate_by_pdf(distances, names, pages):
+    def deduplicate_by_digest(distances, digests, pages):
         seen = set()
         deduped = []
-        for distance, name, page in zip(distances, names, pages, strict=False):
-            if name in seen:
+        for distance, digest, page in zip(distances, digests, pages, strict=False):
+            if digest in seen:
                 continue
-            seen.add(name)
-            deduped.append((float(distance), name, str(page)))
+            seen.add(digest)
+            deduped.append((float(distance), digest, str(page)))
         return deduped
 
     @staticmethod
@@ -135,7 +135,7 @@ class AbstractHybridMetadataIndex(ABC):
         # For predicate searches, compute selectivity from actual candidate count
         # so the planner can choose true prefiltering when filters are selective.
         if predicates:
-            candidates = self.metadata_index.get_candidate_pdf_names(predicates)
+            candidates = self.metadata_index.get_candidate_digests(predicates)
             if blacklist:
                 candidates = candidates.difference(blacklist)
             estimated_selectivity = max(
@@ -155,7 +155,7 @@ class AbstractHybridMetadataIndex(ABC):
 
         if strategy == STRATEGY_PREFILTER:
             if candidates is None:
-                candidates = self.metadata_index.get_candidate_pdf_names(predicates)
+                candidates = self.metadata_index.get_candidate_digests(predicates)
                 if blacklist:
                     candidates = candidates.difference(blacklist)
 
@@ -217,11 +217,11 @@ class HybridVectorMetadataIndex(AbstractHybridMetadataIndex):
         target_results,
         candidates,
     ):
-        vectors, names, pages = self.metadata_index.get_vectors_for_pdf_names(
+        vectors, digests, pages = self.metadata_index.get_vectors_for_digests(
             self.vector_store_key,
             candidates,
         )
-        if len(names) == 0:
+        if len(digests) == 0:
             return [], {}, 0
 
         query_vec = np.asarray(query_embedding, dtype=np.float32)
@@ -233,18 +233,18 @@ class HybridVectorMetadataIndex(AbstractHybridMetadataIndex):
         distances = np.linalg.norm(vectors - query_vec, axis=1)
         order = np.argsort(distances)
         ranked_distances = [float(distances[i]) for i in order]
-        ranked_names = [names[i] for i in order]
+        ranked_digests = [digests[i] for i in order]
         ranked_pages = [str(pages[i]) for i in order]
-        ranked_rows = self.deduplicate_by_pdf(
+        ranked_rows = self.deduplicate_by_digest(
             ranked_distances,
-            ranked_names,
+            ranked_digests,
             ranked_pages,
         )
 
         selected_rows = ranked_rows[:target_results]
-        selected_names = [name for _, name, _ in selected_rows]
-        metadata = self.metadata_index.search(selected_names, predicates)
-        return selected_rows, metadata, len(names)
+        selected_digests = [digest for _, digest, _ in selected_rows]
+        metadata = self.metadata_index.search(selected_digests, predicates)
+        return selected_rows, metadata, len(digests)
 
     def _run_postfilter(
         self,
@@ -263,13 +263,13 @@ class HybridVectorMetadataIndex(AbstractHybridMetadataIndex):
         metadata = {}
 
         while len(filtered_rows) < target_results:
-            distances, names, pages = self.vector_index.search(
+            distances, digests, pages = self.vector_index.search(
                 query_embedding, current_k
             )
-            deduped = self.deduplicate_by_pdf(distances, names, pages)
+            deduped = self.deduplicate_by_digest(distances, digests, pages)
             deduped = self._apply_blacklist(deduped, blacklist)
-            candidate_names = [name for _, name, _ in deduped]
-            metadata = self.metadata_index.search(candidate_names, predicates)
+            candidate_digests = [digest for _, digest, _ in deduped]
+            metadata = self.metadata_index.search(candidate_digests, predicates)
             filtered_rows = [row for row in deduped if row[1] in metadata]
 
             if len(filtered_rows) >= target_results:
@@ -322,15 +322,15 @@ class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
         metadata = {}
 
         while len(filtered_rows) < target_results:
-            distances, names, pages = self.keyword_index.search_filtered(
+            distances, digests, pages = self.keyword_index.search_filtered(
                 query_text,
                 current_k,
                 candidates,
             )
             # Keep document-level uniqueness in ranking output.
-            deduped = self.deduplicate_by_pdf(distances, names, pages)
-            candidate_names = [name for _, name, _ in deduped]
-            metadata = self.metadata_index.search(candidate_names, predicates)
+            deduped = self.deduplicate_by_digest(distances, digests, pages)
+            candidate_digests = [digest for _, digest, _ in deduped]
+            metadata = self.metadata_index.search(candidate_digests, predicates)
             filtered_rows = [row for row in deduped if row[1] in metadata]
 
             if len(filtered_rows) >= target_results:
@@ -363,11 +363,11 @@ class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
         metadata = {}
 
         while len(filtered_rows) < target_results:
-            distances, names, pages = self.keyword_index.search(query_text, current_k)
-            deduped = self.deduplicate_by_pdf(distances, names, pages)
+            distances, digests, pages = self.keyword_index.search(query_text, current_k)
+            deduped = self.deduplicate_by_digest(distances, digests, pages)
             deduped = self._apply_blacklist(deduped, blacklist)
-            candidate_names = [name for _, name, _ in deduped]
-            metadata = self.metadata_index.search(candidate_names, predicates)
+            candidate_digests = [digest for _, digest, _ in deduped]
+            metadata = self.metadata_index.search(candidate_digests, predicates)
             filtered_rows = [row for row in deduped if row[1] in metadata]
 
             if len(filtered_rows) >= target_results:

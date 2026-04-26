@@ -1,6 +1,7 @@
 # AI modified: 2026-04-19 21:12:31 c1b6021e
 # AI modified: 2026-04-20 00:00:00 c1b6021e
 # AI modified: 2026-04-20 00:00:00 4a7a8111
+# AI modified: 2026-04-26T22:00:43Z eac4f332
 """Metadata index implementations used by serving and filtering planners."""
 
 import os
@@ -66,19 +67,19 @@ class AbstractMetadataIndex(ABC):
         """Estimate conjunctive predicate selectivity in [0, 1]."""
 
     @abstractmethod
-    def get_candidate_pdf_names(
+    def get_candidate_digests(
         self, predicates: list[Predicate] | None = None
     ) -> set[str]:
-        """Return distinct pdf names that satisfy all predicates."""
+        """Return distinct digests that satisfy all predicates."""
 
-    def upsert_vectors(self, vector_store_key, vectors, pdf_names, pages):
-        """Upsert vector rows keyed by (vector_store_key, pdf_name, page)."""
+    def upsert_vectors(self, vector_store_key, vectors, digests, pages):
+        """Upsert vector rows keyed by (vector_store_key, digest, page)."""
         raise NotImplementedError(
             f"{type(self).__name__} does not support vector storage"
         )
 
-    def get_vectors_for_pdf_names(self, vector_store_key, candidate_pdf_names):
-        """Return (vectors, names, pages) for candidate PDF names."""
+    def get_vectors_for_digests(self, vector_store_key, candidate_digests):
+        """Return (vectors, digests, pages) for candidate digests."""
         raise NotImplementedError(
             f"{type(self).__name__} does not support vector retrieval"
         )
@@ -150,9 +151,9 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
 
         return spec, clauses, params
 
-    def _query_pdf_names_for_predicate(self, predicate):
+    def _query_digests_for_predicate(self, predicate):
         spec, clauses, params = self._predicate_sql(predicate)
-        query = f"SELECT DISTINCT pdf_name FROM {spec.table_name}"
+        query = f"SELECT DISTINCT digest FROM {spec.table_name}"
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         cursor = self.conn.cursor()
@@ -160,9 +161,9 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         rows = cursor.fetchall()
         return {row[0] for row in rows}
 
-    def _count_pdf_names_for_predicate(self, predicate):
+    def _count_digests_for_predicate(self, predicate):
         spec, clauses, params = self._predicate_sql(predicate)
-        query = f"SELECT COUNT(DISTINCT pdf_name) FROM {spec.table_name}"
+        query = f"SELECT COUNT(DISTINCT digest) FROM {spec.table_name}"
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         cursor = self.conn.cursor()
@@ -174,7 +175,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         if self._total_documents != -1:
             return self._total_documents
         cursor = self.conn.cursor()
-        cursor.execute("SELECT COUNT(DISTINCT pdf_name) FROM metadata")
+        cursor.execute("SELECT COUNT(DISTINCT digest) FROM metadata")
         row = cursor.fetchone()
         self._total_documents = row[0] if row else 0
         return self._total_documents
@@ -209,7 +210,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             self.cursor.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {spec.table_name} (
-                    pdf_name TEXT,
+                    digest TEXT,
                     {spec.value_column} TEXT
                 );
                 """
@@ -218,11 +219,11 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             """
             CREATE TABLE IF NOT EXISTS metadata_vectors (
                 vector_store_key TEXT,
-                pdf_name TEXT,
+                digest TEXT,
                 page TEXT,
                 vector BLOB,
                 vector_dim INTEGER,
-                PRIMARY KEY (vector_store_key, pdf_name, page)
+                PRIMARY KEY (vector_store_key, digest, page)
             );
             """
         )
@@ -232,7 +233,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         if self.conn is None:
             self.conn = sqlite3.connect(self.db_path)
             self.cursor = self.conn.cursor()
-    
+
         for spec in self.filter_table_specs.values():
             self.cursor.execute(
                 f"DROP INDEX IF EXISTS idx_{spec.table_name}_value_pdf;"
@@ -260,14 +261,14 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         for spec in self.filter_table_specs.values():
             filter_rows = []
             for md in metadata_dicts:
-                pdf_name = md.get("pdf_name", "")
+                digest = md.get("digest", "")
                 value = self._normalize_value(spec.field_name, md.get(spec.field_name))
-                if not pdf_name or value is None:
+                if not digest or value is None:
                     continue
-                filter_rows.append((pdf_name, str(value)))
+                filter_rows.append((digest, str(value)))
             if filter_rows:
                 self.cursor.executemany(
-                    f"INSERT INTO {spec.table_name} (pdf_name, {spec.value_column}"
+                    f"INSERT INTO {spec.table_name} (digest, {spec.value_column}"
                     f") VALUES (?, ?)",
                     filter_rows,
                 )
@@ -290,17 +291,17 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
 
         for spec in self.filter_table_specs.values():
             self.cursor.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_{spec.table_name}_value_pdf "
-                f"ON {spec.table_name} ({spec.value_column}, pdf_name);"
+                f"CREATE INDEX IF NOT EXISTS idx_{spec.table_name}_value_digest "
+                f"ON {spec.table_name} ({spec.value_column}, digest);"
             )
             self.cursor.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_{spec.table_name}_pdf "
-                f"ON {spec.table_name} (pdf_name);"
+                f"CREATE INDEX IF NOT EXISTS idx_{spec.table_name}_digest "
+                f"ON {spec.table_name} (digest);"
             )
         self.cursor.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_metadata_vectors_key_pdf
-            ON metadata_vectors (vector_store_key, pdf_name);
+            CREATE INDEX IF NOT EXISTS idx_metadata_vectors_key_digest
+            ON metadata_vectors (vector_store_key, digest);
             """
         )
 
@@ -357,17 +358,17 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             return 0.0
         selectivity = 1.0
         for predicate in predicates:
-            matching_docs = self._count_pdf_names_for_predicate(predicate)
+            matching_docs = self._count_digests_for_predicate(predicate)
             selectivity *= matching_docs / total_docs
         return max(0.0, min(1.0, selectivity))
 
-    def get_candidate_pdf_names(
+    def get_candidate_digests(
         self, predicates: list[Predicate] | None = None
     ) -> set[str]:
         if not predicates:
             return set()
         candidate_sets = [
-            self._query_pdf_names_for_predicate(predicate) for predicate in predicates
+            self._query_digests_for_predicate(predicate) for predicate in predicates
         ]
         if not candidate_sets:
             return set()
@@ -376,18 +377,18 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             candidates = candidates.intersection(candidate_set)
         return candidates
 
-    def upsert_vectors(self, vector_store_key, vectors, pdf_names, pages):
+    def upsert_vectors(self, vector_store_key, vectors, digests, pages):
         if self.conn is None:
             self.load_index()
         rows = []
-        for vector, pdf_name, page in zip(vectors, pdf_names, pages, strict=False):
-            if not pdf_name:
+        for vector, digest, page in zip(vectors, digests, pages, strict=False):
+            if not digest:
                 continue
             vector_blob, vector_dim = self._serialize_vector(vector)
             rows.append(
                 (
                     str(vector_store_key),
-                    str(pdf_name),
+                    str(digest),
                     str(page),
                     sqlite3.Binary(vector_blob),
                     vector_dim,
@@ -399,29 +400,29 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self.cursor.executemany(
             """
             INSERT OR REPLACE INTO metadata_vectors
-            (vector_store_key, pdf_name, page, vector, vector_dim)
+            (vector_store_key, digest, page, vector, vector_dim)
             VALUES (?, ?, ?, ?, ?)
             """,
             rows,
         )
         self.conn.commit()
 
-    def get_vectors_for_pdf_names(self, vector_store_key, candidate_pdf_names):
+    def get_vectors_for_digests(self, vector_store_key, candidate_digests):
         if self.conn is None:
             self.load_index()
-        if not candidate_pdf_names:
+        if not candidate_digests:
             return np.empty((0, 0), dtype=np.float32), [], []
 
         all_rows = []
-        candidate_list = list(candidate_pdf_names)
+        candidate_list = list(candidate_digests)
         chunk_size = 800
         for i in range(0, len(candidate_list), chunk_size):
             chunk = candidate_list[i : i + chunk_size]
             placeholders = ",".join(["?"] * len(chunk))
             query = (
-                "SELECT pdf_name, page, vector, vector_dim "
+                "SELECT digest, page, vector, vector_dim "
                 "FROM metadata_vectors "
-                f"WHERE vector_store_key = ? AND pdf_name IN ({placeholders})"
+                f"WHERE vector_store_key = ? AND digest IN ({placeholders})"
             )
             params = [str(vector_store_key), *chunk]
             all_rows.extend(self.conn.execute(query, params).fetchall())
@@ -429,15 +430,15 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         if not all_rows:
             return np.empty((0, 0), dtype=np.float32), [], []
 
-        names = []
+        digests = []
         pages = []
         vectors = []
-        for pdf_name, page, vector_blob, vector_dim in all_rows:
-            names.append(pdf_name)
+        for digest, page, vector_blob, vector_dim in all_rows:
+            digests.append(digest)
             pages.append(str(page))
             vectors.append(self._deserialize_vector(vector_blob, int(vector_dim)))
 
-        return np.vstack(vectors), names, pages
+        return np.vstack(vectors), digests, pages
 
     def vector_count(self, vector_store_key: str) -> int:
         if self.conn is None:
@@ -505,17 +506,17 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
 
         return spec, clauses, params
 
-    def _query_pdf_names_for_predicate(self, predicate):
+    def _query_digests_for_predicate(self, predicate):
         spec, clauses, params = self._predicate_sql(predicate)
-        query = f"SELECT DISTINCT pdf_name FROM {spec.table_name}"
+        query = f"SELECT DISTINCT digest FROM {spec.table_name}"
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         rows = self.conn.execute(query, params).fetchall()
         return {row[0] for row in rows}
 
-    def _count_pdf_names_for_predicate(self, predicate):
+    def _count_digests_for_predicate(self, predicate):
         spec, clauses, params = self._predicate_sql(predicate)
-        query = f"SELECT COUNT(DISTINCT pdf_name) FROM {spec.table_name}"
+        query = f"SELECT COUNT(DISTINCT digest) FROM {spec.table_name}"
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         row = self.conn.execute(query, params).fetchone()
@@ -525,7 +526,7 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         if self._total_documents != -1:
             return self._total_documents
         row = self.conn.execute(
-            "SELECT COUNT(DISTINCT pdf_name) FROM metadata"
+            "SELECT COUNT(DISTINCT digest) FROM metadata"
         ).fetchone()
         self._total_documents = row[0] if row else 0
         return self._total_documents
@@ -551,7 +552,7 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
             self.conn.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {spec.table_name} (
-                    pdf_name TEXT,
+                    digest TEXT,
                     {spec.value_column} TEXT
                 );
                 """
@@ -560,7 +561,7 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
             """
             CREATE TABLE IF NOT EXISTS metadata_vectors (
                 vector_store_key TEXT,
-                pdf_name TEXT,
+                digest TEXT,
                 page TEXT,
                 vector FLOAT[]
             );
@@ -593,13 +594,13 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         for spec in self.filter_table_specs.values():
             filter_rows = []
             for md in metadata_dicts:
-                pdf_name = md.get("pdf_name", "")
+                digest = md.get("digest", "")
                 value = self._normalize_value(spec.field_name, md.get(spec.field_name))
-                if not pdf_name or value is None:
+                if not digest or value is None:
                     continue
                 filter_rows.append(
                     {
-                        "pdf_name": pdf_name,
+                        "digest": digest,
                         spec.value_column: str(value),
                     }
                 )
@@ -628,17 +629,17 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
                             """)
         for spec in self.filter_table_specs.values():
             self.conn.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_{spec.table_name}_value_pdf "
-                f"ON {spec.table_name} ({spec.value_column}, pdf_name);"
+                f"CREATE INDEX IF NOT EXISTS idx_{spec.table_name}_value_digest "
+                f"ON {spec.table_name} ({spec.value_column}, digest);"
             )
             self.conn.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_{spec.table_name}_pdf "
-                f"ON {spec.table_name} (pdf_name);"
+                f"CREATE INDEX IF NOT EXISTS idx_{spec.table_name}_digest "
+                f"ON {spec.table_name} (digest);"
             )
         self.conn.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_metadata_vectors_key_pdf
-            ON metadata_vectors (vector_store_key, pdf_name);
+            CREATE INDEX IF NOT EXISTS idx_metadata_vectors_key_digest
+            ON metadata_vectors (vector_store_key, digest);
             """
         )
         self.conn.checkpoint()
@@ -690,17 +691,17 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
             return 0.0
         selectivity = 1.0
         for predicate in predicates:
-            matching_docs = self._count_pdf_names_for_predicate(predicate)
+            matching_docs = self._count_digests_for_predicate(predicate)
             selectivity *= matching_docs / total_docs
         return max(0.0, min(1.0, selectivity))
 
-    def get_candidate_pdf_names(
+    def get_candidate_digests(
         self, predicates: list[Predicate] | None = None
     ) -> set[str]:
         if not predicates:
             return set()
         candidate_sets = [
-            self._query_pdf_names_for_predicate(predicate) for predicate in predicates
+            self._query_digests_for_predicate(predicate) for predicate in predicates
         ]
         if not candidate_sets:
             return set()
@@ -709,16 +710,16 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
             candidates = candidates.intersection(candidate_set)
         return candidates
 
-    def upsert_vectors(self, vector_store_key, vectors, pdf_names, pages):
+    def upsert_vectors(self, vector_store_key, vectors, digests, pages):
         self._connect()
         rows = []
-        for vector, pdf_name, page in zip(vectors, pdf_names, pages, strict=False):
-            if not pdf_name:
+        for vector, digest, page in zip(vectors, digests, pages, strict=False):
+            if not digest:
                 continue
             rows.append(
                 {
                     "vector_store_key": str(vector_store_key),
-                    "pdf_name": str(pdf_name),
+                    "digest": str(digest),
                     "page": str(page),
                     "vector": np.asarray(vector, dtype=np.float32).tolist(),
                 }
@@ -733,27 +734,27 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
             DELETE FROM metadata_vectors
             USING _vector_batch
             WHERE metadata_vectors.vector_store_key = _vector_batch.vector_store_key
-              AND metadata_vectors.pdf_name = _vector_batch.pdf_name
+              AND metadata_vectors.digest = _vector_batch.digest
               AND metadata_vectors.page = _vector_batch.page
             """
         )
         self.conn.execute("INSERT INTO metadata_vectors SELECT * FROM _vector_batch")
         self.conn.unregister("_vector_batch")
 
-    def get_vectors_for_pdf_names(self, vector_store_key, candidate_pdf_names):
+    def get_vectors_for_digests(self, vector_store_key, candidate_digests):
         self._connect()
-        if not candidate_pdf_names:
+        if not candidate_digests:
             return np.empty((0, 0), dtype=np.float32), [], []
 
-        candidate_list = list(candidate_pdf_names)
+        candidate_list = list(candidate_digests)
         rows = []
         chunk_size = 800
         for i in range(0, len(candidate_list), chunk_size):
             chunk = candidate_list[i : i + chunk_size]
             placeholders = ",".join(["?"] * len(chunk))
             query = (
-                "SELECT pdf_name, page, vector FROM metadata_vectors "
-                f"WHERE vector_store_key = ? AND pdf_name IN ({placeholders})"
+                "SELECT digest, page, vector FROM metadata_vectors "
+                f"WHERE vector_store_key = ? AND digest IN ({placeholders})"
             )
             params = [str(vector_store_key), *chunk]
             rows.extend(self.conn.execute(query, params).fetchall())
@@ -761,10 +762,10 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         if not rows:
             return np.empty((0, 0), dtype=np.float32), [], []
 
-        names = [row[0] for row in rows]
+        digests = [row[0] for row in rows]
         pages = [str(row[1]) for row in rows]
         vectors = np.asarray([row[2] for row in rows], dtype=np.float32)
-        return vectors, names, pages
+        return vectors, digests, pages
 
     def vector_count(self, vector_store_key: str) -> int:
         self._connect()

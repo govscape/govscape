@@ -1,6 +1,7 @@
 # AI modified: 2026-04-19 21:12:31 c1b6021e
 # AI modified: 2026-04-26 00:00:00 341724af
 # AI modified: 2026-04-26 00:00:00 341724af
+# AI modified: 2026-04-26T22:00:43Z eac4f332
 import numpy as np
 
 from govscape.indexing.hybrid import (
@@ -26,11 +27,11 @@ class DummyVectorIndex:
         pages = ["1", "2", "3"]
         return distances[:_k], names[:_k], pages[:_k]
 
-    def get_vectors_for_pdf_names(self, candidate_pdf_names):
+    def get_vectors_for_digests(self, candidate_digests):
         names = [
             name
             for name in ["doc_1.pdf", "doc_2.pdf", "doc_3.pdf"]
-            if name in candidate_pdf_names
+            if name in candidate_digests
         ]
         vectors = np.asarray([self._vectors[name] for name in names], dtype=np.float32)
         pages = [
@@ -53,11 +54,11 @@ class SelectiveMetadataIndex:
     def total_entries(self):
         return 1000
 
-    def get_candidate_pdf_names(self, _predicates=None):
+    def get_candidate_digests(self, _predicates=None):
         return set(self.docs)
 
-    def get_vectors_for_pdf_names(self, _vector_store_key, candidate_pdf_names):
-        names = [name for name in ["doc_2.pdf"] if name in candidate_pdf_names]
+    def get_vectors_for_digests(self, _vector_store_key, candidate_digests):
+        names = [name for name in ["doc_2.pdf"] if name in candidate_digests]
         vectors = np.asarray([[1.0, 1.0, 1.0, 1.0] for _ in names], dtype=np.float32)
         pages = ["2" for _ in names]
         return vectors, names, pages
@@ -80,12 +81,12 @@ class BroadMetadataIndex:
     def total_entries(self):
         return 1000
 
-    def get_candidate_pdf_names(self, _predicates=None):
+    def get_candidate_digests(self, _predicates=None):
         return set(self.docs)
 
-    def get_vectors_for_pdf_names(self, _vector_store_key, candidate_pdf_names):
+    def get_vectors_for_digests(self, _vector_store_key, candidate_digests):
         ordered = ["doc_1.pdf", "doc_2.pdf", "doc_3.pdf"]
-        names = [name for name in ordered if name in candidate_pdf_names]
+        names = [name for name in ordered if name in candidate_digests]
         vec_map = {
             "doc_1.pdf": [0.0, 0.0, 0.0, 0.0],
             "doc_2.pdf": [1.0, 1.0, 1.0, 1.0],
@@ -201,7 +202,7 @@ class KeywordSelectiveMetadataIndex:
     def total_entries(self):
         return 1000
 
-    def get_candidate_pdf_names(self, _predicates=None):
+    def get_candidate_digests(self, _predicates=None):
         return {"doc_2.pdf"}
 
     def search(self, pdf_names, _predicates=None):

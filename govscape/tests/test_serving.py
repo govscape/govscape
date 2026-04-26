@@ -1,4 +1,5 @@
 # AI modified: 2026-04-26 00:00:00 341724af
+# AI modified: 2026-04-26T22:00:43Z eac4f332
 from pathlib import Path
 
 import pytest
@@ -81,7 +82,7 @@ class DummyMetadataIndex:
     def estimate_selectivity(self, predicates=None):
         return 1.0 if not predicates else 0.5
 
-    def get_candidate_pdf_names(self, predicates=None):
+    def get_candidate_digests(self, predicates=None):
         return {f"doc_{i}.pdf" for i in range(self._entries)}
 
     def search(self, pdf_names, predicates=None):
