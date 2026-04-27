@@ -69,7 +69,7 @@ class AbstractHybridMetadataIndex(ABC):
         # cost of postfiltering = k * 1/selectivity
 
         prefilter_cost: float = safe_selectivity * float(self._metadata_size())
-        postfilter_cost: float = float(target_results) * (1.0 / safe_selectivity)
+        postfilter_cost: float = 10 * float(target_results) * (1.0 / safe_selectivity)
 
         strategy = (
             STRATEGY_PREFILTER
@@ -225,7 +225,7 @@ class HybridVectorMetadataIndex(AbstractHybridMetadataIndex):
 
             current_k = min(self._index_total_entries(), current_k * 2)
 
-        return filtered_rows, metadata, current_k
+        return filtered_rows[:target_results], metadata, current_k
 
 
 class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
@@ -279,7 +279,7 @@ class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
 
             current_k = min(self._index_total_entries(), current_k * 2)
 
-        return filtered_rows, metadata, current_k
+        return filtered_rows[:target_results], metadata, current_k
 
     def _run_postfilter(
         self, query_text, predicates, target_results, blacklist, selectivity
@@ -306,4 +306,4 @@ class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
 
             current_k = min(self._index_total_entries(), current_k * 2)
 
-        return filtered_rows, metadata, current_k
+        return filtered_rows[:target_results], metadata, current_k
