@@ -7,7 +7,7 @@ authors = ["Your Name <your@name.com>"]
 package-mode = false
 
 [tool.poetry.dependencies]
-python = "3.11.14"
+python = ">=3.11, <=3.14"
 govscape = { path = "govscape", develop = true }
 boto3 = "^1.39.4"
 warcio = "^1.7.5"

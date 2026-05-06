@@ -7,8 +7,8 @@ readme = "README.md"
 
 
 [tool.poetry.dependencies]
-python = "3.11.14"
-numpy = "1.25"
+python = ">=3.11, <=3.14"
+numpy = "^1.25.0"
 faiss-cpu = "1.11.0"
 pdf2image = "^1.17.0"
 pdfplumber = "^0.11.5"
@@ -28,7 +28,6 @@ pypdfium2 = "^4.30"
 whoosh = "^2.7.4"
 gunicorn = "^23.0.0"
 lancedb = "^0.25.2"
-diskannpy = "^0.7.0"
 
 
 [build-system]
