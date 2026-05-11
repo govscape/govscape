@@ -11,7 +11,6 @@ import duckdb
 import pyarrow as pa
 
 from ..query import EqualityPredicate, Predicate, RangePredicate
-from .filter_specs import get_default_filter_specs
 
 
 class AbstractMetadataIndex(ABC):
@@ -84,75 +83,58 @@ class AbstractMetadataIndex(ABC):
 
 
 class SQLiteMetadataIndex(AbstractMetadataIndex):
-    def __init__(self, index_metadata_directory, filter_table_specs=None):
+    def __init__(self, index_metadata_directory):
         self.index_metadata_directory = index_metadata_directory
         self.db_path = os.path.join(self.index_metadata_directory, "metadata.db")
         self.conn = None
         self.cursor = None
         self._total_entries = -1
         self._total_documents = -1
-        self.filter_table_specs = (
-            filter_table_specs
-            if filter_table_specs is not None
-            else get_default_filter_specs()
-        )
-
-    def _normalize_value(self, field_name, value):
-        if value is None:
-            return None
-        if field_name == "crawl_date":
-            return self._normalize_crawl_date(str(value))
-        return value
 
     def _predicate_sql(self, predicate):
-        spec = self.filter_table_specs.get(predicate.field_name)
-        if spec is None:
-            raise ValueError(
-                f"Unsupported metadata predicate field: {predicate.field_name}"
-            )
+        fn = predicate.field_name
+        if fn == "sub_domain":
+            table, col = "metadata_sub_domain", "sub_domain"
+        elif fn == "crawl_date":
+            table, col = "metadata_crawl_date", "crawl_date"
+        else:
+            raise ValueError(f"Unsupported metadata predicate field: {fn}")
 
-        clauses = []
-        params = []
+        clauses, params = [], []
         if isinstance(predicate, EqualityPredicate):
-            if not spec.supports_exact:
-                raise ValueError(
-                    f"Field '{predicate.field_name}' does not support exact predicates"
-                )
-            clauses.append(f"{spec.value_column} = ?")
-            params.append(self._normalize_value(predicate.field_name, predicate.value))
+            val = (
+                self._normalize_crawl_date(str(predicate.value))
+                if fn == "crawl_date"
+                else predicate.value
+            )
+            clauses.append(f"{col} = ?")
+            params.append(val)
         elif isinstance(predicate, RangePredicate):
-            if not spec.supports_range:
-                raise ValueError(
-                    f"Field '{predicate.field_name}' does not support range predicates"
-                )
+            if fn == "sub_domain":
+                raise ValueError("sub_domain does not support range predicates")
             if predicate.min_val is not None:
-                clauses.append(f"{spec.value_column} >= ?")
-                params.append(
-                    self._normalize_value(predicate.field_name, predicate.min_val)
-                )
+                clauses.append(f"{col} >= ?")
+                params.append(self._normalize_crawl_date(str(predicate.min_val)))
             if predicate.max_val is not None:
-                clauses.append(f"{spec.value_column} <= ?")
-                params.append(
-                    self._normalize_value(predicate.field_name, predicate.max_val)
-                )
+                clauses.append(f"{col} <= ?")
+                params.append(self._normalize_crawl_date(str(predicate.max_val)))
         else:
             raise TypeError(f"Unsupported predicate type: {type(predicate)}")
 
-        return spec, clauses, params
+        return table, clauses, params
 
     def _query_digests_for_predicate(self, predicate):
-        spec, clauses, params = self._predicate_sql(predicate)
-        query = f"SELECT DISTINCT digest FROM {spec.table_name}"
+        table, clauses, params = self._predicate_sql(predicate)
+        query = f"SELECT DISTINCT digest FROM {table}"
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         cursor = self.conn.cursor()
         cursor.execute(query, params)
-        rows = cursor.fetchall()
-        return {row[0] for row in rows}
+        return {row[0] for row in cursor.fetchall()}
 
     def _count_digests_for_predicate(self, predicate):
-        spec, clauses, params = self._predicate_sql(predicate)
-        query = f"SELECT COUNT(DISTINCT digest) FROM {spec.table_name}"
+        table, clauses, params = self._predicate_sql(predicate)
+        query = f"SELECT COUNT(DISTINCT digest) FROM {table}"
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         cursor = self.conn.cursor()
@@ -195,15 +177,22 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
                 page_count INTEGER
             );
         """)
-        for spec in self.filter_table_specs.values():
-            self.cursor.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS {spec.table_name} (
-                    digest TEXT,
-                    {spec.value_column} TEXT
-                );
-                """
-            )
+        self.cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS metadata_sub_domain (
+                digest TEXT,
+                sub_domain TEXT
+            );
+            """
+        )
+        self.cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS metadata_crawl_date (
+                digest TEXT,
+                crawl_date TEXT
+            );
+            """
+        )
         self.cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS metadata_vectors (
@@ -223,11 +212,10 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             self.conn = sqlite3.connect(self.db_path)
             self.cursor = self.conn.cursor()
 
-        for spec in self.filter_table_specs.values():
-            self.cursor.execute(
-                f"DROP INDEX IF EXISTS idx_{spec.table_name}_value_pdf;"
-            )
-            self.cursor.execute(f"DROP INDEX IF EXISTS idx_{spec.table_name}_pdf;")
+        self.cursor.execute("DROP INDEX IF EXISTS idx_metadata_sub_domain_value_pdf;")
+        self.cursor.execute("DROP INDEX IF EXISTS idx_metadata_sub_domain_pdf;")
+        self.cursor.execute("DROP INDEX IF EXISTS idx_metadata_crawl_date_value_pdf;")
+        self.cursor.execute("DROP INDEX IF EXISTS idx_metadata_crawl_date_pdf;")
 
         to_insert = [
             (
@@ -247,20 +235,27 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             to_insert,
         )
 
-        for spec in self.filter_table_specs.values():
-            filter_rows = []
-            for md in metadata_dicts:
-                digest = md.get("digest", "")
-                value = self._normalize_value(spec.field_name, md.get(spec.field_name))
-                if not digest or value is None:
-                    continue
-                filter_rows.append((digest, str(value)))
-            if filter_rows:
-                self.cursor.executemany(
-                    f"INSERT INTO {spec.table_name} (digest, {spec.value_column}"
-                    f") VALUES (?, ?)",
-                    filter_rows,
-                )
+        sub_domain_rows = [
+            (md.get("digest", ""), md.get("sub_domain", ""))
+            for md in metadata_dicts
+            if md.get("digest") and md.get("sub_domain") is not None
+        ]
+        if sub_domain_rows:
+            self.cursor.executemany(
+                "INSERT INTO metadata_sub_domain (digest, sub_domain) VALUES (?, ?)",
+                sub_domain_rows,
+            )
+
+        crawl_date_rows = [
+            (md.get("digest", ""), self._normalize_crawl_date(md.get("crawl_date", "")))
+            for md in metadata_dicts
+            if md.get("digest") and md.get("crawl_date") is not None
+        ]
+        if crawl_date_rows:
+            self.cursor.executemany(
+                "INSERT INTO metadata_crawl_date (digest, crawl_date) VALUES (?, ?)",
+                crawl_date_rows,
+            )
 
         self._total_entries = -1
         self._total_documents = -1
@@ -278,15 +273,14 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self.conn = sqlite3.connect(self.db_path)
         self.cursor = self.conn.cursor()
 
-        for spec in self.filter_table_specs.values():
-            self.cursor.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_{spec.table_name}_value_digest "
-                f"ON {spec.table_name} ({spec.value_column}, digest);"
-            )
-            self.cursor.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_{spec.table_name}_digest "
-                f"ON {spec.table_name} (digest);"
-            )
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_metadata_sub_domain_sub_domain_digest "
+            "ON metadata_sub_domain (digest, sub_domain);"
+        )
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_metadata_crawl_date_crawl_date_digest "
+            "ON metadata_crawl_date (digest, crawl_date);"
+        )
         self.cursor.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_metadata_vectors_key_digest
@@ -386,6 +380,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         if not rows:
             return
 
+        self.cursor.execute("DROP INDEX IF EXISTS idx_metadata_vectors_key_digest;")
         self.cursor.executemany(
             """
             INSERT OR REPLACE INTO metadata_vectors
@@ -431,72 +426,55 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
 
 
 class DuckDBMetadataIndex(AbstractMetadataIndex):
-    def __init__(self, index_metadata_directory, filter_table_specs=None):
+    def __init__(self, index_metadata_directory):
         self.index_metadata_directory = index_metadata_directory
         self.db_path = os.path.join(self.index_metadata_directory, "metadata.duckdb")
         self.conn = None
         self._total_entries = -1
         self._total_documents = -1
-        self.filter_table_specs = (
-            filter_table_specs
-            if filter_table_specs is not None
-            else get_default_filter_specs()
-        )
-
-    def _normalize_value(self, field_name, value):
-        if value is None:
-            return None
-        if field_name == "crawl_date":
-            return self._normalize_crawl_date(str(value))
-        return value
 
     def _predicate_sql(self, predicate):
-        spec = self.filter_table_specs.get(predicate.field_name)
-        if spec is None:
-            raise ValueError(
-                f"Unsupported metadata predicate field: {predicate.field_name}"
-            )
+        fn = predicate.field_name
+        if fn == "sub_domain":
+            table, col = "metadata_sub_domain", "sub_domain"
+        elif fn == "crawl_date":
+            table, col = "metadata_crawl_date", "crawl_date"
+        else:
+            raise ValueError(f"Unsupported metadata predicate field: {fn}")
 
-        clauses = []
-        params = []
+        clauses, params = [], []
         if isinstance(predicate, EqualityPredicate):
-            if not spec.supports_exact:
-                raise ValueError(
-                    f"Field '{predicate.field_name}' does not support exact predicates"
-                )
-            clauses.append(f"{spec.value_column} = ?")
-            params.append(self._normalize_value(predicate.field_name, predicate.value))
+            val = (
+                self._normalize_crawl_date(str(predicate.value))
+                if fn == "crawl_date"
+                else predicate.value
+            )
+            clauses.append(f"{col} = ?")
+            params.append(val)
         elif isinstance(predicate, RangePredicate):
-            if not spec.supports_range:
-                raise ValueError(
-                    f"Field '{predicate.field_name}' does not support range predicates"
-                )
+            if fn == "sub_domain":
+                raise ValueError("sub_domain does not support range predicates")
             if predicate.min_val is not None:
-                clauses.append(f"{spec.value_column} >= ?")
-                params.append(
-                    self._normalize_value(predicate.field_name, predicate.min_val)
-                )
+                clauses.append(f"{col} >= ?")
+                params.append(self._normalize_crawl_date(str(predicate.min_val)))
             if predicate.max_val is not None:
-                clauses.append(f"{spec.value_column} <= ?")
-                params.append(
-                    self._normalize_value(predicate.field_name, predicate.max_val)
-                )
+                clauses.append(f"{col} <= ?")
+                params.append(self._normalize_crawl_date(str(predicate.max_val)))
         else:
             raise TypeError(f"Unsupported predicate type: {type(predicate)}")
 
-        return spec, clauses, params
+        return table, clauses, params
 
     def _query_digests_for_predicate(self, predicate):
-        spec, clauses, params = self._predicate_sql(predicate)
-        query = f"SELECT DISTINCT digest FROM {spec.table_name}"
+        table, clauses, params = self._predicate_sql(predicate)
+        query = f"SELECT DISTINCT digest FROM {table}"
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
-        rows = self.conn.execute(query, params).fetchall()
-        return {row[0] for row in rows}
+        return {row[0] for row in self.conn.execute(query, params).fetchall()}
 
     def _count_digests_for_predicate(self, predicate):
-        spec, clauses, params = self._predicate_sql(predicate)
-        query = f"SELECT COUNT(DISTINCT digest) FROM {spec.table_name}"
+        table, clauses, params = self._predicate_sql(predicate)
+        query = f"SELECT COUNT(DISTINCT digest) FROM {table}"
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         row = self.conn.execute(query, params).fetchone()
@@ -528,15 +506,22 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
                 page_count INTEGER
             );
         """)
-        for spec in self.filter_table_specs.values():
-            self.conn.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS {spec.table_name} (
-                    digest TEXT,
-                    {spec.value_column} TEXT
-                );
-                """
-            )
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS metadata_sub_domain (
+                digest TEXT,
+                sub_domain TEXT
+            );
+            """
+        )
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS metadata_crawl_date (
+                digest TEXT,
+                crawl_date TEXT
+            );
+            """
+        )
         self.conn.execute(
             """
             CREATE TABLE IF NOT EXISTS metadata_vectors (
@@ -571,26 +556,34 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         self.conn.execute("INSERT INTO metadata SELECT * FROM _batch")
         self.conn.unregister("_batch")
 
-        for spec in self.filter_table_specs.values():
-            filter_rows = []
-            for md in metadata_dicts:
-                digest = md.get("digest", "")
-                value = self._normalize_value(spec.field_name, md.get(spec.field_name))
-                if not digest or value is None:
-                    continue
-                filter_rows.append(
-                    {
-                        "digest": digest,
-                        spec.value_column: str(value),
-                    }
-                )
-            if filter_rows:
-                filter_table = pa.Table.from_pylist(filter_rows)
-                self.conn.register("_filter_batch", filter_table)
-                self.conn.execute(
-                    f"INSERT INTO {spec.table_name} SELECT * FROM _filter_batch"
-                )
-                self.conn.unregister("_filter_batch")
+        sub_domain_rows = [
+            {"digest": md.get("digest", ""), "sub_domain": md.get("sub_domain", "")}
+            for md in metadata_dicts
+            if md.get("digest") and md.get("sub_domain") is not None
+        ]
+        if sub_domain_rows:
+            tbl = pa.Table.from_pylist(sub_domain_rows)
+            self.conn.register("_filter_batch", tbl)
+            self.conn.execute(
+                "INSERT INTO metadata_sub_domain SELECT * FROM _filter_batch"
+            )
+            self.conn.unregister("_filter_batch")
+
+        crawl_date_rows = [
+            {
+                "digest": md.get("digest", ""),
+                "crawl_date": self._normalize_crawl_date(md.get("crawl_date", "")),
+            }
+            for md in metadata_dicts
+            if md.get("digest") and md.get("crawl_date") is not None
+        ]
+        if crawl_date_rows:
+            tbl = pa.Table.from_pylist(crawl_date_rows)
+            self.conn.register("_filter_batch", tbl)
+            self.conn.execute(
+                "INSERT INTO metadata_crawl_date SELECT * FROM _filter_batch"
+            )
+            self.conn.unregister("_filter_batch")
 
         self._total_entries = -1
         self._total_documents = -1
@@ -607,15 +600,22 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_digest ON metadata (digest);
                             """)
-        for spec in self.filter_table_specs.values():
-            self.conn.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_{spec.table_name}_value_digest "
-                f"ON {spec.table_name} ({spec.value_column}, digest);"
-            )
-            self.conn.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_{spec.table_name}_digest "
-                f"ON {spec.table_name} (digest);"
-            )
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_metadata_sub_domain_value_digest "
+            "ON metadata_sub_domain (sub_domain, digest);"
+        )
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_metadata_sub_domain_digest "
+            "ON metadata_sub_domain (digest);"
+        )
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_metadata_crawl_date_value_digest "
+            "ON metadata_crawl_date (crawl_date, digest);"
+        )
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_metadata_crawl_date_digest "
+            "ON metadata_crawl_date (digest);"
+        )
         self.conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_metadata_vectors_key_digest
@@ -707,6 +707,7 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         if not rows:
             return
 
+        self.conn.execute("DROP INDEX IF EXISTS idx_metadata_vectors_key_digest;")
         vector_table = pa.Table.from_pylist(rows)
         self.conn.register("_vector_batch", vector_table)
         self.conn.execute(

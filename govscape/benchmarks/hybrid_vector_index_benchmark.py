@@ -17,6 +17,7 @@ import shutil
 import statistics
 import time
 from collections.abc import Iterable
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -58,54 +59,62 @@ def _parse_csv_strings(value: str) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
 
 
-def _build_dataset(
+def _build_vectors(
     documents: int,
     pages_per_doc: int,
     dim: int,
     seed: int,
+):
+    """Generate page-level vectors. Independent of selectivity."""
+    start = time.perf_counter()
+    rng = np.random.default_rng(seed)
+    pdf_names = [f"{idx:040x}" for idx in range(documents)]
+    bases = rng.normal(size=(documents, dim)).astype(np.float32)
+    noise = rng.normal(scale=0.05, size=(documents, pages_per_doc, dim)).astype(
+        np.float32
+    )
+    vector_array = (bases[:, np.newaxis, :] + noise).reshape(
+        documents * pages_per_doc, dim
+    )
+    digests = np.repeat(pdf_names, pages_per_doc).tolist()
+    pages = np.tile(np.arange(pages_per_doc), documents).tolist()
+    print(
+        f"Built {len(digests)} vectors ({documents} docs × {pages_per_doc} pages) "
+        f"in {time.perf_counter() - start:.2f}s"
+    )
+    return pdf_names, digests, pages, vector_array
+
+
+def _build_records(
+    documents: int,
+    pages_per_doc: int,
+    pdf_names: list[str],
     selectivity_pct: int,
 ):
-    rng = np.random.default_rng(seed)
-
-    records = []
-    digests = []
-    pages = []
-    vectors = []
-
+    """Build metadata records for a given selectivity. Cheap — no RNG."""
     target_domain = "target.gov"
     non_target_domain = "other.gov"
-
-    # Keep each scenario independent by assigning a fixed percentage of docs to
-    # the filter-matching domain in this scenario's own dataset/index.
-    match_count = int(round((documents * selectivity_pct) / 100.0))
-    match_count = max(0, min(documents, match_count))
-
-    for idx in range(documents):
-        sub_domain = target_domain if idx < match_count else non_target_domain
-        crawl_date = f"2024{(idx % 12) + 1:02d}{(idx % 28) + 1:02d}"
-
-        pdf_name = f"{idx:040x}"
-        records.append(
-            {
-                "crawl_url": f"https://{sub_domain}/report/{pdf_name}",
-                "crawl_date": crawl_date,
-                "digest": pdf_name,
-                "sub_domain": sub_domain,
-                "page_count": pages_per_doc,
-                "s3_url": f"s3://govscape/{sub_domain}/{pdf_name}",
-            }
-        )
-
-        base = rng.normal(size=dim).astype(np.float32)
-        for page in range(pages_per_doc):
-            noise = rng.normal(scale=0.05, size=dim).astype(np.float32)
-            vec = base + noise
-            digests.append(pdf_name)
-            pages.append(page)
-            vectors.append(vec)
-
-    vector_array = np.asarray(vectors, dtype=np.float32)
-    return records, digests, pages, vector_array
+    match_count = max(
+        0, min(documents, int(round((documents * selectivity_pct) / 100.0)))
+    )
+    sub_domains = [
+        target_domain if idx < match_count else non_target_domain
+        for idx in range(documents)
+    ]
+    crawl_dates = [
+        f"2024{(idx % 12) + 1:02d}{(idx % 28) + 1:02d}" for idx in range(documents)
+    ]
+    return [
+        {
+            "crawl_url": f"https://{sub_domains[i]}/report/{pdf_names[i]}",
+            "crawl_date": crawl_dates[i],
+            "digest": pdf_names[i],
+            "sub_domain": sub_domains[i],
+            "page_count": pages_per_doc,
+            "s3_url": f"s3://govscape/{sub_domains[i]}/{pdf_names[i]}",
+        }
+        for i in range(documents)
+    ]
 
 
 def _create_metadata_index(
@@ -128,6 +137,13 @@ def _prepare_index(
     vector_array,
     vector_batch_size: int,
 ):
+    # time the index creation
+    print(
+        f"Preparing {backend} with {len(records)} docs, {len(vector_digests)} vectors"
+    )
+
+    start_time = time.perf_counter()
+
     if index_dir.exists():
         shutil.rmtree(index_dir)
     index_dir.mkdir(parents=True, exist_ok=True)
@@ -146,6 +162,12 @@ def _prepare_index(
         )
 
     index.save_index()
+
+    print(
+        f"Built {backend} index with {len(records)} records and vectors in "
+        f"{time.perf_counter() - start_time:.2f} seconds"
+    )
+
     return index
 
 
@@ -155,13 +177,26 @@ def _build_faiss_index(
     vector_pages: list[int],
     all_vectors: np.ndarray,
 ):
+    # time the FAISS index creation
+    print(f"Building FAISS index with {len(vector_digests)} vectors")
+    start = time.perf_counter()
+
     if index_dir.exists():
         shutil.rmtree(index_dir)
     index_dir.mkdir(parents=True, exist_ok=True)
 
-    # Use FAISS flat index for deterministic postfilter benchmark behavior.
-    faiss_index = FAISSIndex(index_dir.as_posix(), index_type="Flat")
-    faiss_index.add_batch(all_vectors, vector_digests, vector_pages)
+    faiss_index = FAISSIndex(index_dir.as_posix())
+
+    chunk = 8192 * 16
+    n = all_vectors.shape[0]
+    for i in range(0, n, chunk):
+        j = min(i + chunk, n)
+        faiss_index.add_batch(all_vectors[i:j], vector_digests[i:j], vector_pages[i:j])
+    print(
+        f"Built FAISS index with {len(vector_digests)} vectors in "
+        f"{time.perf_counter() - start:.2f} seconds"
+    )
+
     return faiss_index
 
 
@@ -175,7 +210,7 @@ class PostFilteredIndex(HybridVectorMetadataIndex):
 
 
 class PreFilteredIndex(HybridVectorMetadataIndex):
-    # Override _choose_strategy to force postfiltering only for benchmarking purposes.
+    # Override _choose_strategy to force prefiltering only for benchmarking purposes.
     def _choose_strategy(
         self, estimated_selectivity: float, target_results: int
     ) -> tuple[str, float, float]:
@@ -200,77 +235,54 @@ def run_benchmark(
 ) -> list[BenchmarkRow]:
     scenarios = [
         Scenario("selective_1pct", 1, [eq("sub_domain", "target.gov")]),
-        Scenario("selective_2pct", 2, [eq("sub_domain", "target.gov")]),
+        # Scenario("selective_2pct", 2, [eq("sub_domain", "target.gov")]),
         Scenario("selective_5pct", 5, [eq("sub_domain", "target.gov")]),
-        Scenario("selective_10pct", 10, [eq("sub_domain", "target.gov")]),
+        # Scenario("selective_10pct", 10, [eq("sub_domain", "target.gov")]),
         Scenario("selective_50pct", 50, [eq("sub_domain", "target.gov")]),
-        Scenario("selective_90pct", 90, [eq("sub_domain", "target.gov")]),
+        # Scenario("selective_90pct", 90, [eq("sub_domain", "target.gov")]),
         Scenario("selective_100pct", 100, [eq("sub_domain", "target.gov")]),
     ]
 
     rng = random.Random(seed + 17)
+
+    # Vectors are independent of selectivity — build once and share across scenarios.
+    pdf_names, vector_digests, vector_pages, all_vectors = _build_vectors(
+        documents, pages_per_doc, dim, seed
+    )
+    shared_faiss = _build_faiss_index(
+        work_dir / f"{backend}_{documents}_faiss",
+        vector_digests,
+        vector_pages,
+        all_vectors,
+    )
+
     rows = []
     for scenario in scenarios:
-        records, vector_pdf_names, vector_pages, all_vectors = _build_dataset(
-            documents,
-            pages_per_doc,
-            dim,
-            seed,
-            scenario.selectivity_pct,
+        records = _build_records(
+            documents, pages_per_doc, pdf_names, scenario.selectivity_pct
+        )
+
+        shared_meta = _prepare_index(
+            backend,
+            work_dir / f"{backend}_{documents}_{scenario.name}",
+            records,
+            vector_digests,
+            vector_pages,
+            all_vectors,
+            vector_batch_size,
         )
 
         postFilteredIndex = PostFilteredIndex(
-            metadata_index=_prepare_index(
-                backend,
-                work_dir / f"{backend}_{documents}_postfilter",
-                records,
-                vector_pdf_names,
-                vector_pages,
-                all_vectors,
-                vector_batch_size,
-            ),
-            vector_index=_build_faiss_index(
-                work_dir / f"{backend}_{documents}_faiss",
-                vector_pdf_names,
-                vector_pages,
-                all_vectors,
-            ),
+            metadata_index=shared_meta,
+            vector_index=shared_faiss,
         )
-
         preFilteredIndex = PreFilteredIndex(
-            metadata_index=_prepare_index(
-                backend,
-                work_dir / f"{backend}_{documents}_prefilter",
-                records,
-                vector_pdf_names,
-                vector_pages,
-                all_vectors,
-                vector_batch_size,
-            ),
-            vector_index=_build_faiss_index(
-                work_dir / f"{backend}_{documents}_faiss",
-                vector_pdf_names,
-                vector_pages,
-                all_vectors,
-            ),
+            metadata_index=shared_meta,
+            vector_index=shared_faiss,
         )
-
         hybridIndex = HybridVectorMetadataIndex(
-            metadata_index=_prepare_index(
-                backend,
-                work_dir / f"{backend}_{documents}_hybrid",
-                records,
-                vector_pdf_names,
-                vector_pages,
-                all_vectors,
-                vector_batch_size,
-            ),
-            vector_index=_build_faiss_index(
-                work_dir / f"{backend}_{documents}_faiss",
-                vector_pdf_names,
-                vector_pages,
-                all_vectors,
-            ),
+            metadata_index=shared_meta,
+            vector_index=shared_faiss,
         )
 
         pre_times = []
@@ -310,16 +322,11 @@ def run_benchmark(
             )
         )
 
-        # Avoid open connection accumulation/locks across scenario tables.
-        conn = getattr(preFilteredIndex.metadata_index, "conn", None)
+        # Close the shared connection once (all three wrappers point at same object).
+        conn = getattr(shared_meta, "conn", None)
         if conn is not None:
             conn.close()
-            preFilteredIndex.conn = None
-
-        conn = getattr(postFilteredIndex.metadata_index, "conn", None)
-        if conn is not None:
-            conn.close()
-            postFilteredIndex.conn = None
+            shared_meta.conn = None
 
     return rows
 
@@ -380,22 +387,35 @@ def main():
     sizes = _parse_csv_ints(args.sizes)
     backends = _parse_csv_strings(args.backends)
 
-    all_rows: list[BenchmarkRow] = []
-    for backend in backends:
-        for size in sizes:
-            rows = run_benchmark(
-                backend=backend,
-                documents=size,
-                pages_per_doc=args.pages_per_doc,
-                dim=args.dim,
-                queries=args.queries,
-                k=args.k,
-                work_dir=args.work_dir,
-                seed=args.seed,
-                vector_batch_size=args.vector_batch_size,
-            )
-            all_rows.extend(rows)
+    common = {
+        "pages_per_doc": args.pages_per_doc,
+        "dim": args.dim,
+        "queries": args.queries,
+        "k": args.k,
+        "work_dir": args.work_dir,
+        "seed": args.seed,
+        "vector_batch_size": args.vector_batch_size,
+    }
 
+    tasks = [(b, s) for b in backends for s in sizes]
+    all_rows: list[BenchmarkRow] = []
+
+    with ProcessPoolExecutor() as pool:
+        futures = {
+            pool.submit(run_benchmark, backend=b, documents=s, **common): (b, s)
+            for b, s in tasks
+        }
+        for fut in as_completed(futures):
+            all_rows.extend(fut.result())
+
+    # Sort for stable output order regardless of completion order.
+    all_rows.sort(
+        key=lambda r: (
+            r.backend,
+            r.documents,
+            int(r.scenario.removeprefix("selective_").removesuffix("pct")),
+        )
+    )
     print(format_results(all_rows))
 
 
