@@ -235,11 +235,11 @@ def run_benchmark(
 ) -> list[BenchmarkRow]:
     scenarios = [
         Scenario("selective_1pct", 1, [eq("sub_domain", "target.gov")]),
-        # Scenario("selective_2pct", 2, [eq("sub_domain", "target.gov")]),
+        Scenario("selective_2pct", 2, [eq("sub_domain", "target.gov")]),
         Scenario("selective_5pct", 5, [eq("sub_domain", "target.gov")]),
-        # Scenario("selective_10pct", 10, [eq("sub_domain", "target.gov")]),
+        Scenario("selective_10pct", 10, [eq("sub_domain", "target.gov")]),
         Scenario("selective_50pct", 50, [eq("sub_domain", "target.gov")]),
-        # Scenario("selective_90pct", 90, [eq("sub_domain", "target.gov")]),
+        Scenario("selective_90pct", 90, [eq("sub_domain", "target.gov")]),
         Scenario("selective_100pct", 100, [eq("sub_domain", "target.gov")]),
     ]
 
