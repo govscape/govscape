@@ -21,8 +21,7 @@ CDX_GLOB_TEMPLATE = (
 # Regular string (not f-string) so that { } characters in the SQL are literal.
 # chr(123) == '{'.  sep=chr(1) == SOH, guaranteed absent from CDX data, so
 # each line becomes a single column (column0).  ? is the glob path parameter.
-_INSERT_SQL = (
-    "INSERT INTO pdf_entries\n"
+_SELECT_SQL = (
     "SELECT\n"
     "  j.url,\n"
     "  j.filename,\n"
@@ -52,19 +51,11 @@ _INSERT_SQL = (
 
 
 def _setup_s3(con: duckdb.DuckDBPyConnection) -> None:
+    con.execute("INSTALL httpfs")
     con.execute("LOAD httpfs")
     con.execute("SET s3_region='us-east-1'")
     con.execute("SET s3_access_key_id=''")
     con.execute("SET s3_secret_access_key=''")
-
-
-def _create_pdf_table(con: duckdb.DuckDBPyConnection) -> None:
-    con.execute(
-        "CREATE TABLE pdf_entries ("
-        "  url VARCHAR, filename VARCHAR, crawl_date VARCHAR,"
-        '  digest VARCHAR, "offset" BIGINT, length BIGINT'
-        ")"
-    )
 
 
 def _process_one_file(args: tuple[str, str]) -> tuple[str, int]:
@@ -72,10 +63,8 @@ def _process_one_file(args: tuple[str, str]) -> tuple[str, int]:
     cdx_path, output_parquet = args
     con = duckdb.connect()
     _setup_s3(con)
-    _create_pdf_table(con)
-    con.execute(_INSERT_SQL, [cdx_path])
-    count = con.execute("SELECT count(*) FROM pdf_entries").fetchone()[0]
-    con.execute(f"COPY pdf_entries TO '{output_parquet}' (FORMAT PARQUET)")
+    con.execute(f"COPY ({_SELECT_SQL}) TO '{output_parquet}' (FORMAT PARQUET)", [cdx_path])
+    count = con.execute(f"SELECT count(*) FROM '{output_parquet}'").fetchone()[0]
     con.close()
     return cdx_path, count
 
