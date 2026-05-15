@@ -1,4 +1,7 @@
-"""OCR Processing Stage - Extracts text from PDF pages using OCR engines."""
+"""OCR Processing Stage - Extracts text from PDF pages using OCR engines.
+
+AI modified: 2026-05-15 unknown
+"""
 
 import logging
 import os
@@ -28,6 +31,7 @@ def _build_ocr_engine(ocr_type: str, **kwargs) -> BaseOCR:
 
     Raises:
         ValueError: If ocr_type is not supported.
+
     """
     from .ocr import EasyOCRImpl, OcrMyPDFImpl, OLMOcrImpl, PaddleOCRImpl
 
@@ -41,7 +45,7 @@ def _build_ocr_engine(ocr_type: str, **kwargs) -> BaseOCR:
     if ocr_type not in ocr_engines:
         raise ValueError(
             f"Unsupported OCR type: {ocr_type}. "
-            f"Must be one of: {list(ocr_engines.keys())}"
+            f"Must be one of: {list(ocr_engines.keys())}",
         )
 
     engine_class = ocr_engines[ocr_type]
@@ -70,6 +74,7 @@ class OCRProcessingStage(ProcessingStage):
                 For PaddleOCR: language='en', use_gpu=False
                 For OLMOcr: model_name='default'
                 For OcrMyPDF: language='eng', output_type='txt'
+
         """
         self.data_model = data_model
         self.ocr_engine = _build_ocr_engine(ocr_type, **ocr_kwargs)
@@ -80,13 +85,13 @@ class OCRProcessingStage(ProcessingStage):
         if not CV2_AVAILABLE:
             raise ImportError(
                 "cv2 (OpenCV) is required for OCR processing. "
-                "Install it with: pip install opencv-python"
+                "Install it with: pip install opencv-python",
             )
 
         if not os.path.isdir(self.data_model.image_directory):
             raise ValueError(
                 f"Image input directory does not exist: "
-                f"{self.data_model.image_directory}"
+                f"{self.data_model.image_directory}",
             )
 
         try:
@@ -116,13 +121,12 @@ class OCRProcessingStage(ProcessingStage):
 
             # Process each page image
             page_files = sorted(
-                [f for f in os.listdir(digest_dir.path) if f.endswith(".jpeg")]
+                [f for f in os.listdir(digest_dir.path) if f.endswith(".jpeg")],
             )
 
             for page_file in page_files:
                 try:
                     image_path = os.path.join(digest_dir.path, page_file)
-
                     # Read image using cv2
                     image = cv2.imread(image_path)
                     if image is None:
@@ -130,30 +134,92 @@ class OCRProcessingStage(ProcessingStage):
                         error_count += 1
                         continue
 
-                    # Convert BGR to RGB for some OCR engines
-                    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                    # Accumulate images for batch processing
+                    if "_page_images" not in locals():
+                        _page_images = []
+                        _page_nums = []
 
-                    # Extract page number from filename (e.g., "digest_0.jpeg" -> 0)
-                    page_num = int(page_file.split("_")[-1].replace(".jpeg", ""))
-
-                    # Perform OCR
-                    extracted_text = self.ocr_engine.extract_text(image_rgb)
-
-                    # Save text to file following DATA_MODEL.md protocol
-                    txt_output_path = self.data_model.txt_page_path(digest, page_num)
-                    os.makedirs(os.path.dirname(txt_output_path), exist_ok=True)
-
-                    with open(txt_output_path, "w", encoding="utf-8") as f:
-                        f.write(extracted_text)
-
-                    processed_count += 1
-                    self.logger.debug(f"Processed: {txt_output_path}")
+                    _page_images.append(image)
+                    _page_nums.append(
+                        int(page_file.split("_")[-1].replace(".jpeg", ""))
+                    )
 
                 except Exception as e:
                     self.logger.error(f"Error processing {image_path}: {e}")
                     error_count += 1
 
+            # If we collected page images, attempt batch OCR for the PDF
+            if "_page_images" in locals() and _page_images:
+                try:
+                    # Prepare images according to engine expectations
+                    try:
+                        engine_name = self.ocr_engine.__class__.__name__.lower()
+                    except Exception:
+                        engine_name = ""
+
+                    images_for_ocr = []
+                    for img in _page_images:
+                        if "paddle" in engine_name:
+                            images_for_ocr.append(img)
+                        else:
+                            try:
+                                images_for_ocr.append(
+                                    cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                                )
+                            except Exception:
+                                images_for_ocr.append(img)
+
+                    # Try batch call: many OCR engines may accept a list of images.
+                    try:
+                        results = self.ocr_engine.extract_text(images_for_ocr)
+                    except TypeError:
+                        # Fallback to per-page calls if batch interface not supported
+                        results = [
+                            self.ocr_engine.extract_text(img) for img in images_for_ocr
+                        ]
+
+                    # Normalize results to a list of strings per page
+                    if isinstance(results, str):
+                        # Single string returned; assume single-page PDF
+                        # or the same text applies to all pages
+                        results_list = [results]
+                    elif isinstance(results, list):
+                        results_list = results
+                    else:
+                        # Best-effort string conversion per item
+                        results_list = [str(r) for r in results]
+
+                    # Ensure output directory exists for this PDF
+                    txt_output_dir = self.data_model.txt_pdf_directory(digest)
+                    os.makedirs(txt_output_dir, exist_ok=True)
+
+                    # Write per-page text files
+                    for idx, page_num in enumerate(_page_nums):
+                        txt_output_path = self.data_model.txt_page_path(
+                            digest, page_num
+                        )
+                        os.makedirs(os.path.dirname(txt_output_path), exist_ok=True)
+                        text_to_write = (
+                            results_list[idx] if idx < len(results_list) else ""
+                        )
+                        with open(txt_output_path, "w", encoding="utf-8") as f:
+                            f.write(text_to_write)
+                        processed_count += 1
+                        self.logger.debug(f"Processed: {txt_output_path}")
+
+                    # Clean up locals for next digest
+                    del _page_images
+                    del _page_nums
+
+                except Exception as e:
+                    self.logger.error(f"Batch OCR processing failed for {digest}: {e}")
+                    # If batch processing failed, count the pages we attempted
+                    try:
+                        error_count += len(_page_nums)
+                    except Exception:
+                        error_count += 1
+
         self.logger.info(
             f"OCR processing complete. Processed: {processed_count}, "
-            f"Errors: {error_count}"
+            f"Errors: {error_count}",
         )

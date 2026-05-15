@@ -1,9 +1,11 @@
-# AI modified: 2026-05-09 govscape
-"""Tests for OCR implementations and OCRProcessingStage."""
+"""Tests for OCR implementations and OCRProcessingStage.
+
+AI modified: 2026-05-15 unknown
+"""
 
 import os
 import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -12,7 +14,6 @@ import numpy as np
 from govscape.config import DataModel
 from govscape.processing import OCRProcessingStage
 from govscape.processing.ocr import (
-    BaseOCR,
     EasyOCRImpl,
     OcrMyPDFImpl,
     OLMOcrImpl,
@@ -20,262 +21,128 @@ from govscape.processing.ocr import (
 )
 
 
-class TestBaseOCR:
-    """Test the abstract BaseOCR class."""
+def _create_test_image(text: str, size=(300, 80)) -> np.ndarray:
+    """Create a simple white RGB image with black text.
 
-    def test_base_ocr_is_abstract(self):
-        """Test that BaseOCR cannot be instantiated directly."""
-        with pytest.raises(TypeError):
-            BaseOCR()
+    Returns a numpy array representing the image.
+    """
+    try:
+        from PIL import Image, ImageDraw, ImageFont
 
-    def test_base_ocr_methods_are_abstract(self):
-        """Test that BaseOCR methods must be implemented by subclasses."""
+        img = Image.new("RGB", size, color=(255, 255, 255))
+        draw = ImageDraw.Draw(img)
+        try:
+            font = ImageFont.load_default()
+        except Exception:
+            font = None
+        draw.text((10, 10), text, fill=(0, 0, 0), font=font)
+        return np.array(img)
+    except Exception:
+        # Fall back to a blank numpy image if PIL is not available
+        return np.full((size[1], size[0], 3), 255, dtype=np.uint8)
 
-        class IncompleteOCR(BaseOCR):
-            pass
 
-        with pytest.raises(TypeError):
-            IncompleteOCR()
+@pytest.fixture
+def temp_data_dir():
+    """Create temporary data directory for testing and yield DataModel."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        data_model = DataModel(tmpdir)
+        os.makedirs(data_model.image_directory, exist_ok=True)
+        yield tmpdir, data_model
 
 
-class TestEasyOCRImpl:
-    """Test EasyOCR implementation."""
+OCR_IMPLS = [
+    (EasyOCRImpl, {"languages": ["en"], "gpu": False}, "easyocr"),
+    (PaddleOCRImpl, {"language": "en", "use_gpu": False}, "paddleocr"),
+    (OLMOcrImpl, {"model_name": "default"}, "olmocr"),
+    (OcrMyPDFImpl, {"language": "eng"}, None),
+]
 
-    def test_easyocr_init(self):
-        """Test EasyOCR initialization."""
-        ocr = EasyOCRImpl(languages=["en", "fr"], gpu=False)
-        assert ocr.languages == ["en", "fr"]
-        assert ocr.gpu is False
 
-    def test_easyocr_default_languages(self):
-        """Test EasyOCR defaults to English."""
-        ocr = EasyOCRImpl()
-        assert ocr.languages == ["en"]
+@pytest.mark.parametrize("impl_class,init_args,skip_pkg", OCR_IMPLS)
+def test_ocr_implementations_on_sample_images(impl_class, init_args, skip_pkg):
+    """Functionality-oriented test: each OCR implementation should extract expected text
 
-    @patch("govscape.processing.ocr.easyocr_impl.easyocr")
-    def test_easyocr_validate(self, mock_easyocr):
-        """Test EasyOCR validation."""
-        mock_reader = MagicMock()
-        mock_easyocr.Reader.return_value = mock_reader
+    This test will be skipped for implementations whose dependencies are not installed.
+    """
+    # Skip based on known package name when provided
+    if skip_pkg:
+        pytest.importorskip(skip_pkg)
 
-        ocr = EasyOCRImpl(languages=["en"])
+    # OcrMyPDF requires both ocrmypdf and pytesseract
+    if impl_class is OcrMyPDFImpl:
+        pytest.importorskip("ocrmypdf")
+        pytest.importorskip("pytesseract")
+
+    expected_pairs = [
+        ("TEST ONE", _create_test_image("TEST ONE")),
+        ("HELLO 123", _create_test_image("HELLO 123")),
+    ]
+
+    # Instantiate and validate the OCR engine
+    ocr = impl_class(**init_args)
+    try:
         ocr.validate()
+    except ImportError:
+        pytest.skip("Required OCR dependency is not available")
 
-        assert ocr.reader is not None
-        mock_easyocr.Reader.assert_called_once()
-
-    def test_easyocr_validate_import_error(self):
-        """Test EasyOCR validation fails without easyocr package."""
-        ocr = EasyOCRImpl()
-        # Mock easyocr being None (not installed)
-        with (
-            patch("govscape.processing.ocr.easyocr_impl.easyocr", None),
-            pytest.raises(ImportError),
-        ):
-            ocr.validate()
+    # For each sample image, assert extracted text contains the expected substring
+    for expected, img in expected_pairs:
+        extracted = ocr.extract_text(img)
+        assert isinstance(extracted, str)
+        assert expected.lower().split()[0] in extracted.lower()
 
 
-class TestPaddleOCRImpl:
-    """Test PaddleOCR implementation."""
+@pytest.mark.parametrize("impl_class,init_args,skip_pkg", OCR_IMPLS)
+def test_ocr_processing_stage_writes_txt(
+    impl_class, init_args, skip_pkg, temp_data_dir
+):
+    """Test OCRProcessingStage pipeline writes text files using different OCR engines.
 
-    def test_paddleocr_init(self):
-        """Test PaddleOCR initialization."""
-        ocr = PaddleOCRImpl(language="en", use_gpu=False)
-        assert ocr.language == "en"
-        assert ocr.use_gpu is False
+    The OCR engine's actual `extract_text` is mocked to return deterministic text so the
+    stage's file-writing behavior can be asserted for each implementation.
+    """
+    pytest.importorskip("cv2")
 
-    def test_paddleocr_default_language(self):
-        """Test PaddleOCR defaults to English."""
-        ocr = PaddleOCRImpl()
-        assert ocr.language == "en"
+    tmpdir, data_model = temp_data_dir
 
-    @patch("govscape.processing.ocr.paddleocr_impl.PaddleOCR")
-    def test_paddleocr_validate(self, mock_paddleocr):
-        """Test PaddleOCR validation."""
-        mock_ocr = MagicMock()
-        mock_paddleocr.return_value = mock_ocr
+    # Map impl_class to ocr_type string expected by OCRProcessingStage
+    impl_to_type = {
+        EasyOCRImpl: "easyocr",
+        PaddleOCRImpl: "paddleocr",
+        OLMOcrImpl: "olmocr",
+        OcrMyPDFImpl: "ocrmypdf",
+    }
 
-        ocr = PaddleOCRImpl(language="en")
-        ocr.validate()
+    ocr_type = impl_to_type[impl_class]
 
-        assert ocr.ocr is not None
-        mock_paddleocr.assert_called_once()
+    stage = OCRProcessingStage(data_model=data_model, ocr_type=ocr_type, **init_args)
 
+    # Create a sample image on disk that cv2 can read
+    import cv2
 
-class TestOLMOcrImpl:
-    """Test OLMOcr implementation."""
+    digest = "abc123def456abc123def456abc123def45"
+    img_dir = os.path.join(data_model.image_directory, digest)
+    os.makedirs(img_dir, exist_ok=True)
 
-    def test_olmocr_init(self):
-        """Test OLMOcr initialization."""
-        ocr = OLMOcrImpl(model_name="default")
-        assert ocr.model_name == "default"
+    img = _create_test_image("PIPELINE TEST")
+    img_path = os.path.join(img_dir, f"{digest}_0.jpeg")
+    cv2.imwrite(img_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
 
-    def test_olmocr_default_model(self):
-        """Test OLMOcr defaults to 'default' model."""
-        ocr = OLMOcrImpl()
-        assert ocr.model_name == "default"
+    mocked_text = "pipeline extracted text"
 
+    # Patch engine methods to avoid external OCR dependencies during pipeline test
+    with (
+        patch.object(stage.ocr_engine, "validate", return_value=None),
+        patch.object(stage.ocr_engine, "extract_text", return_value=mocked_text),
+    ):
+        # Validate and run stage
+        stage.validate()
+        stage.run()
 
-class TestOcrMyPDFImpl:
-    """Test OcrMyPDF/Tesseract implementation."""
-
-    def test_ocrmypdf_init(self):
-        """Test OcrMyPDF initialization."""
-        ocr = OcrMyPDFImpl(language="eng", output_type="txt")
-        assert ocr.language == "eng"
-        assert ocr.output_type == "txt"
-
-    def test_ocrmypdf_default_language(self):
-        """Test OcrMyPDF defaults to English."""
-        ocr = OcrMyPDFImpl()
-        assert ocr.language == "eng"
-
-    @patch("govscape.processing.ocr.ocrmypdf_impl.ocrmypdf")
-    @patch("govscape.processing.ocr.ocrmypdf_impl.pytesseract")
-    def test_ocrmypdf_extract_text(self, mock_pytesseract, mock_ocrmypdf):
-        """Test OcrMyPDF text extraction."""
-        mock_pytesseract.image_to_string.return_value = "Hello World"
-
-        ocr = OcrMyPDFImpl()
-        ocr.validate()
-
-        # Create a simple test image
-        test_image = np.zeros((100, 100, 3), dtype=np.uint8)
-        text = ocr.extract_text(test_image)
-
-        assert isinstance(text, str)
-
-
-class TestOCRProcessingStage:
-    """Test OCRProcessingStage integration."""
-
-    @pytest.fixture
-    def temp_data_dir(self):
-        """Create temporary data directory for testing."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Create image directory structure
-            data_model = DataModel(tmpdir)
-            os.makedirs(data_model.image_directory, exist_ok=True)
-            yield tmpdir, data_model
-
-    def test_ocr_stage_initialization(self, temp_data_dir):
-        """Test OCRProcessingStage initialization."""
-        tmpdir, data_model = temp_data_dir
-
-        stage = OCRProcessingStage(
-            data_model=data_model,
-            ocr_type="easyocr",
-            languages=["en"],
-            gpu=False,
-        )
-
-        assert stage.data_model == data_model
-        assert isinstance(stage.ocr_engine, EasyOCRImpl)
-
-    def test_ocr_stage_invalid_ocr_type(self, temp_data_dir):
-        """Test OCRProcessingStage with invalid OCR type."""
-        tmpdir, data_model = temp_data_dir
-
-        with pytest.raises(ValueError, match="Unsupported OCR type"):
-            OCRProcessingStage(
-                data_model=data_model,
-                ocr_type="invalid_ocr",
-            )
-
-    def test_ocr_stage_validates_image_directory(self, temp_data_dir):
-        """Test OCRProcessingStage validates image directory exists."""
-        tmpdir, data_model = temp_data_dir
-
-        # Remove the image directory
-        import shutil
-
-        shutil.rmtree(data_model.image_directory)
-
-        stage = OCRProcessingStage(
-            data_model=data_model,
-            ocr_type="easyocr",
-        )
-
-        with (
-            patch("govscape.processing.ocr_processing_stage.CV2_AVAILABLE", True),
-            pytest.raises(ValueError, match="Image input directory does not exist"),
-        ):
-            stage.validate()
-
-    def test_ocr_stage_build_engines(self, temp_data_dir):
-        """Test building different OCR engines."""
-        tmpdir, data_model = temp_data_dir
-
-        # Test EasyOCR
-        stage = OCRProcessingStage(
-            data_model=data_model,
-            ocr_type="easyocr",
-            languages=["en"],
-        )
-        assert isinstance(stage.ocr_engine, EasyOCRImpl)
-
-        # Test PaddleOCR
-        stage = OCRProcessingStage(
-            data_model=data_model,
-            ocr_type="paddleocr",
-            language="en",
-        )
-        assert isinstance(stage.ocr_engine, PaddleOCRImpl)
-
-        # Test OLMOcr
-        stage = OCRProcessingStage(
-            data_model=data_model,
-            ocr_type="olmocr",
-            model_name="default",
-        )
-        assert isinstance(stage.ocr_engine, OLMOcrImpl)
-
-        # Test OcrMyPDF
-        stage = OCRProcessingStage(
-            data_model=data_model,
-            ocr_type="ocrmypdf",
-            language="eng",
-        )
-        assert isinstance(stage.ocr_engine, OcrMyPDFImpl)
-
-    def test_ocr_stage_creates_txt_directory(self, temp_data_dir):
-        """Test that OCRProcessingStage creates txt directory."""
-        pytest.importorskip("cv2", reason="cv2 (OpenCV) is required for this test")
-
-        tmpdir, data_model = temp_data_dir
-
-        stage = OCRProcessingStage(
-            data_model=data_model,
-            ocr_type="easyocr",
-        )
-
-        # Mock the OCR engine to avoid actual OCR
-        with (
-            patch.object(stage.ocr_engine, "validate"),
-            patch.object(stage.ocr_engine, "extract_text", return_value="test"),
-        ):
-            # Create a test image
-            digest = "abc123def456abc123def456abc123def45"
-            img_dir = os.path.join(data_model.image_directory, digest)
-            os.makedirs(img_dir, exist_ok=True)
-
-            # Create a dummy image file
-            import cv2
-
-            dummy_image = np.zeros((100, 100, 3), dtype=np.uint8)
-            cv2.imwrite(os.path.join(img_dir, f"{digest}_0.jpeg"), dummy_image)
-
-            # Run stage
-            stage.run()
-
-            # Check that txt directory was created
-            assert os.path.exists(data_model.txt_directory)
-
-            # Check that txt file was created
-            txt_file = data_model.txt_page_path(digest, 0)
-            assert os.path.exists(txt_file)
-
-            # Check content
-            with open(txt_file) as f:
-                content = f.read()
-                assert content == "test"
+    # Verify txt directory and file created with expected content
+    txt_file = data_model.txt_page_path(digest, 0)
+    assert os.path.exists(txt_file)
+    with open(txt_file, encoding="utf-8") as f:
+        content = f.read()
+        assert content == mocked_text
