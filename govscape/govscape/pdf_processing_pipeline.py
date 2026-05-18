@@ -38,8 +38,6 @@ class PDFProcessingPipeline:
         run_extraction = (
             do_text_embedding or do_img_embedding or do_metadata_collection or do_ocr
         )
-    ):
-        run_extraction = do_text_embedding or do_img_embedding or do_metadata_collection
 
         time1 = time.time()
         pdfs_successfully_parsed = 0
@@ -100,13 +98,6 @@ class PDFProcessingPipeline:
         logging.info(f"pdf -> txt, img, metadata time: {pdf_to_txt_img_metadata}")
         if do_ocr:
             logging.info(f"ocr processing time: {ocr_time}")
-        time4 = time.time()
-
-        pdf_to_txt_img_metadata = time2 - time1
-        text_embed_time = time3 - time2
-        img_embed_time = time4 - time3
-
-        logging.info(f"pdf -> txt, img, metadata time: {pdf_to_txt_img_metadata}")
         logging.info(f"txt -> embed time: {text_embed_time}")
         logging.info(f"img per page -> embed time: {img_embed_time}")
 
