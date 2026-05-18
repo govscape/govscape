@@ -3,13 +3,14 @@
 # AI modified: 2026-03-08 4efba197
 # AI modified: 2026-03-08 4efba197
 # AI modified: 2026-03-09 4efba197
+# AI modified: 2026-04-26T22:00:43Z eac4f332
 """Benchmark utilities for AbstractMetadataIndex implementations.
 
 This script generates synthetic metadata records on the fly, feeds them
 through available metadata index implementations, and reports basic throughput
 metrics for both ingestion and querying under three filter scenarios:
 
-  - no_filter       : look up pdf_names with no additional constraints
+    - no_filter       : look up digests with no additional constraints
   - domain_filter   : filter by sub_domain only
   - date_filter     : filter by crawled_after and crawled_before only
   - all_filters: filter by sub_domain, crawled_after, and crawled_before
@@ -74,12 +75,12 @@ def generate_metadata(
     for idx in range(num_docs):
         sub_domain = rng.choice(_SUB_DOMAINS)
         crawl_date = _random_date(rng)
-        pdf_name = f"doc_{idx:06d}.pdf"
+        digest = f"doc_{idx:06d}.pdf"
         records.append(
             {
-                "crawl_url": f"https://{sub_domain}/reports/{pdf_name}",
+                "crawl_url": f"https://{sub_domain}/reports/{digest}",
                 "crawl_date": crawl_date,
-                "digest": pdf_name,
+                "digest": digest,
                 "pretty_name": f"Document {idx}",
                 "sub_domain": sub_domain,
                 "page_count": rng.randint(1, 200),
@@ -88,7 +89,7 @@ def generate_metadata(
     return records
 
 
-# Type alias for a single query: (pdf_names, filter_dict)
+# Type alias for a single query: (digests, filter_dict)
 IndexQuery = tuple[list[str], list[Predicate]]
 
 
@@ -110,14 +111,14 @@ def generate_query_batches(
     Each scenario gets an equal share of ``num_queries``.
     """
     rng = random.Random(seed)
-    pdf_names_pool = [r["pdf_name"] for r in records]
+    digests_pool = [r["digest"] for r in records]
 
     scenario_count = num_queries // 4
     remainder = num_queries - scenario_count * 4
 
     def _sample_names() -> list[str]:
-        k = min(batch_size, len(pdf_names_pool))
-        return rng.sample(pdf_names_pool, k=k)
+        k = min(batch_size, len(digests_pool))
+        return rng.sample(digests_pool, k=k)
 
     def _random_date_range() -> tuple[str, str]:
         year_after = rng.randint(2018, 2021)
@@ -195,9 +196,9 @@ def _run_queries(
     if not queries:
         return 0.0, 0.0, 0.0
     latencies: list[float] = []
-    for pdf_names, filt in queries:
+    for digests, filt in queries:
         t0 = time.perf_counter()
-        index.search(pdf_names, filt)
+        index.search(digests, filt)
         latencies.append(time.perf_counter() - t0)
     total = sum(latencies)
     qps = len(latencies) / total if total else float("inf")
@@ -332,7 +333,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         "--batch-size",
         type=int,
         default=10,
-        help="Number of pdf_names to look up per query",
+        help="Number of digests to look up per query",
     )
     parser.add_argument(
         "--index-root",

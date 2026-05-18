@@ -1,4 +1,5 @@
 # AI modified: 20260309 764fe895
+# AI modified: 2026-04-26T22:00:43Z eac4f332
 import pytest
 
 from govscape.indexing import (
@@ -80,7 +81,7 @@ def test_no_predicate_returns_matching_records(index):
     assert len(result["solar_grid.pdf"]) == 1
 
 
-def test_unknown_pdf_name_not_in_result(index):
+def test_unknown_digest_not_in_result(index):
     result = index.search(["does_not_exist.pdf"])
     assert result == {}
 
