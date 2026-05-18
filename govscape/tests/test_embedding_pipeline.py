@@ -148,9 +148,10 @@ def test_process_pdfs_text_only(sample_pipeline):
         do_text_embedding=True,
         do_img_embedding=False,
         do_metadata_collection=False,
+        do_ocr=False,
     )
 
-    assert len(timings) == 3
+    assert len(timings) == 4
     assert all(isinstance(value, float) for value in timings)
 
     txt_base = Path(pipeline.data_model.txt_directory)

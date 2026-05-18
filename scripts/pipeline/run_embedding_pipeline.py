@@ -24,6 +24,7 @@ def process_pdfs(
     do_text_embedding,
     do_img_embedding,
     do_metadata_collection,
+    do_ocr,
     pipeline_times,
     data_loader,
     local_dm,
@@ -32,12 +33,20 @@ def process_pdfs(
     print("Do_Text_embedding: ", do_text_embedding)
     print("Do_Img_embedding: ", do_img_embedding)
     print("Do_Metadata_collection: ", do_metadata_collection)
+    print("Do_OCR: ", do_ocr)
 
     # PROCESS PDFS HERE
-    pdf_to_txt_img_time, text_embed_time, img_embed_time = processor.process_pdfs(
-        pdf_files, do_text_embedding, do_img_embedding, do_metadata_collection
+    pdf_to_txt_img_time, ocr_time, text_embed_time, img_embed_time = (
+        processor.process_pdfs(
+            pdf_files,
+            do_text_embedding,
+            do_img_embedding,
+            do_metadata_collection,
+            do_ocr,
+        )
     )
     pipeline_times["pdf_to_txt_img_time"] += pdf_to_txt_img_time
+    pipeline_times["ocr_time"] += ocr_time
     pipeline_times["text_embed_time"] += text_embed_time
     pipeline_times["img_embed_time"] += img_embed_time
 
@@ -146,6 +155,30 @@ def main():
         help="Whether to do metadata collection",
         default=True,
     )
+    parser.add_argument(
+        "--do_ocr",
+        type=str2bool,
+        help="Whether to run OCR extraction on page images",
+        default=False,
+    )
+    parser.add_argument(
+        "--ocr_type",
+        type=str,
+        help="OCR engine type (easyocr, paddleocr, olmocr, ocrmypdf)",
+        default="easyocr",
+    )
+    parser.add_argument(
+        "--ocr_languages",
+        type=str,
+        help="Comma-separated list of languages for OCR (e.g., 'en,fr')",
+        default="en",
+    )
+    parser.add_argument(
+        "--ocr_gpu",
+        type=str2bool,
+        help="Whether to use GPU for OCR processing",
+        default=False,
+    )
     parser.add_argument("--pdf_dir", type=str, help="Directory containing PDFs")
     args = parser.parse_args()
 
@@ -177,6 +210,7 @@ def main():
         "list": 0,
         "download": 0,
         "pdf_to_txt_img_time": 0,
+        "ocr_time": 0,
         "text_embed_time": 0,
         "img_embed_time": 0,
         "upload": 0,
@@ -198,7 +232,12 @@ def main():
     )
 
     processor = gs.PDFProcessingPipeline(
-        local_dm.data_dir, args.text_model_type, args.visual_model_type
+        local_dm.data_dir,
+        args.text_model_type,
+        args.visual_model_type,
+        ocr_type=args.ocr_type if args.do_ocr else None,
+        languages=args.ocr_languages.split(",") if args.do_ocr else None,
+        gpu=args.ocr_gpu if args.do_ocr else None,
     )
 
     overall_start_time = time.time()
@@ -230,6 +269,7 @@ def main():
             args.do_text_embedding,
             args.do_img_embedding,
             args.do_metadata_collection,
+            args.do_ocr,
             pipeline_times,
             data_loader,
             local_dm,
