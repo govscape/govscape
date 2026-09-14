@@ -1,7 +1,7 @@
 <script>
   import { createEventDispatcher, onMount, afterUpdate, onDestroy } from 'svelte';
   import Masonry from 'masonry-layout';
-  import { searchStore, searchActions } from '$lib/stores/search';
+  import { searchStore } from '$lib/stores/search';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { userTracker } from '$lib/utils/userTracking.js';
@@ -82,6 +82,7 @@
 
     dispatch('pdfSelect', { pdf, page, id: pdfId, crawlDate, crawlUrl, subDomain, crawlInstances, hasMoreCrawls, prettyName });
   }
+
 
   function updatePageInURL(newPage) {
     const params = new URLSearchParams($page.url.searchParams);
@@ -237,6 +238,7 @@
     font-size: 0.8rem;
     color: var(--text-color-secondary);
   }
+
 
   .pagination-container {
     display: flex;

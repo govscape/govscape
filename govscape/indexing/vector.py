@@ -174,6 +174,8 @@ class FAISSIndex(AbstractVectorIndex):
         return distances, name_results, page_results
 
     def total_entries(self):
+        if self.faiss_index is None:
+            return 0
         return self.faiss_index.ntotal
 
 

@@ -42,11 +42,15 @@ class Query:
         search_type: str,
         predicates: list[Predicate] | None = None,
         page: int = 1,
+        page_size: int | None = None,
+        include_metadata: bool = False,
     ):
         self.q_text = q_text
         self.search_type = search_type
         self.predicates = predicates if predicates is not None else []
         self.page = page
+        self.page_size = page_size
+        self.include_metadata = include_metadata
 
 
 class Response:

@@ -1,4 +1,4 @@
-from flask import current_app, request
+from flask import current_app, make_response, request
 from flask_restx import Namespace, Resource, fields
 
 from ...query import EqualityPredicate, Predicate, Query, RangePredicate
@@ -14,6 +14,7 @@ search_input = ns.model(
         "search_type": fields.String(required=True, description="Search query text"),
         "filters": fields.Raw(description="Filters to apply to the search"),
         "page": fields.Integer(description="Page number for pagination", default=1),
+        "page_size": fields.Integer(description="Page size for pagination"),
     },
 )
 
@@ -120,8 +121,60 @@ class Search(Resource):
             search_type=search_type,
             predicates=predicates,
             page=data.get("page", 1),
+            page_size=data.get("page_size"),
         )
 
         server = current_app.server
 
         return server.search(query).to_dict()
+
+
+@ns.route("/export/")
+class SearchExport(Resource):
+    @ns.doc("export_search_results")
+    @ns.expect(search_input, validate=True)
+    def post(self):
+        """Export search results as CSV"""
+        data = request.get_json()
+        if not data or "query" not in data:
+            return {"status": "error", "message": "Missing 'query' parameter"}, 400
+
+        if "search_type" not in data:
+            return {
+                "status": "error",
+                "message": "Missing 'search_type' parameter",
+            }, 400
+
+        q_text = data.get("query")
+        if not q_text.strip():
+            return {"status": "error", "message": "Query cannot be empty"}, 400
+
+        search_type = data.get("search_type")
+        if not search_type.strip():
+            return {
+                "status": "error",
+                "message": "search_type cannot be empty",
+            }, 400
+
+        predicates: list[Predicate] = []
+        predicates = convert_filters_to_predicates(data.get("filters", {}))
+
+        query = Query(
+            q_text=q_text,
+            search_type=search_type,
+            predicates=predicates,
+            page=data.get("page", 1),
+            page_size=data.get("page_size"),
+            include_metadata=True,
+        )
+
+        server = current_app.server
+        response = server.search(query)
+        csv_data = server.build_search_csv(response)
+
+        flask_response = make_response(csv_data)
+        flask_response.headers["Content-Type"] = "text/csv; charset=utf-8"
+        flask_response.headers["Content-Disposition"] = (
+            "attachment; filename=govscape-search-results.csv"
+        )
+        return flask_response

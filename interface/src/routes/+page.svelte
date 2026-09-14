@@ -4,6 +4,7 @@
   import { searchStore, searchActions } from '$lib/stores/search';
   import SearchBox from '$lib/components/SearchBox.svelte';
   import TypingEffect from '$lib/components/TypingEffect.svelte';
+  import { getApiBaseUrl, camelToSnake } from '$lib/utils/fetch';
 
   const govDomains = [
     'epa.gov',
@@ -15,6 +16,8 @@
   ];
 
   let isSmallScreen = false;
+  let downloadingCsv = false;
+  let exportError = null;
 
   function checkScreenSize() {
     isSmallScreen = window.innerWidth < 768;
@@ -25,9 +28,71 @@
     window.addEventListener('resize', checkScreenSize);
   });
 
+  async function toggleExportEnabled() {
+    searchActions.toggleExportEnabled();
+    exportError = null;
+  }
+
+  function handlePageSizeChange(event) {
+    const pageSize = Number(event.target.value);
+    if (!Number.isFinite(pageSize) || pageSize <= 0) return;
+    searchActions.setPageSize(pageSize);
+    searchActions.goToPage(1, { isNewSearch: true });
+    exportError = null;
+  }
+
+  async function downloadCsv() {
+    const currentState = $searchStore;
+    if (!currentState.query?.trim()) {
+      exportError = 'Enter a search query before exporting.';
+      return;
+    }
+
+    downloadingCsv = true;
+    exportError = null;
+
+    try {
+      const body = JSON.stringify(camelToSnake({
+        query: currentState.query,
+        filters: currentState.filters,
+        searchType: currentState.currentSearchMode,
+        page: currentState.page,
+        pageSize: currentState.pageSize,
+      }));
+
+      const response = await fetch(`${getApiBaseUrl()}/search/export/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body,
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || 'Failed to export CSV');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `govscape-search-export-${currentState.pageSize}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export CSV failed:', err);
+      exportError = err?.message || 'Export failed. Please try again.';
+    } finally {
+      downloadingCsv = false;
+    }
+  }
+
   onDestroy(() => {
     window.removeEventListener('resize', checkScreenSize);
-    searchActions.reset();
   });
 </script>
 
@@ -46,6 +111,45 @@
     </h1>
   </div>
   <SearchBox />
+
+  <section class="export-cta">
+    <div class="export-cta-left">
+      <label for="home-page-size-input">Export top</label>
+      <input
+        id="home-page-size-input"
+        class="page-size-input"
+        type="number"
+        min="1"
+        step="1"
+        value={$searchStore.pageSize}
+        on:change={handlePageSizeChange}
+      />
+    </div>
+    <div class="export-cta-right">
+      <button
+        class="export-toggle-button"
+        type="button"
+        on:click={toggleExportEnabled}
+        aria-pressed={$searchStore.exportEnabled}
+      >
+        CSV export: {$searchStore.exportEnabled ? 'ON' : 'OFF'}
+      </button>
+      {#if $searchStore.exportEnabled}
+        <button
+          class="download-csv-button"
+          type="button"
+          on:click={downloadCsv}
+          disabled={downloadingCsv || !$searchStore.query.trim()}
+        >
+          {downloadingCsv ? 'Preparing CSV…' : 'Download CSV'}
+        </button>
+      {/if}
+    </div>
+  </section>
+
+  {#if exportError}
+    <div class="export-error" role="alert">{exportError}</div>
+  {/if}
 
   <div class="resources-section">
     <a href="https://arxiv.org/abs/2511.11010" target="_blank" rel="noopener noreferrer" class="resource-card">

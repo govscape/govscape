@@ -1,3 +1,6 @@
+import csv
+import io
+import json
 from pathlib import Path
 
 import pytest
@@ -214,6 +217,41 @@ def test_search_filters_blacklisted_pdfs_keyword(server_fixture_with_blacklist):
         "keyword_doc_2.pdf",
         "keyword_doc_3.pdf",
     ]
+
+
+def test_build_search_csv_generates_expected_columns(server_fixture):
+    server = server_fixture
+    response = server.search(
+        Query(
+            "test query",
+            search_type="textual",
+            page_size=2,
+            include_metadata=True,
+        )
+    )
+    csv_text = server.build_search_csv(response)
+
+    rows = list(csv.DictReader(io.StringIO(csv_text)))
+    assert rows[0]["pdf_digest"] == "doc_0.pdf"
+    assert rows[0]["source_coop_url"] == "https://source.coop/download/doc_0.pdf"
+    assert rows[0]["page"] == "0"
+    assert json.loads(rows[0]["metadata_json"])[0]["crawl_date"] == "2024-01-01"
+
+
+def test_build_search_csv_includes_metadata_for_visual_search(server_fixture):
+    server = server_fixture
+    response = server.search(
+        Query(
+            "visual query",
+            search_type="visual",
+            page_size=2,
+            include_metadata=True,
+        )
+    )
+    csv_text = server.build_search_csv(response)
+
+    rows = list(csv.DictReader(io.StringIO(csv_text)))
+    assert json.loads(rows[0]["metadata_json"])[0]["crawl_date"] == "2024-01-01"
 
 
 def test_pdf_pages_blacklisted_returns_empty_200(server_fixture_with_blacklist):
