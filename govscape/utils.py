@@ -27,6 +27,26 @@ def load_word_blacklist(path: str) -> set[str]:
         }
 
 
+def load_url_blacklist_patterns(path: str) -> list[re.Pattern]:
+    r"""Load a newline-delimited regex pattern file used to blacklist crawl URLs.
+
+    Each non-blank, non-comment line is compiled as a case-insensitive regex
+    that is matched (via `search`) against a document's crawl_url. This lets
+    an entire domain (or URL path) be excluded from search results without
+    enumerating every digest, e.g. `.*\.example\.gov/.*`.
+    """
+    if not os.path.exists(path):
+        return []
+    patterns = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            patterns.append(re.compile(line, re.IGNORECASE))
+    return patterns
+
+
 def contains_blacklisted_word(text: str, blacklist: set[str]) -> bool:
     """Return True if `text` contains any whole word from `blacklist`.
 

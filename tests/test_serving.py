@@ -67,6 +67,12 @@ class DummyKeywordIndex:
         return self._entries
 
 
+_FAKE_CRAWL_URLS = {
+    "doc_2.pdf": "https://blocked.gov/report.pdf",
+    "keyword_doc_2.pdf": "https://blocked.gov/keyword-report.pdf",
+}
+
+
 class DummyMetadataIndex:
     def __init__(self, *args, **kwargs):
         self._entries = 1000
@@ -83,6 +89,15 @@ class DummyMetadataIndex:
     def get_candidate_digests(self, predicates=None):
         return {f"doc_{i}.pdf" for i in range(self._entries)}
 
+    def get_url_blacklisted_digests(self, url_patterns):
+        if not url_patterns:
+            return set()
+        return {
+            digest
+            for digest, url in _FAKE_CRAWL_URLS.items()
+            if any(p.search(url) for p in url_patterns)
+        }
+
     def search(self, pdf_names, predicates=None):
         return {
             name: [
@@ -97,7 +112,12 @@ class DummyMetadataIndex:
         }
 
 
-def _build_server_fixture(tmp_path, monkeypatch, blacklist_text: str | None = None):
+def _build_server_fixture(
+    tmp_path,
+    monkeypatch,
+    blacklist_text: str | None = None,
+    url_blacklist_text: str | None = None,
+):
     data_dir = tmp_path / "data"
     (data_dir / "embeddings").mkdir(parents=True)
     (data_dir / "embeddings_img_pg").mkdir(parents=True)
@@ -110,6 +130,8 @@ def _build_server_fixture(tmp_path, monkeypatch, blacklist_text: str | None = No
     (data_dir / "total_pdfs.txt").write_text("0")
     if blacklist_text is not None:
         (data_dir / "blacklist.txt").write_text(blacklist_text)
+    if url_blacklist_text is not None:
+        (data_dir / "url_blacklist.txt").write_text(url_blacklist_text)
 
     monkeypatch.setattr("govscape.server.FAISSIndex", DummyVectorIndex)
     monkeypatch.setattr("govscape.server.LanceDBKeywordIndex", DummyKeywordIndex)
@@ -140,6 +162,14 @@ def server_fixture(tmp_path, monkeypatch):
 def server_fixture_with_blacklist(tmp_path, monkeypatch):
     blacklist_text = "doc_0.pdf\n# takedown ticket-1234\n\n  keyword_doc_0.pdf  \n"
     return _build_server_fixture(tmp_path, monkeypatch, blacklist_text=blacklist_text)
+
+
+@pytest.fixture()
+def server_fixture_with_url_blacklist(tmp_path, monkeypatch):
+    url_blacklist_text = "# blocked domain\nblocked\\.gov\n"
+    return _build_server_fixture(
+        tmp_path, monkeypatch, url_blacklist_text=url_blacklist_text
+    )
 
 
 def test_server_initialization(server_fixture):
@@ -192,6 +222,33 @@ def test_blacklist_missing_file_is_empty(server_fixture):
 def test_blacklist_loads_from_file(server_fixture_with_blacklist):
     server = server_fixture_with_blacklist
     assert server.blacklist == {"doc_0.pdf", "keyword_doc_0.pdf"}
+
+
+def test_url_blacklist_missing_file_is_empty(server_fixture):
+    server = server_fixture
+    assert server.blacklist == set()
+
+
+def test_url_blacklist_resolves_matching_digests(server_fixture_with_url_blacklist):
+    server = server_fixture_with_url_blacklist
+    assert server.blacklist == {"doc_2.pdf", "keyword_doc_2.pdf"}
+
+
+def test_search_filters_url_blacklisted_pdfs_textual(server_fixture_with_url_blacklist):
+    server = server_fixture_with_url_blacklist
+    response = server.search(Query("test", search_type="textual"))
+
+    returned = [r["pdf"] for r in response.results]
+    assert "doc_2.pdf" not in returned
+    assert len(response.results) == server.config.k
+
+
+def test_search_filters_url_blacklisted_pdfs_keyword(server_fixture_with_url_blacklist):
+    server = server_fixture_with_url_blacklist
+    response = server.search(Query("site:gov", search_type="keyword"))
+
+    returned = [r["pdf"] for r in response.results]
+    assert "keyword_doc_2.pdf" not in returned
 
 
 def test_search_filters_blacklisted_pdfs_textual(server_fixture_with_blacklist):
