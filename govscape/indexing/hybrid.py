@@ -206,6 +206,7 @@ class HybridVectorMetadataIndex(AbstractHybridMetadataIndex):
         current_k = int(math.ceil(target_results * (1.0 / safe_selectivity)))
         filtered_rows = []
         metadata = {}
+        previous_count = -1
 
         while len(filtered_rows) < target_results:
             distances, digests, pages = self.vector_index.search(
@@ -222,6 +223,13 @@ class HybridVectorMetadataIndex(AbstractHybridMetadataIndex):
 
             if current_k >= self._index_total_entries():
                 break
+
+            # Widening current_k stopped surfacing new matches; the corpus
+            # doesn't have enough distinct results to satisfy target_results,
+            # so stop instead of scanning the rest of the index.
+            if len(filtered_rows) == previous_count:
+                break
+            previous_count = len(filtered_rows)
 
             current_k = min(self._index_total_entries(), current_k * 2)
 
@@ -273,7 +281,7 @@ class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
                 break
 
             results_found = len(filtered_rows)
-            if results_found == old_results_found and not predicates:
+            if results_found == old_results_found:
                 break
             old_results_found = results_found
 
@@ -289,6 +297,7 @@ class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
 
         filtered_rows = []
         metadata = {}
+        previous_count = -1
 
         while len(filtered_rows) < target_results:
             distances, digests, pages = self.keyword_index.search(query_text, current_k)
@@ -303,6 +312,12 @@ class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
 
             if current_k >= self._index_total_entries():
                 break
+
+            # Widening current_k stopped surfacing new matches; stop instead
+            # of scanning the rest of the index.
+            if len(filtered_rows) == previous_count:
+                break
+            previous_count = len(filtered_rows)
 
             current_k = min(self._index_total_entries(), current_k * 2)
 
