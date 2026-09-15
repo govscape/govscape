@@ -3,12 +3,15 @@
   import { searchStore, searchActions } from '$lib/stores/search';
   import { get } from 'svelte/store';
   import { goto } from '$app/navigation';
+  import { getApiBaseUrl, camelToSnake } from '$lib/utils/fetch';
   export let show = false;
 
   let crawledAfter = '';
   let crawledBefore = ''
   let subDomain = '';
   let pageCount = '';
+  let downloadingCsv = false;
+  let exportError = null;
 
   const subdomainOptions = [
     { value: '', label: 'Any subdomain' },
@@ -80,12 +83,80 @@
       updateURLWithFilters();
     }
   }
+
+  async function toggleExportEnabled() {
+    searchActions.toggleExportEnabled();
+    exportError = null;
+  }
+
+  function handlePageSizeChange(event) {
+    const pageSize = Number(event.target.value);
+    if (!Number.isFinite(pageSize) || pageSize <= 0) return;
+    searchActions.setPageSize(pageSize);
+    searchActions.goToPage(1, { isNewSearch: true });
+    exportError = null;
+  }
+
+  async function downloadCsv() {
+    const currentState = get(searchStore);
+    if (!currentState.query?.trim()) {
+      exportError = 'Enter a search query before exporting.';
+      return;
+    }
+
+    downloadingCsv = true;
+    exportError = null;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+    try {
+      const body = JSON.stringify(camelToSnake({
+        query: currentState.query,
+        filters: currentState.filters,
+        searchType: currentState.currentSearchMode,
+        page: currentState.page,
+        pageSize: currentState.pageSize,
+      }));
+
+      const response = await fetch(`${getApiBaseUrl()}/search/export/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body,
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || 'Failed to export CSV');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `govscape-search-export-${currentState.pageSize}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export CSV failed:', err);
+      exportError = err?.name === 'AbortError' ? 'Export timed out. Please try again.' : (err?.message || 'Export failed. Please try again.');
+    } finally {
+      clearTimeout(timeoutId);
+      downloadingCsv = false;
+    }
+  }
 </script>
 
 {#if show}
   <div transition:slide={{ duration: 300 }}>
     <div class="advanced-search-container">
-      <div class="advanced-search-title">Search Filters</div>
+      <div class="advanced-search-title">Search Options</div>
       <div class="filters-grid">
         <div class="filter-item">
           <label for="crawlDate">Crawl Date</label>
@@ -104,7 +175,44 @@
             {/each}
           </datalist>
         </div>
+
+        <div class="filter-item export-item">
+          <label for="advanced-search-page-size-input">Export Top Results</label>
+          <div class="export-controls-row">
+            <input
+              id="advanced-search-page-size-input"
+              class="page-size-input"
+              type="number"
+              min="1"
+              step="1"
+              value={$searchStore.pageSize}
+              on:change={handlePageSizeChange}
+            />
+            <button
+              class="export-toggle-button"
+              type="button"
+              on:click={toggleExportEnabled}
+              aria-pressed={$searchStore.exportEnabled}
+            >
+              CSV Export: {$searchStore.exportEnabled ? 'On' : 'Off'}
+            </button>
+          </div>
+          {#if $searchStore.exportEnabled}
+            <button
+              class="download-csv-button"
+              type="button"
+              on:click={downloadCsv}
+              disabled={downloadingCsv || !$searchStore.query.trim()}
+            >
+              {downloadingCsv ? 'Preparing CSV…' : 'Download CSV'}
+            </button>
+          {/if}
+        </div>
       </div>
+
+      {#if exportError}
+        <div class="export-error" role="alert">{exportError}</div>
+      {/if}
     </div>
   </div>
 {/if}
@@ -157,6 +265,73 @@
 
   .filter-item input::placeholder {
     color: var(--text-color-secondary);
+  }
+
+  .export-item {
+    gap: 0.3rem;
+  }
+
+  .export-controls-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  .export-controls-row .page-size-input {
+    width: 4.5rem;
+    flex: none;
+  }
+
+  .export-toggle-button,
+  .download-csv-button {
+    font-family: var(--sans-serif-font);
+    font-weight: 500;
+    font-size: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background-color: #fff;
+    color: var(--text-color-secondary);
+    padding: 8px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  }
+
+  .export-toggle-button {
+    flex: 1;
+  }
+
+  .export-toggle-button[aria-pressed='true'] {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+  }
+
+  .download-csv-button {
+    margin-top: 8px;
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+  }
+
+  .download-csv-button:hover:not(:disabled) {
+    background: var(--color-secondary);
+    border-color: var(--color-secondary);
+  }
+
+  .download-csv-button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .export-error {
+    width: 100%;
+    color: var(--danger-color, #d22);
+    background: rgba(255, 224, 224, 0.85);
+    border: 1px solid #f4c2c2;
+    border-radius: 12px;
+    padding: 0.9rem 1rem;
+    margin-top: 12px;
+    text-align: left;
   }
 
   .date-range-row {

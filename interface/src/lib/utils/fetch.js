@@ -17,7 +17,11 @@ const ENDPOINTS = {
 export const getApiBaseUrl = () => {
   if (IS_DEV) return ENDPOINTS.DEV.API;
 
-  return ENDPOINTS.PROD.API;
+  if (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+    return 'http://localhost:8080/api';
+  }
+
+  return '/api';
 };
 
 export const getImageBaseUrl = () => {
