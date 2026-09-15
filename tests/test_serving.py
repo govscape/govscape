@@ -184,6 +184,16 @@ def test_server_keyword_search_uses_keyword_index(server_fixture):
     ]
 
 
+def test_server_hybrid_search_combines_keyword_and_vector(server_fixture):
+    server = server_fixture
+    response = server.search(Query("site:gov", search_type="hybrid"))
+
+    assert len(response.results) == server.config.k
+    returned = [result["pdf"] for result in response.results]
+    assert "doc_0.pdf" in returned
+    assert "keyword_doc_0.pdf" in returned
+
+
 def test_blacklist_missing_file_is_empty(server_fixture):
     server = server_fixture
     assert server.blacklist == set()

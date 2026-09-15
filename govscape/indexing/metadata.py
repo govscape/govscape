@@ -11,9 +11,10 @@ import duckdb
 import pyarrow as pa
 
 from ..query import EqualityPredicate, Predicate, RangePredicate
+from .base import AbstractIndex
 
 
-class AbstractMetadataIndex(ABC):
+class AbstractMetadataIndex(AbstractIndex, ABC):
     @abstractmethod
     def __init__(self, index_metadata_directory):
         self.index_metadata_directory = index_metadata_directory

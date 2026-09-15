@@ -8,6 +8,8 @@ import numpy as np
 
 import pyarrow as pa
 
+from .base import AbstractIndex
+
 
 # Avoid annoying output from faiss during import
 @contextlib.contextmanager
@@ -28,11 +30,7 @@ with suppress_output():
     import faiss
 
 
-class AbstractVectorIndex(ABC):
-    @abstractmethod
-    def __init__(self):
-        pass
-
+class AbstractVectorIndex(AbstractIndex, ABC):
     @abstractmethod
     def build_index(self):
         pass

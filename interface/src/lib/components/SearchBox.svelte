@@ -5,6 +5,7 @@
   import { goto } from '$app/navigation';
   import { createEventDispatcher } from 'svelte';
   import AdvancedSearch from './AdvancedSearch.svelte';
+  import HybridSliders from './HybridSliders.svelte';
   import GlobeIcon from './icons/GlobeIcon.svelte';
   import FilterIcon from './icons/FilterIcon.svelte';
 
@@ -19,6 +20,7 @@
     { id: 'textual', label: 'Semantic Text Search', placeholder: 'Search PDFs with context-rich text search...' },
     { id: 'visual', label: 'Visual Search', placeholder: 'Search PDFs using image semantics...' },
     { id: 'keyword', label: 'Keyword Search', placeholder: 'Enter keywords for search...' },
+    { id: 'hybrid_weights', label: 'Hybrid (Text+Visual+Keyword)', placeholder: 'Hybrid search combining text, visual, and keyword...'},
   ];
 
   let currentSearchMode = searchModes[0];
@@ -109,8 +111,9 @@
     <div
       class="search-mode-toggle-bg"
       class:toggle-left={currentSearchMode.id === 'textual'}
-      class:toggle-middle={currentSearchMode.id === 'visual'}
-      class:toggle-right={currentSearchMode.id === 'keyword'}
+        class:toggle-middle={currentSearchMode.id === 'visual'}
+        class:toggle-right={currentSearchMode.id === 'keyword'}
+        class:toggle-fourth={currentSearchMode.id === 'hybrid_weights'}
     ></div>
     {#each searchModes as mode}
       <button
@@ -176,6 +179,9 @@
   </div>
 
   <AdvancedSearch show={$searchStore.showFilters} />
+  {#if $searchStore.currentSearchMode === 'hybrid_weights'}
+    <HybridSliders />
+  {/if}
 </div>
 
 <style>
@@ -277,7 +283,7 @@
     position: absolute;
     top: 4px;
     left: 4px;
-    width: calc(33.33% - 4px);
+    width: calc(25% - 4px);
     height: calc(100% - 8px);
     background: var(--color-primary);
     border-radius: 999px;
@@ -293,7 +299,11 @@
   }
 
   .search-mode-toggle-bg.toggle-right {
-    transform: translateX(203.5%);
+    transform: translateX(200%);
+  }
+
+  .search-mode-toggle-bg.toggle-fourth {
+    transform: translateX(300%);
   }
 
   .search-mode-tabs button {
