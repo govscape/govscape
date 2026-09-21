@@ -61,3 +61,7 @@ When adding new endpoints to the API:
 2. Create a new Resource class in the appropriate namespace
 3. Use the `@ns.doc()` and `@ns.response()` decorators for documentation
 4. Add example requests/responses in the Swagger UI
+
+
+#### Govscape Source COOP Repository
+The data that govscape is derived from lives at the following source.coop [repository](https://source.coop/govscape/eota-pdf-archive)
