@@ -79,7 +79,7 @@ OCRProcessingStage(
     data_model=data_model,
     ocr_type="easyocr",
     languages=["en", "fr"],  # Support multiple languages
-    gpu=True                  # Use GPU if available
+    gpu=True,  # Use GPU if available
 )
 ```
 
@@ -88,8 +88,8 @@ OCRProcessingStage(
 OCRProcessingStage(
     data_model=data_model,
     ocr_type="paddleocr",
-    language="en",           # Single language
-    use_gpu=True             # Use GPU if available
+    language="en",  # Single language
+    use_gpu=True,  # Use GPU if available
 )
 ```
 
@@ -98,7 +98,7 @@ OCRProcessingStage(
 OCRProcessingStage(
     data_model=data_model,
     ocr_type="olmocr",
-    model_name="default"     # Model variant
+    model_name="default",  # Model variant
 )
 ```
 
@@ -107,8 +107,8 @@ OCRProcessingStage(
 OCRProcessingStage(
     data_model=data_model,
     ocr_type="ocrmypdf",
-    language="eng",          # Tesseract language code
-    output_type="txt"        # Output format
+    language="eng",  # Tesseract language code
+    output_type="txt",  # Output format
 )
 ```
 
@@ -144,6 +144,7 @@ Example:
 ```python
 # ocr/tesseract_impl.py
 from .base_ocr import BaseOCR
+
 
 class TesseractImpl(BaseOCR):
     def __init__(self, language: str = "eng"):

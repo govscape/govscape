@@ -42,11 +42,15 @@ class Query:
         search_type: str,
         predicates: list[Predicate] | None = None,
         page: int = 1,
+        weights: dict | None = None,
     ):
         self.q_text = q_text
         self.search_type = search_type
         self.predicates = predicates if predicates is not None else []
         self.page = page
+        # Optional per-query weights for hybrid searches.
+        # Example: {"textual": 0.3, "visual": 0.3, "keyword": 0.4}
+        self.weights = weights or {}
 
 
 class Response:

@@ -1,12 +1,13 @@
-# AI modified
 from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import numpy as np
 
+from .base import AbstractIndex
 from .keyword import AbstractKeywordIndex
 from .metadata import AbstractMetadataIndex
 from .vector import AbstractVectorIndex
@@ -24,7 +25,7 @@ class HybridSearchState:
     postfilter_cost: float
 
 
-class AbstractHybridMetadataIndex(ABC):
+class AbstractHybridMetadataIndex(AbstractIndex, ABC):
     def __init__(self, metadata_index: AbstractMetadataIndex):
         self.metadata_index = metadata_index
 
@@ -81,6 +82,9 @@ class AbstractHybridMetadataIndex(ABC):
     @abstractmethod
     def _index_total_entries(self) -> int:
         pass
+
+    def total_entries(self) -> int:
+        return self._index_total_entries()
 
     @abstractmethod
     def _run_prefilter(
@@ -307,3 +311,127 @@ class HybridKeywordMetadataIndex(AbstractHybridMetadataIndex):
             current_k = min(self._index_total_entries(), current_k * 2)
 
         return filtered_rows[:target_results], metadata, current_k
+
+
+class HybridIndex(AbstractIndex):
+    """Combine any number of metadata-aware indexes using weighted ranks."""
+
+    def __init__(
+        self,
+        indices: list[AbstractIndex],
+        weights: list[float] | None = None,
+    ):
+        if not indices:
+            raise ValueError("HybridIndex requires at least one index")
+        if weights is not None and len(weights) != len(indices):
+            raise ValueError("HybridIndex weights must match the number of indices")
+        self.indices = indices
+        self.weights = weights or [1.0] * len(indices)
+
+    def total_entries(self) -> int:
+        return sum(index.total_entries() for index in self.indices)
+
+    def _index_total_entries(self) -> int:
+        return max(index.total_entries() for index in self.indices)
+
+    @staticmethod
+    def _rank_score(rank: int) -> float:
+        return 1.0 / (rank + 1)
+
+    @staticmethod
+    def _merge_metadata(*metadatas: dict[str, list[dict]]) -> dict[str, list[dict]]:
+        merged: dict[str, list[dict]] = {}
+        for metadata in metadatas:
+            for digest, entries in metadata.items():
+                merged.setdefault(digest, []).extend(entries)
+        return merged
+
+    def _combine_rows(
+        self,
+        component_rows: list[list[tuple[float, str, str]]],
+        target_results: int,
+        weights: list[float],
+    ) -> list[tuple[float, str, str]]:
+        combined: dict[str, dict] = {}
+
+        for component_rank, rows in enumerate(component_rows):
+            for rank, row in enumerate(rows):
+                digest = row[1]
+                entry = combined.setdefault(
+                    digest,
+                    {"row": row, "ranks": [None] * len(component_rows)},
+                )
+                entry["ranks"][component_rank] = rank
+
+        scored_rows: list[tuple[float, tuple[float, str, str]]] = []
+        for entry in combined.values():
+            score = sum(
+                weight * self._rank_score(rank)
+                for weight, rank in zip(weights, entry["ranks"], strict=False)
+                if rank is not None
+            )
+            scored_rows.append((score, entry["row"]))
+
+        scored_rows.sort(key=lambda item: (-item[0], item[1][0], item[1][1]))
+        return [row for _, row in scored_rows[:target_results]]
+
+    def search(
+        self,
+        queries,
+        predicates,
+        target_results,
+        blacklist=None,
+        parallel: bool = True,
+        weights: list[float] | None = None,
+    ):
+        if blacklist is None:
+            blacklist = set()
+        if len(queries) != len(self.indices):
+            raise ValueError("HybridIndex queries must match the number of indices")
+        weights = weights or self.weights
+        search_futures = []
+        search_k = max(target_results * 3, 20)
+        if parallel:
+            with ThreadPoolExecutor(max_workers=len(self.indices)) as executor:
+                for index, query in zip(self.indices, queries, strict=True):
+                    k = min(index.total_entries(), search_k)
+                    search_futures.append(
+                        executor.submit(
+                            index.search,
+                            query,
+                            predicates,
+                            k,
+                            blacklist,
+                        )
+                    )
+                component_results = [future.result() for future in search_futures]
+        else:
+            component_results = [
+                index.search(
+                    query,
+                    predicates,
+                    min(index.total_entries(), search_k),
+                    blacklist,
+                )
+                for index, query in zip(self.indices, queries, strict=True)
+            ]
+
+        component_rows = [result[0] for result in component_results]
+        combined_rows = self._combine_rows(component_rows, target_results, weights)
+        combined_metadata = self._merge_metadata(
+            *(result[1] for result in component_results)
+        )
+        combined_state = HybridSearchState(
+            strategy="combined",
+            current_k=max(result[2].current_k for result in component_results),
+            estimated_selectivity=max(
+                result[2].estimated_selectivity for result in component_results
+            ),
+            prefilter_cost=sum(
+                result[2].prefilter_cost for result in component_results
+            ),
+            postfilter_cost=sum(
+                result[2].postfilter_cost for result in component_results
+            ),
+        )
+        return combined_rows, combined_metadata, combined_state

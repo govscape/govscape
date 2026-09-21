@@ -11,6 +11,8 @@ from whoosh.index import create_in
 from whoosh.qparser import QueryParser
 from whoosh.query import And, Or, Term
 
+from .base import AbstractIndex
+
 lucene = None
 LuceneTerm = None
 _LUCENE_LOADED = False
@@ -96,7 +98,7 @@ def _load_lucene():
             raise ImportError("Lucene is not available in this environment") from e
 
 
-class AbstractKeywordIndex(ABC):
+class AbstractKeywordIndex(AbstractIndex, ABC):
     @abstractmethod
     def __init__(self, index_keyword_directory):
         self.index_keyword_directory = index_keyword_directory
@@ -256,15 +258,27 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
         self.conn = None
         self.cursor = None
         self.index = None
+        self._thread_local = threading.local()
         self._total_entries = -1
         self.VALID_CHARS = (
             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _"
         )
 
+    def _get_connection(self):
+        thread_state = self._thread_local
+        conn = getattr(thread_state, "conn", None)
+        if conn is None:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            thread_state.conn = conn
+        return conn
+
+    def _get_cursor(self):
+        return self._get_connection().cursor()
+
     def build_index(self):
         if not os.path.exists(self.index_keyword_directory):
             os.makedirs(self.index_keyword_directory)
-        self.conn = sqlite3.connect(self.db_path)
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.cursor = self.conn.cursor()
         self.cursor.execute(
             """
@@ -279,39 +293,41 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
         self.conn.commit()
 
     def _has_name_column(self):
-        if self.conn is None:
-            self.load_index()
-        rows = self.cursor.execute("PRAGMA table_info(fts_txt)").fetchall()
+        cursor = self._get_cursor()
+        rows = cursor.execute("PRAGMA table_info(fts_txt)").fetchall()
         return any(str(row[1]) == "name" for row in rows)
 
     def add_batch(self, texts, digests, pages):
-        if self.conn is None:
-            self.load_index()
-        self.cursor.execute("BEGIN TRANSACTION;")
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("BEGIN TRANSACTION;")
         has_name_column = self._has_name_column()
         for text, digest, page in zip(texts, digests, pages, strict=False):
             if has_name_column:
-                self.cursor.execute(
+                cursor.execute(
                     "INSERT INTO fts_txt (text, pdf_name, page_count, name) "
                     "VALUES (?, ?, ?, ?)",
                     [text, digest, page, digest],
                 )
             else:
-                self.cursor.execute(
+                cursor.execute(
                     "INSERT INTO fts_txt (text, pdf_name, page_count) VALUES (?, ?, ?)",
                     [text, digest, page],
                 )
-        self.conn.commit()
+        conn.commit()
 
     def load_index(self):
         os.makedirs(self.index_keyword_directory, exist_ok=True)
         if not os.path.exists(self.db_path):
             self.build_index()
-        self.conn = sqlite3.connect(self.db_path)
-        self.cursor = self.conn.cursor()
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self._thread_local.conn = conn
+        self.conn = conn
+        self.cursor = conn.cursor()
         if self._total_entries == -1:
-            self.cursor.execute("SELECT MAX(ROWID) FROM fts_txt")
-            row = self.cursor.fetchone()
+            cursor = conn.cursor()
+            cursor.execute("SELECT MAX(ROWID) FROM fts_txt")
+            row = cursor.fetchone()
             self._total_entries = row[0] if row and row[0] is not None else 0
 
     def save_index(self):
@@ -346,8 +362,7 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
 
     def _search_impl(self, query, k, allowed_names=None):
         query = self._clean_query(query)
-        if not self.cursor:
-            self.load_index()
+        cursor = self._get_cursor()
 
         params = [query]
         name_column = "name" if self._has_name_column() else "pdf_name"
@@ -369,17 +384,18 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
         params.append(k)
 
         try:
-            rows = self.cursor.execute(search_query, params).fetchall()
+            rows = cursor.execute(search_query, params).fetchall()
         except sqlite3.ProgrammingError:
             self.load_index()
-            rows = self.cursor.execute(search_query, params).fetchall()
+            cursor = self._get_cursor()
+            rows = cursor.execute(search_query, params).fetchall()
         distances = []
         digests = []
         pages = []
         for row in rows:
             digests.append(row[1])
             pages.append(str(row[2]))
-            distances.append(row[3])
+            distances.append(row[-1])
         return distances, digests, pages
 
     def search(self, query, k):
