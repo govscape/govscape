@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from govscape.indexing import (
@@ -142,3 +144,20 @@ def test_predicate_no_matches_returns_empty(index):
         ["air_quality.pdf"], [EqualityPredicate("sub_domain", "nasa.gov")]
     )
     assert result == {}
+
+
+def test_get_url_blacklisted_digests_matches_domain(index):
+    patterns = [re.compile(r"https://epa\.gov/", re.IGNORECASE)]
+    assert index.get_url_blacklisted_digests(patterns) == {
+        "air_quality.pdf",
+        "water_quality.pdf",
+    }
+
+
+def test_get_url_blacklisted_digests_no_patterns_returns_empty(index):
+    assert index.get_url_blacklisted_digests([]) == set()
+
+
+def test_get_url_blacklisted_digests_no_match_returns_empty(index):
+    patterns = [re.compile(r"https://not-a-real-domain\.example/")]
+    assert index.get_url_blacklisted_digests(patterns) == set()
