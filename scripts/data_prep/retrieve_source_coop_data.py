@@ -48,11 +48,21 @@ def _download_pdf(session: requests.Session, digest: str, pdf_dir: Path) -> Path
 def _save_cdx_rows(
     connection: duckdb.DuckDBPyConnection, digests: list[str], cdx_path: Path
 ) -> None:
+    if not digests:
+        raise ValueError("No PDF digests found; cannot create a matching CDX sample.")
+
     placeholders = ", ".join("?" for _ in digests)
     rows = connection.execute(
         f"SELECT * FROM read_parquet(?) WHERE digest IN ({placeholders})",
         [PARQUET_URL, *digests],
     ).df()
+    found_digests = set(rows["digest"])
+    missing_digests = set(digests) - found_digests
+    if missing_digests:
+        raise ValueError(
+            "No CDX records found for PDF digests: "
+            + ", ".join(sorted(missing_digests))
+        )
     rows.to_parquet(cdx_path, index=False)
 
 
@@ -122,10 +132,10 @@ def main() -> None:
                 )
                 logger.info("Downloaded %d of %d PDFs", len(downloaded), args.num_pdfs)
 
-    if downloaded:
-        digests = [item["digest"] for item in downloaded]
+    pdf_digests = sorted(path.stem for path in args.pdf_dir.glob("*.pdf"))
+    if pdf_digests:
         cdx_path = args.cdx_dir / CDX_SAMPLE_FILENAME
-        _save_cdx_rows(connection, digests, cdx_path)
+        _save_cdx_rows(connection, pdf_digests, cdx_path)
         manifest_path = args.cdx_dir / "digests_manifest.csv"
         pd.DataFrame(downloaded).to_csv(manifest_path, index=False)
         logger.info("Saved matching CDX rows to %s", cdx_path)

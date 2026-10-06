@@ -69,6 +69,16 @@ def test_save_cdx_rows_selects_downloaded_digests(
         ("digest-2", "two.pdf"),
     ]
 
+    with (
+        duckdb.connect() as connection,
+        pytest.raises(
+            ValueError, match="No CDX records found for PDF digests: missing-digest"
+        ),
+    ):
+        source_data._save_cdx_rows(
+            connection, ["missing-digest"], tmp_path / "missing.parquet"
+        )
+
 
 def test_main_downloads_requested_distinct_pdfs_and_matching_cdx(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -82,6 +92,8 @@ def test_main_downloads_requested_distinct_pdfs_and_matching_cdx(
     ).to_parquet(source_path, index=False)
     monkeypatch.setattr(source_data, "PARQUET_URL", str(source_path))
     pdf_dir = tmp_path / "pdfs"
+    pdf_dir.mkdir()
+    (pdf_dir / "digest-3.pdf").write_bytes(b"already present")
     cdx_dir = tmp_path / "cdx"
     monkeypatch.setattr(
         sys,
@@ -106,6 +118,7 @@ def test_main_downloads_requested_distinct_pdfs_and_matching_cdx(
     assert sorted(path.name for path in pdf_dir.iterdir()) == [
         "digest-1.pdf",
         "digest-2.pdf",
+        "digest-3.pdf",
     ]
     with duckdb.connect() as connection:
         result = connection.execute(
@@ -116,4 +129,5 @@ def test_main_downloads_requested_distinct_pdfs_and_matching_cdx(
         ("digest-1", "one.pdf"),
         ("digest-1", "other.pdf"),
         ("digest-2", "two.pdf"),
+        ("digest-3", "three.pdf"),
     ]
