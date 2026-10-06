@@ -159,6 +159,15 @@ poetry run python scripts/data_prep/download_sample_pdfs.py \
 ```
 Omit `--url_filter` to download an unfiltered sample.
 
+To download a sample directly from the public source.coop archive instead, run:
+
+```
+poetry run python scripts/data_prep/retrieve_source_coop_data.py --num_pdfs 100
+```
+
+This saves PDFs by digest under `tests/test_data/pdfs/` and the matching CDX
+records to `tests/test_data/cdx/complete_cdx_sample.parquet`.
+
 
 ### Creating the embeddings
 
