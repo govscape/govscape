@@ -5,9 +5,9 @@ from collections.abc import Iterator
 import pytest
 
 dirs_to_remove = [
-    "tests/test_data/small/text",
-    "tests/test_data/small/embeddings",
-    "tests/test_data/small/images",
+    "tests/test_data/old_Test_Data/small/text",
+    "tests/test_data/old_Test_Data/small/embeddings",
+    "tests/test_data/old_Test_Data/small/images",
 ]
 
 
