@@ -134,43 +134,32 @@ logging.error("Something failed: %s", err)
 
 ## Running Govscape Locally
 
-To do this, you need to start by creating a local mirror of the PDF archive within govscape/data that holds a set of PDFs and the CDX parquet file. We will assume that these are located at `govscape/data/s3_mock/pdfs/` and `govscape/data/s3_mock/cdx/complete_cdx.parquet`, matching the layout of the [source.coop PDF archive](https://source.coop/govscape/eota-pdf-archive).
+To do this, you need to start by creating a local mirror of the PDF archive within govscape/data that holds a set of PDFs and the CDX parquet file. We will assume that these are located at `govscape/data/s3_mock/pdfs/` and `govscape/data/s3_mock/cdx/complete_cdx_sample.parquet`, mirroring the layout of the [source.coop PDF archive](https://source.coop/govscape/eota-pdf-archive).
 
-You can pull this data from the source.coop PDF archive (the default `--bucket_name`) by using:
-
-```
-poetry run python scripts/data_prep/download_sample_pdfs.py \
-    --local_base_dir data/s3_mock \
-    --num_pdfs 500
-```
-
-This downloads the PDFs to `data/s3_mock/pdfs/` and writes the CDX rows for just
-those PDFs to `data/s3_mock/cdx/complete_cdx.parquet`; the full CDX (~11.5GB) is
-never downloaded. PDFs are sampled by reading random row groups of the remote
-CDX, so a PDF's crawls that fall in other row groups are not included. Running
-the script again adds more PDFs and extends the local CDX.
-
-To work with a focused subset of the data, you can restrict the download to PDFs
-whose original source URL contains a given substring using the optional
-`--url_filter` argument (case-insensitive). For example, to pull only PDFs served
-from EPA domains:
+You can pull a sample of PDFs, plus the CDX rows that describe them, from the
+public [source.coop PDF archive](https://source.coop/govscape/eota-pdf-archive).
+No credentials are needed:
 
 ```
-poetry run python scripts/data_prep/download_sample_pdfs.py \
-    --local_base_dir data/s3_mock \
+poetry run python scripts/data_prep/retrieve_source_coop_data.py \
     --num_pdfs 500 \
-    --url_filter epa.gov
-```
-Omit `--url_filter` to download an unfiltered sample.
-
-To download a sample directly from the public source.coop archive instead, run:
-
-```
-poetry run python scripts/data_prep/retrieve_source_coop_data.py --num_pdfs 100
+    --pdf_dir data/s3_mock/pdfs \
+    --cdx_dir data/s3_mock/cdx
 ```
 
-This saves PDFs by digest under `tests/test_data/pdfs/` and the matching CDX
-records to `tests/test_data/cdx/complete_cdx_sample.parquet`.
+PDFs are saved by digest under `--pdf_dir`. The matching CDX records go to
+`<cdx_dir>/complete_cdx_sample.parquet`, and a `digests_manifest.csv` lists each
+PDF with its source URL. PDFs already in `--pdf_dir` are skipped, so rerunning the
+command adds new PDFs to the sample.
+
+To work with a focused subset of the data, add `--url_filter` to download only PDFs
+whose source URL contains a given substring (case-insensitive), e.g.
+`--url_filter epa.gov`. Add `--random` to take a random sample instead of the first
+digests in CDX order. Random samples are drawn from randomly chosen row groups of
+the remote CDX, so the full CDX (~11.5GB) is never scanned or downloaded.
+
+With no `--pdf_dir`/`--cdx_dir`, the script writes to `tests/test_data/pdfs/` and
+`tests/test_data/cdx/`, which is how the committed test sample was made.
 
 
 ### Creating the embeddings
@@ -193,7 +182,7 @@ poetry run python scripts/indexing/generate_index_embedding.py --num_pages_to_pr
 
 poetry run python scripts/indexing/generate_index_keyword.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --keyword_index_type 'SQLite'
 
-poetry run python scripts/indexing/generate_index_metadata.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving'
+poetry run python scripts/indexing/generate_index_metadata.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --cdx_parquet_key 'cdx/complete_cdx_sample.parquet'
 ```
 
 At this point, all of the indices required to run the API server have been created. To start the API server locally, run:

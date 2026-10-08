@@ -69,6 +69,7 @@ setuptools = "^82.0.1"
 sentencepiece = "^0.2.2"
 protobuf = ">=3.20,<=3.20.2"
 lmdb = "^3.0.0"
+requests = "^2.34.2"
 
 [tool.poetry.extras]
 easyocr = ["opencv-python", "easyocr"]
