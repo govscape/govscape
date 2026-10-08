@@ -5,7 +5,7 @@ import shutil
 import time
 
 import govscape as gs
-from govscape.config import DataModel
+from govscape.config import PDF_ARCHIVE_PDF_DIR, DataModel
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 from govscape.utils import base_argument_parser, str2bool
 
@@ -178,7 +178,12 @@ def main():
         help="Whether to use GPU for OCR processing",
         default=False,
     )
-    parser.add_argument("--pdf_dir", type=str, help="Directory containing PDFs")
+    parser.add_argument(
+        "--pdf_dir",
+        type=str,
+        default=PDF_ARCHIVE_PDF_DIR,
+        help="Directory containing PDFs within the PDF archive",
+    )
     args = parser.parse_args()
 
     # ---------------------------------------------------------------------------
@@ -221,13 +226,21 @@ def main():
         args.backend,
         args.bucket_name,
         local_base_dir=args.local_base_dir,
+        profile_name=args.profile,
+    )
+    pdf_data_loader = build_data_loader(
+        args.backend,
+        args.pdf_bucket_name,
+        local_base_dir=args.local_base_dir,
+        profile_name=args.pdf_profile,
     )
     remote_pdf_iter = RemoteDirectoryIterator(
-        data_loader,
+        pdf_data_loader,
         args.pdf_dir,
         remote_checkpoint_path=remote_checkpoint_path,
         local_checkpoint_path=local_checkpoint_path,
         local_dir=local_pdf_dir,
+        checkpoint_loader=data_loader,
     )
 
     _ocr_kwargs: dict = {}

@@ -25,3 +25,4 @@ scripts/__pycache__/*
 .ocr_benchmark_data/*
 .ocr_bench_work/*
 **/__pycache__/*
+.visual_bench_work/*

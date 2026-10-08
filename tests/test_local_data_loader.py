@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import boto3
+from botocore.client import BaseClient as S3Client
 from botocore.config import Config
 
 from govscape.data_loader import (
@@ -21,22 +22,30 @@ def _touch(path: Path) -> None:
     path.write_text("x")
 
 
-@pytest.fixture(params=["local", "s3"])
+def _create_s3_bucket(moto_endpoint: str) -> tuple[str, Config, S3Client]:
+    bucket = f"test-bucket-{uuid.uuid4().hex[:12]}"
+    config = Config(max_pool_connections=10)
+    client = boto3.client("s3", endpoint_url=moto_endpoint, config=config)
+    client.create_bucket(Bucket=bucket)
+    return bucket, config, client
+
+
+@pytest.fixture(params=["local", "s3", "s3_prefixed"])
 def loader(request: pytest.FixtureRequest, tmp_path: Path) -> DataLoader:
     """Provide a DataLoader for each backend so a single test covers both.
 
-    The ``local`` variant stores objects under ``tmp_path``. The ``s3`` variant
-    talks to the session-scoped moto mock server (see ``tests/conftest.py``);
+    The ``local`` variant stores objects under ``tmp_path``. The ``s3`` variants
+    talk to the session-scoped moto mock server (see ``tests/conftest.py``);
     each test gets a freshly created, uniquely named bucket for isolation.
+    ``s3_prefixed`` stores everything under a key prefix within the bucket, as
+    is done for the source.coop repositories.
     """
     if request.param == "local":
         return LocalDataLoader(base_dir=str(tmp_path / "data"))
 
-    endpoint = request.getfixturevalue("moto_server")
-    bucket = f"test-bucket-{uuid.uuid4().hex[:12]}"
-    config = Config(max_pool_connections=10)
-    client = boto3.client("s3", endpoint_url=endpoint, config=config)
-    client.create_bucket(Bucket=bucket)
+    bucket, config, client = _create_s3_bucket(request.getfixturevalue("moto_server"))
+    if request.param == "s3_prefixed":
+        bucket = f"{bucket}/org/repo/"
     return S3DataLoader(bucket_name=bucket, config=config, s3_client=client)
 
 
@@ -286,3 +295,66 @@ def test_remote_directory_iterator_compressed(
     # The first iterator consumed all pages, so the second should be empty.
     assert len(batch2) == 0
     remote_iter2.close()
+
+
+def test_s3_prefixed_keys(moto_server: str, tmp_path: Path) -> None:
+    bucket, config, client = _create_s3_bucket(moto_server)
+    loader = S3DataLoader(
+        bucket_name=f"{bucket}/org/repo", config=config, s3_client=client
+    )
+
+    loader.upload_bytes(b"x", "files/a.txt")
+    _touch(tmp_path / "source" / "b.txt")
+    loader.upload_directory(str(tmp_path / "source"), "dir")
+
+    raw_keys = sorted(
+        obj["Key"] for obj in client.list_objects_v2(Bucket=bucket)["Contents"]
+    )
+    assert raw_keys == ["org/repo/dir/b.txt", "org/repo/files/a.txt"]
+    assert loader.list_objects("files").keys == ["files/a.txt"]
+    assert loader.to_uri("files/a.txt") == (
+        f"{moto_server}/{bucket}/org/repo/files/a.txt"
+    )
+
+
+@pytest.mark.parametrize("use_multiprocessing", [False, True])
+def test_remote_directory_iterator_checkpoint_loader(
+    moto_server: str, tmp_path: Path, use_multiprocessing: bool
+) -> None:
+    src_bucket, config, client = _create_s3_bucket(moto_server)
+    ckpt_bucket, _, _ = _create_s3_bucket(moto_server)
+    src_loader = S3DataLoader(
+        bucket_name=f"{src_bucket}/archive", config=config, s3_client=client
+    )
+    ckpt_loader = S3DataLoader(
+        bucket_name=f"{ckpt_bucket}/derived", config=config, s3_client=client
+    )
+    for i in range(3):
+        src_loader.upload_bytes(b"x", f"pdfs/file_{i}.pdf")
+
+    remote_iter = RemoteDirectoryIterator(
+        src_loader,
+        "pdfs/",
+        "checkpoints/ckpt.json",
+        str(tmp_path / "ckpt.json"),
+        local_dir=str(tmp_path / "download"),
+        use_multiprocessing=use_multiprocessing,
+        checkpoint_loader=ckpt_loader,
+    )
+    downloaded = remote_iter.download_batch(max_keys=10)
+    remote_iter.save_checkpoint()
+    remote_iter.close()
+
+    assert sorted(os.path.basename(p) for p in downloaded) == [
+        f"file_{i}.pdf" for i in range(3)
+    ]
+    assert ckpt_loader.exists("checkpoints/ckpt.json")
+    assert not src_loader.exists("checkpoints/ckpt.json")
+
+
+def test_list_objects_treats_prefix_as_directory(loader: DataLoader) -> None:
+    loader.upload_bytes(b"x", "embeddings/a.npy")
+    loader.upload_bytes(b"x", "embeddings_img_pg/b.npy")
+
+    assert loader.list_objects("embeddings").keys == ["embeddings/a.npy"]
+    assert loader.list_objects("embeddings/").keys == ["embeddings/a.npy"]

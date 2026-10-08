@@ -6,6 +6,7 @@ import os
 
 import duckdb
 
+from govscape.config import PDF_ARCHIVE_BUCKET, PDF_ARCHIVE_CDX_KEY, PDF_ARCHIVE_PDF_DIR
 from govscape.data_loader import build_data_loader
 
 logging.basicConfig(
@@ -15,15 +16,24 @@ logging.basicConfig(
     force=True,
 )
 
-REMOTE_PDF_DIR = "pdfs/"
-REMOTE_CDX_PATH = "cdx/complete_cdx.parquet"
+REMOTE_PDF_DIR = PDF_ARCHIVE_PDF_DIR
+REMOTE_CDX_PATH = PDF_ARCHIVE_CDX_KEY
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="Download test PDFs and CDX parquet for local development."
     )
-    parser.add_argument("--bucket_name", required=True, help="S3 bucket name")
+    parser.add_argument(
+        "--bucket_name",
+        default=PDF_ARCHIVE_BUCKET,
+        help="S3 bucket (with optional key prefix) holding the PDF archive",
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="AWS credentials profile (default: AWS_PROFILE, else anonymous)",
+    )
     parser.add_argument(
         "--local_base_dir",
         default="data/s3_mock",
@@ -47,6 +57,7 @@ def main():
         "s3",
         args.bucket_name,
         local_base_dir=args.local_base_dir,
+        profile_name=args.profile,
     )
 
     # Download CDX parquet

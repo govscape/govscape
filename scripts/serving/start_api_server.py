@@ -4,6 +4,7 @@ import os
 import shlex
 
 import govscape as gs
+from govscape.config import DERIVATIVE_BUCKET
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -22,7 +23,14 @@ def _get_arg_parser():
         help="Data backend to use",
     )
     parser.add_argument(
-        "--bucket_name", help="S3 bucket name (required if backend is s3)"
+        "--bucket_name",
+        default=DERIVATIVE_BUCKET,
+        help="S3 bucket (with optional key prefix) holding the serving data",
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="AWS credentials profile for --bucket_name (default: AWS_PROFILE)",
     )
     parser.add_argument(
         "--local_base_dir",
@@ -96,6 +104,8 @@ def _build_app_from_args(args):
 
     if args.visual_model == "CLIP":
         visual_model = gs.CLIP_VisualEmbeddingModel()
+    elif args.visual_model == "SigLIP":
+        visual_model = gs.SigLIP_VisualEmbeddingModel()
     elif args.visual_model == "Dummy":
         visual_model = gs.Dummy_VisualEmbeddingModel()
     else:

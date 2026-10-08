@@ -6,7 +6,7 @@ import numpy as np
 
 import torch
 from PIL import Image
-from transformers import CLIPModel, CLIPProcessor
+from transformers import AutoModel, AutoProcessor, CLIPModel, CLIPProcessor
 
 
 class VisualEmbeddingModel(ABC):
@@ -191,3 +191,49 @@ class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
             torch.cuda.empty_cache()
 
         return torch.cat(all_embeddings, dim=0).numpy()
+
+
+class SigLIP_VisualEmbeddingModel(CLIP_VisualEmbeddingModel):
+    """Google SigLIP image/text embeddings.
+
+    Image encoding reuses the batched CLIP implementation; only model loading
+    and text encoding differ.
+    """
+
+    DEFAULT_MODEL_NAME = "google/siglip-base-patch16-224"
+
+    @property
+    def d(self):
+        return self.model.config.vision_config.hidden_size
+
+    def __init__(self, model_name: str = DEFAULT_MODEL_NAME):
+        self.model_name = model_name
+        self.processor = AutoProcessor.from_pretrained(model_name, use_fast=True)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = AutoModel.from_pretrained(model_name).to(self.device)
+        self.model.eval()
+        self.max_text_len = self.model.config.text_config.max_position_embeddings
+
+    def encode_text(self, text):
+        # SigLIP was trained on text padded to a fixed length, so each chunk is
+        # padded to max_text_len rather than masked. Long text is split into
+        # chunks whose embeddings are averaged, as for CLIP.
+        tokenizer = self.processor.tokenizer
+        token_ids = tokenizer(text, add_special_tokens=True)["input_ids"]
+        chunks = [
+            token_ids[i : i + self.max_text_len]
+            for i in range(0, max(len(token_ids), 1), self.max_text_len)
+        ]
+        batch = tokenizer.pad(
+            {"input_ids": chunks},
+            padding="max_length",
+            max_length=self.max_text_len,
+            return_tensors="pt",
+        )["input_ids"].to(self.device)
+
+        with torch.no_grad():
+            batch_embeddings = self.model.get_text_features(input_ids=batch)
+        batch_embeddings = batch_embeddings / batch_embeddings.norm(
+            dim=-1, keepdim=True
+        )
+        return torch.mean(batch_embeddings, dim=0, keepdim=True).to("cpu").numpy()

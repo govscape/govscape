@@ -1,8 +1,16 @@
-The data in the S3 Bucket should be laid out as follows:
+Remote data is split across two source.coop repositories, both accessed through the
+source.coop S3 proxy (`https://data.source.coop`) as bucket `govscape`, with the
+repository name as the key prefix (see `govscape/config.py`).
 
-* archive-small/PDFs/{digest}.pdf <-- Used for testing on a small scale, holds ~15k PDFs
-* archive/{year}/PDFs/{digest}.pdf
-* archive/{year}/metadata/pdf_metadata.parquet
+The PDF archive ([govscape/eota-pdf-archive](https://source.coop/govscape/eota-pdf-archive))
+holds the raw inputs:
+
+* pdfs/{digest}.pdf
+* cdx/complete_cdx.parquet
+
+The derivative data repository ([govscape/eota-derivative-data](https://source.coop/govscape/eota-derivative-data))
+holds everything derived from the PDFs:
+
 * {test,dev,prod}-serving/txt/{digest}/{digest}_{pg_no}.txt
 * {test,dev,prod}-serving/img/{digest}/{digest}_{pg_no}.jpeg
 * {test,dev,prod}-serving/embeddings/{digest}/{digest}_{pg_no}.np
@@ -18,7 +26,7 @@ The data in the S3 Bucket should be laid out as follows:
 
 The blacklist.txt file is optional. When present, it contains PDF digests (one per line) to hide from all search results and `/pages/<pdf_id>` lookups, used for privacy and copyright takedown requests. Blank lines and lines starting with `#` are ignored, so operational annotations like `# DMCA ticket-1234` are allowed.
 
-The pdf_metadata.parquet file has the following columns:
+The complete_cdx.parquet file has the following columns:
 
 * url : The URL that the PDF was crawled from
 * crawl_date : The date that the pdf was crawled as an 8 digit number (YYYYMMDD)

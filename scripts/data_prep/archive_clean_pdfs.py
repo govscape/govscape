@@ -64,7 +64,7 @@ if __name__ == "__main__":
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process
     BATCH_SIZE = args.batch_size
 
-    bucket_name = args.bucket_name  # 'bcgl-public-bucket'
+    bucket_name = args.bucket_name
     metadata_prefix = args.metadata_prefix  # 'prod-serving/'# INPUT DATA DIR IN S3 HERE
     clean_data_prefix = (
         args.clean_data_prefix

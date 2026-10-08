@@ -51,7 +51,7 @@ if __name__ == "__main__":
 
     # ---------------------------------------------------------------------------
     # All Local and Remote Paths
-    BUCKET_NAME = args.bucket_name  # 'bcgl-public-bucket'
+    BUCKET_NAME = args.bucket_name
     PROJECT_ROOT = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "../../")
     )  # 'govscape/'
@@ -126,6 +126,7 @@ if __name__ == "__main__":
         args.backend,
         BUCKET_NAME,
         local_base_dir=args.local_base_dir,
+        profile_name=args.profile,
     )
     remote_iter = RemoteDirectoryIterator(
         data_loader,
@@ -137,11 +138,17 @@ if __name__ == "__main__":
 
     # Download existing index files from S3 to local directory to update them
     # with new data and re-upload.
-    remote_existing_idx_files = data_loader.list_objects(REMOTE_INDEX_DIR)
-    for remote_file in remote_existing_idx_files.keys:
-        data_loader.download_file(
-            remote_file, os.path.join(LOCAL_INDEX_DIR, os.path.basename(remote_file))
-        )
+    # The metadata index also stores a copy of the vectors (used for
+    # prefiltering), so it is synced the same way.
+    for remote_dir, local_dir in [
+        (REMOTE_INDEX_DIR, LOCAL_INDEX_DIR),
+        (remote_dm.index_metadata_directory, local_dm.index_metadata_directory),
+    ]:
+        remote_existing_idx_files = data_loader.list_objects(remote_dir)
+        for remote_file in remote_existing_idx_files.keys:
+            data_loader.download_file(
+                remote_file, os.path.join(local_dir, os.path.basename(remote_file))
+            )
 
     # Adding Embedding Files to the Index and Uploading to S3
     def process_embedding_files(embedding_files):
@@ -191,6 +198,9 @@ if __name__ == "__main__":
 
         # UPLOADING Indexes TO S3 HERE
         data_loader.upload_directory(LOCAL_INDEX_DIR, REMOTE_INDEX_DIR)
+        data_loader.upload_directory(
+            local_dm.index_metadata_directory, remote_dm.index_metadata_directory
+        )
         print("finished uploading index")
         time2 = time.time()
 

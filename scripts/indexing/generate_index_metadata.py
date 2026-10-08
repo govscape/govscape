@@ -6,7 +6,7 @@ import time
 
 import duckdb
 
-from govscape.config import DataModel
+from govscape.config import PDF_ARCHIVE_CDX_KEY, DataModel
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 from govscape.indexing import DuckDBMetadataIndex, SQLiteMetadataIndex
 from govscape.utils import base_argument_parser, extract_subdomain
@@ -24,7 +24,9 @@ BATCH_SIZE = 100000
 def main():
     parser = base_argument_parser(description="Generate metadata index")
     parser.add_argument(
-        "--cdx_parquet_key", required=True, help="S3 Key for CDX parquet file"
+        "--cdx_parquet_key",
+        default=PDF_ARCHIVE_CDX_KEY,
+        help="Key of the CDX parquet file within the PDF archive",
     )
     parser.add_argument(
         "--index_type", type=str, default="SQLite", help="Type of index to create"
@@ -61,6 +63,13 @@ def main():
         args.backend,
         BUCKET_NAME,
         local_base_dir=args.local_base_dir,
+        profile_name=args.profile,
+    )
+    pdf_data_loader = build_data_loader(
+        args.backend,
+        args.pdf_bucket_name,
+        local_base_dir=args.local_base_dir,
+        profile_name=args.pdf_profile,
     )
 
     remote_iter = RemoteDirectoryIterator(
@@ -75,7 +84,7 @@ def main():
     print("Reading CDX data")
     os.makedirs(os.path.dirname(LOCAL_CDX_PATH), exist_ok=True)
     if not os.path.exists(LOCAL_CDX_PATH):
-        data_loader.download_file(REMOTE_CDX_PATH, LOCAL_CDX_PATH)
+        pdf_data_loader.download_file(REMOTE_CDX_PATH, LOCAL_CDX_PATH)
 
     print("Initializing Index")
 

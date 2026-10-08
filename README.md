@@ -64,4 +64,17 @@ When adding new endpoints to the API:
 
 
 #### Govscape Source COOP Repository
-The data that govscape is derived from lives at the following source.coop [repository](https://source.coop/govscape/eota-pdf-archive)
+The data that govscape is derived from lives at the following source.coop [repository](https://source.coop/govscape/eota-pdf-archive).
+All derived data (page text and images, embeddings, metadata, and search indices) lives at the following source.coop [repository](https://source.coop/govscape/eota-derivative-data).
+
+Scripts default to reading PDFs from the archive (`--pdf_bucket_name`) and reading/writing derived data in the derivative repository (`--bucket_name`). Both are accessed through the source.coop S3 proxy (`https://data.source.coop`, bucket `govscape`). Both repositories are publicly readable, and scripts fall back to anonymous access when no AWS credentials are found. Writing requires source.coop-issued credentials, stored as a profile in `~/.aws/credentials`:
+
+```
+[eota-pdf-derivative-data]
+aws_access_key_id = ...
+aws_secret_access_key = ...
+aws_session_token = ...
+endpoint_url = https://data.source.coop
+```
+
+Select the profile with `AWS_PROFILE=<name>` or per bucket with `--profile` (derived data) and `--pdf_profile` (PDF archive).

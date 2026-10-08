@@ -104,7 +104,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    data_loader = build_data_loader(args.backend, args.bucket_name, args.local_base_dir)
+    data_loader = build_data_loader(
+        args.backend,
+        args.pdf_bucket_name,
+        args.local_base_dir,
+        profile_name=args.pdf_profile,
+    )
     remote_parquet = os.path.join(args.input_prefix, "complete_cdx.parquet")
 
     with tempfile.TemporaryDirectory(prefix="cdx_stats_") as work_dir:

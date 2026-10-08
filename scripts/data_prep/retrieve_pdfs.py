@@ -101,7 +101,7 @@ def main() -> None:
     parser.add_argument(
         "--cdx_parquet",
         required=True,
-        help="Remote key of CDX parquet file in the output bucket",
+        help="Remote key of CDX parquet file in the PDF archive",
     )
     parser.add_argument(
         "--output_dir", required=True, help="Remote key prefix for output PDFs"
@@ -120,7 +120,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    data_loader = build_data_loader(args.backend, args.bucket_name, args.local_base_dir)
+    data_loader = build_data_loader(
+        args.backend,
+        args.pdf_bucket_name,
+        args.local_base_dir,
+        profile_name=args.pdf_profile,
+    )
     with tempfile.TemporaryDirectory(prefix="retrieve_pdfs_") as tmp_dir:
         local_parquet = os.path.join(tmp_dir, "cdx.parquet")
         logging.info("Downloading %s", args.cdx_parquet)
@@ -153,7 +158,7 @@ def main() -> None:
         with ctx.Pool(
             processes=num_workers,
             initializer=_init_worker,
-            initargs=(args.backend, args.bucket_name, args.local_base_dir),
+            initargs=(args.backend, args.pdf_bucket_name, args.local_base_dir),
         ) as pool:
             for status in pool.imap_unordered(
                 _process_one_pdf,

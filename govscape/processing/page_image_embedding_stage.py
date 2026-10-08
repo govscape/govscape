@@ -8,6 +8,7 @@ from ..config import DataModel
 from ..visual_embedding_models import (
     CLIP_VisualEmbeddingModel,
     Dummy_VisualEmbeddingModel,
+    SigLIP_VisualEmbeddingModel,
 )
 from .processing_stage import ProcessingStage
 
@@ -21,6 +22,8 @@ def _save_embeddings_batch(embed_and_paths):
 def _build_visual_model(model_type):
     if model_type == "CLIP":
         return CLIP_VisualEmbeddingModel()
+    if model_type == "SigLIP":
+        return SigLIP_VisualEmbeddingModel()
     if model_type == "Dummy":
         return Dummy_VisualEmbeddingModel()
     raise ValueError(f"Unsupported visual model type: {model_type}")

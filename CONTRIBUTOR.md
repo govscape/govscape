@@ -134,13 +134,12 @@ logging.error("Something failed: %s", err)
 
 ## Running Govscape Locally
 
-To do this, you need to start by creating a directory within govscape/data that holds a set of PDFs and one that holds a `pdf_metadata.parquet` file. We will assume that these directories are named `govscape/data/s3_mock/archive/PDFs/` and `govscape/data/s3_mock/archive/CDX/pdf_metadata.parquet`.
+To do this, you need to start by creating a local mirror of the PDF archive within govscape/data that holds a set of PDFs and the CDX parquet file. We will assume that these are located at `govscape/data/s3_mock/pdfs/` and `govscape/data/s3_mock/cdx/complete_cdx.parquet`, matching the layout of the [source.coop PDF archive](https://source.coop/govscape/eota-pdf-archive).
 
-You can pull this data from the S3 bucket by using:
+You can pull this data from the source.coop PDF archive (the default `--bucket_name`) by using:
 
 ```
 poetry run python scripts/data_prep/download_sample_pdfs.py \
-    --bucket_name us-west-2.opendata.source.coop/govscape/eota-pdf-archive/ \
     --local_base_dir data/s3_mock \
     --num_pdfs 500
 ```
@@ -152,7 +151,6 @@ from EPA domains:
 
 ```
 poetry run python scripts/data_prep/download_sample_pdfs.py \
-    --bucket_name us-west-2.opendata.source.coop/govscape/eota-pdf-archive/ \
     --local_base_dir data/s3_mock \
     --num_pdfs 500 \
     --url_filter epa.gov
@@ -175,7 +173,7 @@ To create the (dummy) embeddings & additional metadata, first run:
 
 ```
 poetry run python scripts/pipeline/run_embedding_pipeline.py --num_pages_to_process 5 \
-    --batch_size 100 --backend 'local' --local_base_dir 'data/s3_mock' --pdf_dir 'archive/PDFs/' \
+    --batch_size 100 --backend 'local' --local_base_dir 'data/s3_mock' --pdf_dir 'pdfs/' \
     --remote_data_dir "test-serving" --text_model_type 'Dummy' --visual_model_type 'Dummy'
 ```
 
@@ -189,7 +187,7 @@ poetry run python scripts/indexing/generate_index_embedding.py --num_pages_to_pr
 
 poetry run python scripts/indexing/generate_index_keyword.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --keyword_index_type 'SQLite'
 
-poetry run python scripts/indexing/generate_index_metadata.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --cdx_parquet_key  'archive/CDX/pdf_metadata.parquet'
+poetry run python scripts/indexing/generate_index_metadata.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving'
 ```
 
 At this point, all of the indices required to run the API server have been created. To start the API server locally, run:

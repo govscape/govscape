@@ -294,3 +294,26 @@ def test_keyword_hybrid_prefilter_applies_blacklist_before_search_filtered():
     assert metadata == {}
     assert keyword_index.search_filtered_calls == []
     assert not keyword_index.search_calls
+
+
+def test_hybrid_uses_postfilter_without_predicates():
+    # A tiny metadata database makes prefiltering look cheaper, but without
+    # predicates there are no candidates to prefilter on.
+    class TinyMetadataIndex(BroadMetadataIndex):
+        def total_entries(self):
+            return 3
+
+    hybrid = HybridVectorMetadataIndex(
+        vector_index=DummyVectorIndex(),
+        metadata_index=TinyMetadataIndex(),
+    )
+
+    rows, _, state = hybrid.search(
+        query_embedding=np.ones(4, dtype=np.float32),
+        predicates=[],
+        target_results=2,
+    )
+
+    assert state.prefilter_cost <= state.postfilter_cost
+    assert state.strategy == "postfilter"
+    assert [name for _, name, _ in rows] == ["doc_1.pdf", "doc_2.pdf"]

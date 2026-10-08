@@ -117,6 +117,11 @@ class AbstractHybridMetadataIndex(AbstractIndex, ABC):
         strategy, prefilter_cost, postfilter_cost = self._choose_strategy(
             estimated_selectivity, target_results
         )
+        # Without predicates there is no candidate set to prefilter on, so the
+        # search is a plain index search. The cost model can still pick
+        # prefiltering when the metadata database is small.
+        if not predicates:
+            strategy = STRATEGY_POSTFILTER
 
         rows = []
         metadata = {}

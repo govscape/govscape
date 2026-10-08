@@ -35,7 +35,10 @@ def download_indices(args):
         local_dm.checkpoints_directory, "checkpoint_server.json"
     )
     data_loader = build_data_loader(
-        args.backend, BUCKET_NAME, local_base_dir=LOCAL_MOCK_DIR
+        args.backend,
+        BUCKET_NAME,
+        local_base_dir=LOCAL_MOCK_DIR,
+        profile_name=args.profile,
     )
     for remote_dir, local_dir in [
         (remote_dm.index_keyword_directory, local_dm.index_keyword_directory),
