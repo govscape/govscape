@@ -47,7 +47,7 @@ if __name__ == "__main__":
         "--forward_index_type",
         type=str,
         choices=["SQLite", "LMDB"],
-        default="SQLite",
+        default="LMDB",
         help="Type of forward index stored with the vector index",
     )
     args = parser.parse_args()

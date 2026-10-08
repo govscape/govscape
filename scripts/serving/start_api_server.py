@@ -88,7 +88,7 @@ def _get_arg_parser():
     )
     parser.add_argument(
         "--forward_index_type",
-        default="SQLite",
+        default="LMDB",
         choices=["SQLite", "LMDB"],
         help="The type of forward index stored with each vector index",
     )

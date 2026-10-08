@@ -74,9 +74,7 @@ class AbstractVectorIndex(AbstractIndex, ABC):
 
 
 class FAISSIndex(AbstractVectorIndex):
-    def __init__(
-        self, index_directory, index_type="IVFPQ", forward_index_type="SQLite"
-    ):
+    def __init__(self, index_directory, index_type="IVFPQ", forward_index_type="LMDB"):
         self.index_directory = index_directory
         self.forward_index = build_forward_index(forward_index_type, index_directory)
         self.faiss_index = None
@@ -192,7 +190,7 @@ class FAISSIndex(AbstractVectorIndex):
 
 class LanceDBVectorIndex(AbstractVectorIndex):
     def __init__(
-        self, index_directory, table_name="vector_index", forward_index_type="SQLite"
+        self, index_directory, table_name="vector_index", forward_index_type="LMDB"
     ):
         self.index_directory = index_directory
         self.forward_index = build_forward_index(forward_index_type, index_directory)

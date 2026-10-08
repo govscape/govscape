@@ -91,7 +91,7 @@ class ServerConfig:
         keyword_index_type,
         k=3,
         max_crawl_instances=500,
-        forward_index_type="SQLite",
+        forward_index_type="LMDB",
     ):
         self.data_model = DataModel(data_dir)
         self.text_model = text_model
