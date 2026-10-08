@@ -2,6 +2,18 @@
 # starting the server and serving queries, respectively.
 import os
 
+# Remote storage on source.coop. Raw PDFs and the CDX live in the PDF archive;
+# all derived data (txt, img, embeddings, indices, ...) live in the derivative
+# repository. See DATA_MODEL.md for the layout of each.
+# Data is accessed through the source.coop S3 proxy, where the account name
+# ("govscape") acts as the bucket and each repository is a key prefix.
+SOURCE_COOP_ENDPOINT = "https://data.source.coop"
+SOURCE_COOP_PREFIX = "govscape"
+PDF_ARCHIVE_BUCKET = f"{SOURCE_COOP_PREFIX}/eota-pdf-archive/"
+DERIVATIVE_BUCKET = f"{SOURCE_COOP_PREFIX}/eota-derivative-data/"
+PDF_ARCHIVE_PDF_DIR = "pdfs/"
+PDF_ARCHIVE_CDX_KEY = "cdx/complete_cdx.parquet"
+
 
 class DataModel:
     """Defines the subdirectory layout within a data directory."""
@@ -79,6 +91,7 @@ class ServerConfig:
         keyword_index_type,
         k=3,
         max_crawl_instances=500,
+        forward_index_type="LMDB",
     ):
         self.data_model = DataModel(data_dir)
         self.text_model = text_model
@@ -93,6 +106,10 @@ class ServerConfig:
                 "keyword_index_type must be 'LanceDB', 'SQLite', 'Whoosh', or 'Lucene'"
             )
         self.keyword_index_type = keyword_index_type
+
+        if forward_index_type not in ["SQLite", "LMDB"]:
+            raise ValueError("forward_index_type must be either 'SQLite' or 'LMDB'")
+        self.forward_index_type = forward_index_type
         self.max_crawl_instances = max_crawl_instances
 
         # define k for top-k

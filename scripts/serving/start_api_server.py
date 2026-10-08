@@ -4,6 +4,8 @@ import os
 import shlex
 
 import govscape as gs
+from govscape.config import DERIVATIVE_BUCKET, SOURCE_COOP_ENDPOINT
+from govscape.utils import endpoint_url_arg
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -22,7 +24,20 @@ def _get_arg_parser():
         help="Data backend to use",
     )
     parser.add_argument(
-        "--bucket_name", help="S3 bucket name (required if backend is s3)"
+        "--bucket_name",
+        default=DERIVATIVE_BUCKET,
+        help="S3 bucket (with optional key prefix) holding the serving data",
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="AWS credentials profile for --bucket_name (default: AWS_PROFILE)",
+    )
+    parser.add_argument(
+        "--endpoint_url",
+        type=endpoint_url_arg,
+        default=SOURCE_COOP_ENDPOINT,
+        help="S3 endpoint (default: the source.coop proxy; '' for AWS S3)",
     )
     parser.add_argument(
         "--local_base_dir",
@@ -71,6 +86,12 @@ def _get_arg_parser():
         default="LanceDB",
         help="The type of keyword index to use",
     )
+    parser.add_argument(
+        "--forward_index_type",
+        default="LMDB",
+        choices=["SQLite", "LMDB"],
+        help="The type of forward index stored with each vector index",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--host", default="0.0.0.0", help="Host to run the server on")
     parser.add_argument(
@@ -96,6 +117,8 @@ def _build_app_from_args(args):
 
     if args.visual_model == "CLIP":
         visual_model = gs.CLIP_VisualEmbeddingModel()
+    elif args.visual_model == "SigLIP":
+        visual_model = gs.SigLIP_VisualEmbeddingModel()
     elif args.visual_model == "Dummy":
         visual_model = gs.Dummy_VisualEmbeddingModel()
     else:
@@ -109,6 +132,7 @@ def _build_app_from_args(args):
         keyword_index_type=args.keyword_index_type,
         k=args.top_k,
         max_crawl_instances=args.max_crawl_instances,
+        forward_index_type=args.forward_index_type,
     )
     return gs.Server(server_config)
 

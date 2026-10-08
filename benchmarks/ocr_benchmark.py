@@ -1,6 +1,6 @@
 """Benchmark OCR processing performance using real PDFs from S3.
 
-Downloads PDFs from eot-pdf-archive/pdfs, extracts page images via
+Downloads PDFs from the source.coop PDF archive, extracts page images via
 PDFExtractionStage, then times each OCR engine.
 
 Example:
@@ -20,13 +20,18 @@ from pathlib import Path
 
 from botocore.config import Config
 
-from govscape.config import DataModel
+from govscape.config import (
+    PDF_ARCHIVE_BUCKET,
+    PDF_ARCHIVE_PDF_DIR,
+    SOURCE_COOP_ENDPOINT,
+    DataModel,
+)
 from govscape.data_loader import S3DataLoader
 from govscape.processing.ocr_processing_stage import OCRProcessingStage
 from govscape.processing.pdf_extraction_stage import PDFExtractionStage
 
-DEFAULT_BUCKET = "eot-pdf-archive"
-DEFAULT_PREFIX = "pdfs/"
+DEFAULT_BUCKET = PDF_ARCHIVE_BUCKET
+DEFAULT_PREFIX = PDF_ARCHIVE_PDF_DIR
 DEFAULT_NUM_PDFS = 10
 DEFAULT_ENGINES = ["easyocr", "paddleocr", "olmocr", "ocrmypdf"]
 
@@ -56,7 +61,11 @@ class BenchmarkResult:
 
 def download_pdfs(data_root: str, bucket: str, prefix: str, num_pdfs: int) -> list[str]:
     """Download up to num_pdfs PDFs from S3 and return their local paths."""
-    loader = S3DataLoader(bucket_name=bucket, config=Config(max_pool_connections=60))
+    loader = S3DataLoader(
+        bucket_name=bucket,
+        config=Config(max_pool_connections=60),
+        endpoint_url=SOURCE_COOP_ENDPOINT,
+    )
     pdf_dir = os.path.join(data_root, "pdf")
     os.makedirs(pdf_dir, exist_ok=True)
 

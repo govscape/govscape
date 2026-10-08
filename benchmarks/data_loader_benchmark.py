@@ -11,7 +11,9 @@ from dataclasses import asdict, dataclass
 
 from botocore.config import Config
 
+from govscape.config import SOURCE_COOP_ENDPOINT
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
+from govscape.utils import endpoint_url_arg
 
 
 @dataclass
@@ -49,6 +51,7 @@ def _run_one_benchmark(
     use_multiprocessing: bool,
     bucket_name: str | None,
     local_base_dir: str | None,
+    endpoint_url: str | None,
 ) -> BenchmarkResult:
     with ExitStack() as stack:
         src_dir = stack.enter_context(tempfile.TemporaryDirectory(prefix="bench_src_"))
@@ -67,6 +70,7 @@ def _run_one_benchmark(
             bucket_name=bucket_name,
             local_base_dir=local_base_dir,
             config=Config(max_pool_connections=60),
+            endpoint_url=endpoint_url,
         )
 
         _create_test_files(src_dir, num_files, file_size_bytes)
@@ -127,6 +131,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark DataLoader and iterator.")
     parser.add_argument("--backend", choices=["local", "s3"], default="local")
     parser.add_argument("--bucket-name", default=None)
+    parser.add_argument(
+        "--endpoint-url",
+        type=endpoint_url_arg,
+        default=SOURCE_COOP_ENDPOINT,
+        help="S3 endpoint (default: the source.coop proxy; '' for AWS S3)",
+    )
     parser.add_argument("--local-base-dir", default=None)
     parser.add_argument("--file-size-bytes", type=int, default=1024 * 1024)
     parser.add_argument("--num-files", type=int, default=1000)
@@ -146,6 +156,7 @@ def main() -> None:
         use_multiprocessing=not args.disable_multiprocessing,
         bucket_name=args.bucket_name,
         local_base_dir=args.local_base_dir,
+        endpoint_url=args.endpoint_url,
     )
 
     print(json.dumps(asdict(result), indent=2))

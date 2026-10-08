@@ -134,7 +134,7 @@ logging.error("Something failed: %s", err)
 
 ## Running Govscape Locally
 
-To do this, you need to start by creating a directory within govscape/data that holds a set of PDFs and one that holds a `pdf_metadata.parquet` file. We will assume that these directories are named `govscape/data/s3_mock/archive/PDFs/` and `govscape/data/s3_mock/archive/CDX/pdf_metadata.parquet`.
+To do this, you need to start by creating a local mirror of the PDF archive within govscape/data that holds a set of PDFs and the CDX parquet file. We will assume that these are located at `govscape/data/s3_mock/pdfs/` and `govscape/data/s3_mock/cdx/complete_cdx_sample.parquet`, mirroring the layout of the [source.coop PDF archive](https://source.coop/govscape/eota-pdf-archive).
 
 You can pull a sample of PDFs, plus the CDX rows that describe them, from the
 public [source.coop PDF archive](https://source.coop/govscape/eota-pdf-archive).
@@ -155,7 +155,8 @@ command adds new PDFs to the sample.
 To work with a focused subset of the data, add `--url_filter` to download only PDFs
 whose source URL contains a given substring (case-insensitive), e.g.
 `--url_filter epa.gov`. Add `--random` to take a random sample instead of the first
-digests in CDX order; this scans the whole remote CDX first, so it is slower.
+digests in CDX order. Random samples are drawn from randomly chosen row groups of
+the remote CDX, so the full CDX (~11.5GB) is never scanned or downloaded.
 
 With no `--pdf_dir`/`--cdx_dir`, the script writes to `tests/test_data/pdfs/` and
 `tests/test_data/cdx/`, which is how the committed test sample was made.
@@ -167,7 +168,7 @@ To create the (dummy) embeddings & additional metadata, first run:
 
 ```
 poetry run python scripts/pipeline/run_embedding_pipeline.py --num_pages_to_process 5 \
-    --batch_size 100 --backend 'local' --local_base_dir 'data/s3_mock' --pdf_dir 'archive/PDFs/' \
+    --batch_size 100 --backend 'local' --local_base_dir 'data/s3_mock' --pdf_dir 'pdfs/' \
     --remote_data_dir "test-serving" --text_model_type 'Dummy' --visual_model_type 'Dummy'
 ```
 
@@ -181,7 +182,7 @@ poetry run python scripts/indexing/generate_index_embedding.py --num_pages_to_pr
 
 poetry run python scripts/indexing/generate_index_keyword.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --keyword_index_type 'SQLite'
 
-poetry run python scripts/indexing/generate_index_metadata.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --cdx_parquet_key  'archive/CDX/pdf_metadata.parquet'
+poetry run python scripts/indexing/generate_index_metadata.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --cdx_parquet_key 'cdx/complete_cdx_sample.parquet'
 ```
 
 At this point, all of the indices required to run the API server have been created. To start the API server locally, run:

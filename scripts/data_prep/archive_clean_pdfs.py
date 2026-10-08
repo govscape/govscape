@@ -27,8 +27,23 @@ def _copy_digest(data_loader, dirty_prefix, clean_prefix, digest):
         return False
 
 
-def copy_to_clean(backend, bucket, local_base_dir, dirty_prefix, clean_prefix, digests):
-    data_loader = build_data_loader(backend, bucket, local_base_dir)
+def copy_to_clean(
+    backend,
+    bucket,
+    local_base_dir,
+    profile_name,
+    endpoint_url,
+    dirty_prefix,
+    clean_prefix,
+    digests,
+):
+    data_loader = build_data_loader(
+        backend,
+        bucket,
+        local_base_dir,
+        profile_name=profile_name,
+        endpoint_url=endpoint_url,
+    )
     copied_properly = 0
     for digest in digests:
         if _copy_digest(data_loader, dirty_prefix, clean_prefix, digest):
@@ -64,7 +79,7 @@ if __name__ == "__main__":
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process
     BATCH_SIZE = args.batch_size
 
-    bucket_name = args.bucket_name  # 'bcgl-public-bucket'
+    bucket_name = args.bucket_name
     metadata_prefix = args.metadata_prefix  # 'prod-serving/'# INPUT DATA DIR IN S3 HERE
     clean_data_prefix = (
         args.clean_data_prefix
@@ -80,7 +95,13 @@ if __name__ == "__main__":
     # Token to track of which pages have already been processed.
     progress_path = "clean_copy_progress.json"
 
-    data_loader = build_data_loader(args.backend, bucket_name, args.local_base_dir)
+    data_loader = build_data_loader(
+        args.backend,
+        bucket_name,
+        args.local_base_dir,
+        profile_name=args.profile,
+        endpoint_url=args.endpoint_url,
+    )
 
     # gets txt files from backend
     def list_digests(num_pages=1):
@@ -136,6 +157,8 @@ if __name__ == "__main__":
                             args.backend,
                             bucket_name,
                             args.local_base_dir,
+                            args.profile,
+                            args.endpoint_url,
                             dirty_data_prefix,
                             clean_data_prefix,
                             worker_batch,

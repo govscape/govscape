@@ -159,11 +159,15 @@ def main() -> None:
         logging.info("Merged %d rows into %s", merge_count, parquet_path)
 
         data_loader = build_data_loader(
-            args.backend, args.bucket_name, args.local_base_dir
+            args.backend,
+            args.pdf_bucket_name,
+            args.local_base_dir,
+            profile_name=args.pdf_profile,
+            endpoint_url=args.endpoint_url,
         )
         remote_key = os.path.join(args.output_prefix, "complete_cdx.parquet")
         data_loader.upload_file(parquet_path, remote_key)
-        logging.info("Uploaded to s3://%s/%s", args.bucket_name, remote_key)
+        logging.info("Uploaded to s3://%s/%s", args.pdf_bucket_name, remote_key)
 
 
 if __name__ == "__main__":

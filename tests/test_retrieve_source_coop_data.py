@@ -185,3 +185,73 @@ def test_main_url_filter_limits_candidates(
         "digest-2.pdf",
         "digest-3.pdf",
     ]
+
+
+def _run_main(monkeypatch: pytest.MonkeyPatch, *args: str) -> None:
+    monkeypatch.setattr(sys, "argv", ["retrieve_source_coop_data.py", *args])
+    response = FakeResponse()
+    response.status_code = 200
+    with patch.object(requests.Session, "get", return_value=response):
+        source_data.main()
+
+
+def _cdx_sample(cdx_dir: Path) -> list[tuple[str, str]]:
+    rows = pd.read_parquet(cdx_dir / source_data.CDX_SAMPLE_FILENAME)
+    return sorted(zip(rows["digest"], rows["url"], strict=True))
+
+
+def test_main_random_samples_row_groups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    digests = [f"{i:032d}" for i in range(6)]
+    source_path = tmp_path / "source.parquet"
+    # Small row groups, so sampling reads several of them.
+    pd.DataFrame({"digest": digests, "url": [f"{d}.pdf" for d in digests]}).to_parquet(
+        source_path, index=False, row_group_size=2
+    )
+    monkeypatch.setattr(source_data, "PARQUET_URL", str(source_path))
+    pdf_dir = tmp_path / "pdfs"
+    cdx_dir = tmp_path / "cdx"
+
+    _run_main(
+        monkeypatch,
+        "--num_pdfs",
+        "3",
+        "--pdf_dir",
+        str(pdf_dir),
+        "--cdx_dir",
+        str(cdx_dir),
+        "--random",
+    )
+
+    downloaded = sorted(path.stem for path in pdf_dir.iterdir())
+    assert len(downloaded) == 3
+    assert set(downloaded) <= set(digests)
+    assert _cdx_sample(cdx_dir) == [(d, f"{d}.pdf") for d in downloaded]
+
+
+def test_main_reuses_saved_cdx_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_path = tmp_path / "source.parquet"
+    pd.DataFrame(
+        {"digest": ["digest-1", "digest-2"], "url": ["one.pdf", "two.pdf"]}
+    ).to_parquet(source_path, index=False)
+    monkeypatch.setattr(source_data, "PARQUET_URL", str(source_path))
+    pdf_dir = tmp_path / "pdfs"
+    cdx_dir = tmp_path / "cdx"
+    dirs = ("--pdf_dir", str(pdf_dir), "--cdx_dir", str(cdx_dir))
+    _run_main(monkeypatch, "--num_pdfs", "2", *dirs)
+
+    # The earlier PDFs are gone from the remote CDX, so their rows can only come
+    # from the saved sample.
+    pd.DataFrame({"digest": ["digest-3"], "url": ["three.pdf"]}).to_parquet(
+        source_path, index=False
+    )
+    _run_main(monkeypatch, "--num_pdfs", "1", *dirs)
+
+    assert _cdx_sample(cdx_dir) == [
+        ("digest-1", "one.pdf"),
+        ("digest-2", "two.pdf"),
+        ("digest-3", "three.pdf"),
+    ]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import mimetypes
 import os
 import shutil
 import subprocess
@@ -15,9 +16,12 @@ from multiprocessing import Pool
 from typing import Any, Self
 
 import boto3
+from botocore import UNSIGNED
 from botocore.client import BaseClient as S3Client
 from botocore.config import Config
 from botocore.exceptions import ClientError
+
+from govscape.config import SOURCE_COOP_ENDPOINT
 
 
 @dataclass
@@ -180,10 +184,15 @@ class DataLoader(ABC):
 
 
 class S3DataLoader(DataLoader):
-    """DataLoader implementation for AWS S3 using boto3. For compliance
-    with source.coop, the bucket_name parameter may include an optional
-    prefix, e.g. "my-bucket/path/to/data", which will be prepended to
+    """DataLoader implementation for S3-compatible stores using boto3. For
+    compliance with source.coop, the bucket_name parameter may include an
+    optional prefix, e.g. "my-bucket/path/to/data", which will be prepended to
     all prefixes/object keys.
+
+    endpoint_url and profile_name select a non-AWS endpoint (e.g. the
+    source.coop S3 proxy) and an AWS credentials profile. If no credentials
+    can be found, requests are sent unsigned, which allows read-only access
+    to public data.
     """
 
     def __init__(
@@ -191,13 +200,57 @@ class S3DataLoader(DataLoader):
         bucket_name: str,
         config: Config,
         s3_client: S3Client | None = None,
+        endpoint_url: str | None = None,
+        profile_name: str | None = None,
     ) -> None:
-        if bucket_name.__contains__("/"):
-            self.bucket_name, self.base_prefix = bucket_name.split("/", 1)
+        self.full_bucket_name = bucket_name
+        if "/" in bucket_name:
+            self.bucket_name, base_prefix = bucket_name.split("/", 1)
+            base_prefix = base_prefix.strip("/")
+            self.base_prefix = base_prefix + "/" if base_prefix else ""
         else:
             self.bucket_name = bucket_name
             self.base_prefix = ""
-        self.s3: S3Client = s3_client or boto3.client("s3", config=config)
+        self.endpoint_url = endpoint_url
+        self.profile_name = profile_name
+        self.unsigned = False
+        if s3_client is None:
+            session = boto3.Session(profile_name=profile_name)
+            # A non-AWS endpoint (e.g. the source.coop proxy) rejects AWS
+            # credentials it did not issue, even for public data, so only sign
+            # with credentials that were explicitly selected rather than ambient
+            # ones such as an EC2 instance role or the default profile.
+            explicit_credentials = (
+                profile_name
+                or os.environ.get("AWS_PROFILE")
+                or os.environ.get("AWS_ACCESS_KEY_ID")
+            )
+            if session.get_credentials() is None or (
+                endpoint_url and not explicit_credentials
+            ):
+                self.unsigned = True
+                config = config.merge(Config(signature_version=UNSIGNED))
+            s3_client = session.client("s3", endpoint_url=endpoint_url, config=config)
+        self.s3: S3Client = s3_client
+        self.max_workers = config.max_pool_connections or 10
+
+    def _s5cmd_args(self) -> list[str]:
+        args = ["poetry", "run", "s5cmd", "--log", "error"]
+        if self.endpoint_url:
+            args += ["--endpoint-url", self.endpoint_url]
+        if self.profile_name:
+            args += ["--profile", self.profile_name]
+        if self.unsigned:
+            args.append("--no-sign-request")
+        return args
+
+    def _s5cmd_env(self) -> dict[str, str]:
+        # Without an explicit region s5cmd tries to discover the bucket's
+        # region, which non-AWS endpoints like the source.coop proxy reject.
+        env = dict(os.environ)
+        if self.endpoint_url and "AWS_REGION" not in env:
+            env["AWS_REGION"] = self.s3.meta.region_name or "us-east-1"
+        return env
 
     def list_objects(
         self,
@@ -205,6 +258,10 @@ class S3DataLoader(DataLoader):
         max_keys: int = 1000,
         continuation_token: str | None = None,
     ) -> ListResult:
+        # Treat the prefix as a directory, matching LocalDataLoader, so that e.g.
+        # "embeddings" does not also match "embeddings_img_pg/".
+        if prefix and not prefix.endswith("/"):
+            prefix += "/"
         kwargs = {
             "Bucket": self.bucket_name,
             "Prefix": self.base_prefix + prefix,
@@ -219,7 +276,9 @@ class S3DataLoader(DataLoader):
             kwargs["MaxKeys"] = min(10000, remaining)
             result = self.s3.list_objects_v2(**kwargs)
             contents = result.get("Contents", [])
-            keys.extend([obj["Key"] for obj in contents])
+            # Return keys relative to base_prefix so they can be passed back
+            # into the other DataLoader methods.
+            keys.extend([obj["Key"][len(self.base_prefix) :] for obj in contents])
             continuation_token = result.get("NextContinuationToken")
             kwargs["ContinuationToken"] = continuation_token
             remaining = max_keys - len(keys)
@@ -249,21 +308,22 @@ class S3DataLoader(DataLoader):
         normalized_local_dir = local_dir.rstrip("/") + "/"
         subprocess.run(
             [
-                "poetry",
-                "run",
-                "s5cmd",
-                "--log",
-                "error",
+                *self._s5cmd_args(),
                 "sync",
-                f"s3://{self.bucket_name}/{normalized_prefix}*",
+                f"s3://{self.bucket_name}/{self.base_prefix}{normalized_prefix}*",
                 normalized_local_dir,
             ],
             check=True,
+            env=self._s5cmd_env(),
         )
 
     def upload_file(self, local_path: str, remote_path: str) -> None:
+        content_type, _ = mimetypes.guess_type(local_path)
         self.s3.upload_file(
-            local_path, self.bucket_name, self.base_prefix + remote_path
+            local_path,
+            self.bucket_name,
+            self.base_prefix + remote_path,
+            ExtraArgs={"ContentType": content_type} if content_type else None,
         )
 
     def upload_bytes(self, data: bytes, remote_path: str) -> None:
@@ -281,21 +341,22 @@ class S3DataLoader(DataLoader):
         if compress:
             self._upload_directory_compressed(local_dir, remote_prefix, chunk_size)
             return
-        normalized_local_dir = local_dir.rstrip("/") + "/"
+        # Uploads go through boto3 rather than s5cmd because the source.coop
+        # S3 proxy rejects s5cmd's upload requests.
         normalized_prefix = remote_prefix.rstrip("/") + "/"
-        subprocess.run(
-            [
-                "poetry",
-                "run",
-                "s5cmd",
-                "--log",
-                "error",
-                "cp",
-                normalized_local_dir,
-                f"s3://{self.bucket_name}/{normalized_prefix}",
-            ],
-            check=True,
-        )
+        pairs = [
+            (
+                os.path.join(root, filename),
+                normalized_prefix
+                + os.path.relpath(os.path.join(root, filename), local_dir),
+            )
+            for root, _, files in os.walk(local_dir)
+            for filename in files
+        ]
+        if not pairs:
+            return
+        with ThreadPoolExecutor(max_workers=min(self.max_workers, len(pairs))) as ex:
+            list(ex.map(lambda pair: self.upload_file(*pair), pairs))
 
     def copy_object(self, source_path: str, dest_path: str) -> None:
         self.s3.copy_object(
@@ -319,8 +380,10 @@ class S3DataLoader(DataLoader):
             return False
 
     def to_uri(self, remote_path: str) -> str:
-        return f"https://{self.bucket_name}.s3.amazonaws.com/\
-            {self.base_prefix + remote_path}"
+        return (
+            f"{self.s3.meta.endpoint_url}/{self.bucket_name}/"
+            f"{self.base_prefix}{remote_path}"
+        )
 
 
 class LocalDataLoader(DataLoader):
@@ -429,6 +492,8 @@ def build_data_loader(
     bucket_name: str | None = None,
     local_base_dir: str | None = None,
     config: Config | None = None,
+    endpoint_url: str | None = SOURCE_COOP_ENDPOINT,
+    profile_name: str | None = None,
 ) -> DataLoader:
     if config is None:
         config = Config(max_pool_connections=60)
@@ -442,6 +507,8 @@ def build_data_loader(
         return S3DataLoader(
             bucket_name=bucket_name,
             config=config,
+            endpoint_url=endpoint_url,
+            profile_name=profile_name,
         )
     raise ValueError(f"Unsupported backend: {backend}")
 
@@ -464,6 +531,8 @@ def _init_mp_worker(loader_type: str, loader_kwargs: dict) -> None:
             config=Config(
                 max_pool_connections=loader_kwargs.get("max_pool_connections", 60)
             ),
+            endpoint_url=loader_kwargs.get("endpoint_url"),
+            profile_name=loader_kwargs.get("profile_name"),
         )
     elif loader_type == "local":
         _mp_loader = LocalDataLoader(base_dir=loader_kwargs["base_dir"])
@@ -487,8 +556,12 @@ class RemoteDirectoryIterator:
         local_checkpoint_path: str,
         local_dir: str,
         use_multiprocessing: bool = True,
+        checkpoint_loader: DataLoader | None = None,
     ) -> None:
         self.data_loader = data_loader
+        # Checkpoints may live in a different store than the iterated data,
+        # e.g. when reading from a read-only archive.
+        self.checkpoint_loader = checkpoint_loader or data_loader
         self.prefix = prefix
         self.remote_checkpoint_path = remote_checkpoint_path
         self.local_dir = local_dir
@@ -526,8 +599,8 @@ class RemoteDirectoryIterator:
         self.close()
 
     def _load_checkpoint_from_remote(self) -> None:
-        if self.data_loader.exists(self.remote_checkpoint_path):
-            self.data_loader.download_file(
+        if self.checkpoint_loader.exists(self.remote_checkpoint_path):
+            self.checkpoint_loader.download_file(
                 self.remote_checkpoint_path, self.local_checkpoint_path
             )
             with open(self.local_checkpoint_path) as f:
@@ -548,7 +621,7 @@ class RemoteDirectoryIterator:
                 },
                 f,
             )
-        self.data_loader.upload_file(
+        self.checkpoint_loader.upload_file(
             self.local_checkpoint_path, self.remote_checkpoint_path
         )
 
@@ -651,7 +724,14 @@ class RemoteDirectoryIterator:
     def _get_loader_spec(self) -> tuple[str, dict]:
         """Return a picklable (type, kwargs) pair describing the data loader."""
         if isinstance(self.data_loader, S3DataLoader):
-            return ("s3", {"bucket_name": self.data_loader.bucket_name})
+            return (
+                "s3",
+                {
+                    "bucket_name": self.data_loader.full_bucket_name,
+                    "endpoint_url": self.data_loader.endpoint_url,
+                    "profile_name": self.data_loader.profile_name,
+                },
+            )
         if isinstance(self.data_loader, LocalDataLoader):
             return ("local", {"base_dir": self.data_loader.base_dir})
         raise TypeError(f"Cannot serialize loader: {type(self.data_loader)}")

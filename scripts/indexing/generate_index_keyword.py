@@ -33,7 +33,7 @@ if __name__ == "__main__":
     INDEX_TYPE = args.keyword_index_type  # 'LanceDB', 'SQLite' or 'Whoosh'
 
     # ---------------------------------------------------------------------------
-    BUCKET_NAME = args.bucket_name  # 'bcgl-public-bucket'
+    BUCKET_NAME = args.bucket_name
     PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
     LOCAL_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "prod")
     REMOTE_DATA_DIR = args.remote_data_dir  # 'prod-serving/'
@@ -53,8 +53,9 @@ if __name__ == "__main__":
         local_dm.performance_directory, "performance_keyword_index.json"
     )
 
-    if os.path.isdir(LOCAL_DATA_DIR):
-        shutil.rmtree(LOCAL_DATA_DIR, ignore_errors=True)
+    # Only clear what this script owns; other index scripts share LOCAL_DATA_DIR.
+    for local_dir in (local_dm.txt_directory, local_dm.index_keyword_directory):
+        shutil.rmtree(local_dir, ignore_errors=True)
 
     os.makedirs(LOCAL_DATA_DIR, exist_ok=True)
     os.makedirs(local_dm.txt_directory, exist_ok=True)
@@ -75,6 +76,8 @@ if __name__ == "__main__":
         args.backend,
         BUCKET_NAME,
         local_base_dir=args.local_base_dir,
+        profile_name=args.profile,
+        endpoint_url=args.endpoint_url,
     )
 
     remote_iter = RemoteDirectoryIterator(
