@@ -26,3 +26,4 @@ scripts/__pycache__/*
 .ocr_bench_work/*
 **/__pycache__/*
 .visual_bench_work/*
+.forward_index_bench_work/*
