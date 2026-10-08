@@ -41,32 +41,32 @@ def test_download_pdf_uses_archive_digest_path(tmp_path: Path) -> None:
     assert sorted(path.name for path in tmp_path.iterdir()) == [pdf_path.name]
 
 
-def test_save_cdx_rows_selects_downloaded_digests(
+DIGEST_1, DIGEST_2, DIGEST_3 = (f"{'A' * 31}{i}" for i in (1, 2, 3))
+
+
+def _write_source_cdx(path: Path) -> None:
+    pd.DataFrame(
+        {
+            "digest": [DIGEST_2, DIGEST_1, DIGEST_1, DIGEST_3, "short-digest"],
+            "url": ["two.pdf", "one.pdf", "other.pdf", "three.pdf", "four.pdf"],
+        }
+    ).to_parquet(path, index=False)
+
+
+def test_load_cdx_rows_selects_digests(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_path = tmp_path / "source.parquet"
-    pd.DataFrame(
-        {
-            "digest": ["digest-1", "digest-2", "digest-1", "digest-3"],
-            "url": ["one.pdf", "two.pdf", "other.pdf", "three.pdf"],
-        }
-    ).to_parquet(source_path, index=False)
+    _write_source_cdx(source_path)
     monkeypatch.setattr(source_data, "PARQUET_URL", str(source_path))
 
-    output_path = tmp_path / "complete_cdx_sample.parquet"
     with duckdb.connect() as connection:
-        source_data._save_cdx_rows(connection, ["digest-1", "digest-2"], output_path)
+        rows = source_data._load_cdx_rows(connection, [DIGEST_1, DIGEST_2])
 
-    with duckdb.connect() as connection:
-        result = connection.execute(
-            "SELECT digest, url FROM read_parquet(?) ORDER BY digest, url",
-            [str(output_path)],
-        ).fetchall()
-
-    assert result == [
-        ("digest-1", "one.pdf"),
-        ("digest-1", "other.pdf"),
-        ("digest-2", "two.pdf"),
+    assert sorted(zip(rows["digest"], rows["url"], strict=True)) == [
+        (DIGEST_1, "one.pdf"),
+        (DIGEST_1, "other.pdf"),
+        (DIGEST_2, "two.pdf"),
     ]
 
     with (
@@ -75,33 +75,19 @@ def test_save_cdx_rows_selects_downloaded_digests(
             ValueError, match="No CDX records found for PDF digests: missing-digest"
         ),
     ):
-        source_data._save_cdx_rows(
-            connection, ["missing-digest"], tmp_path / "missing.parquet"
-        )
+        source_data._load_cdx_rows(connection, ["missing-digest"])
 
 
-def test_main_downloads_requested_distinct_pdfs_and_matching_cdx(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    source_path = tmp_path / "source.parquet"
-    pd.DataFrame(
-        {
-            "digest": ["digest-2", "digest-1", "digest-1", "digest-3"],
-            "url": ["two.pdf", "one.pdf", "other.pdf", "three.pdf"],
-        }
-    ).to_parquet(source_path, index=False)
-    monkeypatch.setattr(source_data, "PARQUET_URL", str(source_path))
-    pdf_dir = tmp_path / "pdfs"
-    pdf_dir.mkdir()
-    (pdf_dir / "digest-3.pdf").write_bytes(b"already present")
-    cdx_dir = tmp_path / "cdx"
+def _run_main(
+    monkeypatch: pytest.MonkeyPatch, num_pdfs: int, pdf_dir: Path, cdx_dir: Path
+):
     monkeypatch.setattr(
         sys,
         "argv",
         [
             "retrieve_source_coop_data.py",
             "--num_pdfs",
-            "2",
+            str(num_pdfs),
             "--pdf_dir",
             str(pdf_dir),
             "--cdx_dir",
@@ -110,15 +96,31 @@ def test_main_downloads_requested_distinct_pdfs_and_matching_cdx(
     )
     response = FakeResponse()
     response.status_code = 200
-
     with patch.object(requests.Session, "get", return_value=response) as get:
         source_data.main()
+    return get
 
+
+def test_main_downloads_requested_distinct_pdfs_and_matching_cdx(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_path = tmp_path / "source.parquet"
+    _write_source_cdx(source_path)
+    monkeypatch.setattr(source_data, "PARQUET_URL", str(source_path))
+    pdf_dir = tmp_path / "pdfs"
+    pdf_dir.mkdir()
+    (pdf_dir / f"{DIGEST_3}.pdf").write_bytes(b"already present")
+    cdx_dir = tmp_path / "cdx"
+
+    get = _run_main(monkeypatch, 2, pdf_dir, cdx_dir)
+
+    # The already-present PDF is not downloaded again, but is covered by the
+    # CDX sample and the manifest along with the new downloads.
     assert get.call_count == 2
     assert sorted(path.name for path in pdf_dir.iterdir()) == [
-        "digest-1.pdf",
-        "digest-2.pdf",
-        "digest-3.pdf",
+        f"{DIGEST_1}.pdf",
+        f"{DIGEST_2}.pdf",
+        f"{DIGEST_3}.pdf",
     ]
     with duckdb.connect() as connection:
         result = connection.execute(
@@ -126,8 +128,14 @@ def test_main_downloads_requested_distinct_pdfs_and_matching_cdx(
             [str(cdx_dir / source_data.CDX_SAMPLE_FILENAME)],
         ).fetchall()
     assert result == [
-        ("digest-1", "one.pdf"),
-        ("digest-1", "other.pdf"),
-        ("digest-2", "two.pdf"),
-        ("digest-3", "three.pdf"),
+        (DIGEST_1, "one.pdf"),
+        (DIGEST_1, "other.pdf"),
+        (DIGEST_2, "two.pdf"),
+        (DIGEST_3, "three.pdf"),
+    ]
+    manifest = pd.read_csv(cdx_dir / "digests_manifest.csv")
+    assert list(manifest.itertuples(index=False, name=None)) == [
+        (f"{DIGEST_1}.pdf", DIGEST_1, "one.pdf"),
+        (f"{DIGEST_2}.pdf", DIGEST_2, "two.pdf"),
+        (f"{DIGEST_3}.pdf", DIGEST_3, "three.pdf"),
     ]

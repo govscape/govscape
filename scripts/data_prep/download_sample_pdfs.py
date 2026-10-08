@@ -1,17 +1,21 @@
 """Download a small set of test PDFs and their CDX rows for local development."""
 
 import argparse
-import itertools
 import logging
 import os
 import random
-from collections.abc import Iterator
 
 import duckdb
 import pandas as pd
 
-from govscape.config import PDF_ARCHIVE_BUCKET, PDF_ARCHIVE_CDX_KEY, PDF_ARCHIVE_PDF_DIR
+from govscape.config import (
+    PDF_ARCHIVE_BUCKET,
+    PDF_ARCHIVE_CDX_KEY,
+    PDF_ARCHIVE_PDF_DIR,
+    SOURCE_COOP_ENDPOINT,
+)
 from govscape.data_loader import build_data_loader
+from govscape.utils import endpoint_url_arg, iter_cdx_row_groups
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -22,60 +26,6 @@ logging.basicConfig(
 
 REMOTE_PDF_DIR = PDF_ARCHIVE_PDF_DIR
 REMOTE_CDX_PATH = PDF_ARCHIVE_CDX_KEY
-DIGEST_LENGTH = 32
-
-
-def iter_cdx_row_groups(
-    connection: duckdb.DuckDBPyConnection, cdx_url: str, url_filter: str | None
-) -> Iterator[pd.DataFrame]:
-    """Yield the matching rows of each CDX row group, in random order.
-
-    The full CDX is ~11.5GB and not sorted by digest, so rather than download
-    or scan it, whole row groups are read one at a time (DuckDB only fetches
-    the row group covering the requested file_row_number range) until the
-    caller has enough PDFs. Crawls of a sampled PDF that live in unread row
-    groups are missed, which is acceptable for local development.
-    """
-    row_group_sizes = [
-        num_rows
-        for (num_rows,) in connection.execute(
-            "SELECT row_group_num_rows FROM parquet_metadata(?) "
-            "WHERE column_id = 0 ORDER BY row_group_id",
-            [cdx_url],
-        ).fetchall()
-    ]
-    row_group_starts = list(itertools.accumulate(row_group_sizes, initial=0))
-
-    query = (
-        "SELECT * EXCLUDE (file_row_number) "
-        "FROM read_parquet(?, file_row_number = true) "
-        "WHERE file_row_number >= ? AND file_row_number < ? AND length(digest) = ?"
-    )
-    filter_params = []
-    if url_filter:
-        query += " AND lower(url) LIKE ?"
-        filter_params.append(f"%{url_filter.lower()}%")
-
-    row_groups = list(range(len(row_group_sizes)))
-    random.shuffle(row_groups)
-    for num_read, row_group in enumerate(row_groups, start=1):
-        rows = connection.execute(
-            query,
-            [
-                cdx_url,
-                row_group_starts[row_group],
-                row_group_starts[row_group + 1],
-                DIGEST_LENGTH,
-                *filter_params,
-            ],
-        ).df()
-        logging.info(
-            "Read %d/%d CDX row groups (%d matching rows)",
-            num_read,
-            len(row_groups),
-            len(rows),
-        )
-        yield rows
 
 
 def main():
@@ -91,6 +41,12 @@ def main():
         "--profile",
         default=None,
         help="AWS credentials profile (default: AWS_PROFILE, else anonymous)",
+    )
+    parser.add_argument(
+        "--endpoint_url",
+        type=endpoint_url_arg,
+        default=SOURCE_COOP_ENDPOINT,
+        help="S3 endpoint (default: the source.coop proxy; '' for AWS S3)",
     )
     parser.add_argument(
         "--local_base_dir",
@@ -116,6 +72,7 @@ def main():
         args.bucket_name,
         local_base_dir=args.local_base_dir,
         profile_name=args.profile,
+        endpoint_url=args.endpoint_url,
     )
 
     # Download PDFs for random digests from each sampled row group until there

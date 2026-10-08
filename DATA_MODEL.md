@@ -16,8 +16,12 @@ holds everything derived from the PDFs:
 * {test,dev,prod}-serving/embeddings/{digest}/{digest}_{pg_no}.np
 * {test,dev,prod}-serving/embeddings_img_pg/{digest}/{digest}_{pg_no}.np
 * {test,dev,prod}-serving/index/faiss_index.pkl
+* {test,dev,prod}-serving/index/forward_index.db (SQLite) or forward_index.lmdb/ (LMDB)
+* {test,dev,prod}-serving/index/forward_index.db (SQLite) or forward_index.lmdb/ (LMDB)
 * {test,dev,prod}-serving/index_keyword/{whoosh idx files}
 * {test,dev,prod}-serving/index_img_pg/faiss_index.pkl
+* {test,dev,prod}-serving/index_img_pg/forward_index.db (SQLite) or forward_index.lmdb/ (LMDB)
+* {test,dev,prod}-serving/index_img_pg/forward_index.db (SQLite) or forward_index.lmdb/ (LMDB)
 * {test,dev,prod}-serving/index_metadata/metadata.db
 * {test,dev,prod}-serving/metadata/{digest}/metadata.json
 * {test,dev,prod}-serving/performance/performance_{job_name}.json
@@ -34,6 +38,10 @@ The complete_cdx.parquet file has the following columns:
 * filename : The prefix within the eotarchive bucket where the pdf's warc file can be found.
 * offset : The pdf's offset into the warc file
 * length : The number of bytes corresponding to the pdf's warc record.
+
+Each vector index directory holds a forward index mapping a PDF digest to the exact vectors of its pages. It is maintained by the vector index and used for prefiltered (metadata-filtered) search. Its format is chosen with `--forward_index_type` (SQLite or LMDB) and must match between index building and serving.
+
+Each vector index directory holds a forward index mapping a PDF digest to the exact vectors of its pages. It is maintained by the vector index and used for prefiltered (metadata-filtered) search. Its format is chosen with `--forward_index_type` (SQLite or LMDB) and must match between index building and serving.
 
 The metadata.db database has a table with the columns:
 * url TEXT,

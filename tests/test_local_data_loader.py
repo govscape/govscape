@@ -358,3 +358,33 @@ def test_list_objects_treats_prefix_as_directory(loader: DataLoader) -> None:
 
     assert loader.list_objects("embeddings").keys == ["embeddings/a.npy"]
     assert loader.list_objects("embeddings/").keys == ["embeddings/a.npy"]
+
+
+def test_s3_loader_ignores_ambient_credentials_for_custom_endpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    credentials_file = tmp_path / "credentials"
+    credentials_file.write_text(
+        "[default]\naws_access_key_id = a\naws_secret_access_key = b\n"
+        "[source-coop]\naws_access_key_id = c\naws_secret_access_key = d\n"
+    )
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(credentials_file))
+    for key in ("AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("AWS_SESSION_TOKEN", raising=False)
+    endpoint = "https://data.example.org"
+
+    def unsigned(**kwargs) -> bool:
+        return S3DataLoader("bucket/prefix", Config(), **kwargs).unsigned
+
+    # Ambient (default profile) credentials are only used for AWS itself.
+    assert unsigned(endpoint_url=endpoint)
+    assert not unsigned(endpoint_url=None)
+    # Explicitly selected credentials are used for any endpoint.
+    assert not unsigned(endpoint_url=endpoint, profile_name="source-coop")
+    monkeypatch.setenv("AWS_PROFILE", "source-coop")
+    assert not unsigned(endpoint_url=endpoint)
+    monkeypatch.delenv("AWS_PROFILE")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "e")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "f")
+    assert not unsigned(endpoint_url=endpoint)

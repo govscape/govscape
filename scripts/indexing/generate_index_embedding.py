@@ -9,7 +9,6 @@ import numpy as np
 import govscape as gs
 from govscape.config import DataModel
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
-from govscape.indexing import DuckDBMetadataIndex, SQLiteMetadataIndex
 from govscape.utils import base_argument_parser
 
 logging.basicConfig(
@@ -43,6 +42,13 @@ if __name__ == "__main__":
         type=str,
         choices=["FAISS"],
         help='Type of index to create (e.g., "FAISS")',
+    )
+    parser.add_argument(
+        "--forward_index_type",
+        type=str,
+        choices=["SQLite", "LMDB"],
+        default="SQLite",
+        help="Type of forward index stored with the vector index",
     )
     args = parser.parse_args()
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process
@@ -127,6 +133,7 @@ if __name__ == "__main__":
         BUCKET_NAME,
         local_base_dir=args.local_base_dir,
         profile_name=args.profile,
+        endpoint_url=args.endpoint_url,
     )
     remote_iter = RemoteDirectoryIterator(
         data_loader,
@@ -137,36 +144,24 @@ if __name__ == "__main__":
     )
 
     # Download existing index files from S3 to local directory to update them
-    # with new data and re-upload.
-    # The metadata index also stores a copy of the vectors (used for
-    # prefiltering), so it is synced the same way.
-    for remote_dir, local_dir in [
-        (REMOTE_INDEX_DIR, LOCAL_INDEX_DIR),
-        (remote_dm.index_metadata_directory, local_dm.index_metadata_directory),
-    ]:
-        remote_existing_idx_files = data_loader.list_objects(remote_dir)
-        for remote_file in remote_existing_idx_files.keys:
-            data_loader.download_file(
-                remote_file, os.path.join(local_dir, os.path.basename(remote_file))
-            )
+    # with new data and re-upload. Relative paths are kept because the forward
+    # index may be stored in a subdirectory.
+    remote_existing_idx_files = data_loader.list_objects(REMOTE_INDEX_DIR)
+    for remote_file in remote_existing_idx_files.keys:
+        data_loader.download_file(
+            remote_file,
+            os.path.join(
+                LOCAL_INDEX_DIR, os.path.relpath(remote_file, REMOTE_INDEX_DIR)
+            ),
+        )
 
     # Adding Embedding Files to the Index and Uploading to S3
     def process_embedding_files(embedding_files):
         time_index_start = time.time()
-        index = gs.FAISSIndex(LOCAL_INDEX_DIR)
+        index = gs.FAISSIndex(
+            LOCAL_INDEX_DIR, forward_index_type=args.forward_index_type
+        )
         index.load_index()
-
-        metadata_index = None
-        duckdb_path = os.path.join(local_dm.index_metadata_directory, "metadata.duckdb")
-        if os.path.exists(duckdb_path):
-            metadata_index = DuckDBMetadataIndex(local_dm.index_metadata_directory)
-        else:
-            # Default to SQLite when metadata index file is not present yet.
-            metadata_index = SQLiteMetadataIndex(local_dm.index_metadata_directory)
-        metadata_index.build_index()
-        metadata_index.load_index()
-
-        vector_store_key = "text" if args.embedding_type == "txt" else "visual"
 
         names = []
         pages = []
@@ -188,8 +183,6 @@ if __name__ == "__main__":
         embeddings = np.asarray(embeddings, dtype=np.float32)
 
         index.add_batch(embeddings, names, pages)
-        metadata_index.upsert_vectors(vector_store_key, embeddings, names, pages)
-        metadata_index.save_index()
         index.save_index()
 
         pipeline_times["embedding_indexing_time"] += time.time() - time_index_start
@@ -198,9 +191,6 @@ if __name__ == "__main__":
 
         # UPLOADING Indexes TO S3 HERE
         data_loader.upload_directory(LOCAL_INDEX_DIR, REMOTE_INDEX_DIR)
-        data_loader.upload_directory(
-            local_dm.index_metadata_directory, remote_dm.index_metadata_directory
-        )
         print("finished uploading index")
         time2 = time.time()
 

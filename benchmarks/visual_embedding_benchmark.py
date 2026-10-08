@@ -108,7 +108,7 @@ def _sync() -> None:
 def time_gpu_only(
     model, image_paths: list[str], batch_size: int, repeats: int
 ) -> float:
-    pixels = model._load_and_process_image(image_paths, model.processor)
+    pixels, _ = model._load_and_process_image(image_paths, model.processor)
     timings = []
     for _ in range(repeats):
         _sync()

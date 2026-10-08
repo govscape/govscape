@@ -99,10 +99,6 @@ def _build_records(
 def _prepare_metadata_index(
     index_dir: Path,
     records: list[dict],
-    vector_store_key: str,
-    vectors: np.ndarray,
-    digests: list[str],
-    pages: list[str],
 ) -> SQLiteMetadataIndex:
     if index_dir.exists():
         shutil.rmtree(index_dir)
@@ -111,7 +107,6 @@ def _prepare_metadata_index(
     metadata_index = SQLiteMetadataIndex(index_dir.as_posix())
     metadata_index.build_index()
     metadata_index.add_batch(records)
-    metadata_index.upsert_vectors(vector_store_key, vectors, digests, pages)
     metadata_index.save_index()
     metadata_index.load_index()
     return metadata_index
@@ -175,21 +170,13 @@ def run_benchmark(
     )
     records = _build_records(pdf_names, pages_per_doc, sub_domains)
 
-    metadata_index = _prepare_metadata_index(
-        work_dir / "metadata",
-        records,
-        "text",
-        vectors,
-        digests,
-        pages,
-    )
+    metadata_index = _prepare_metadata_index(work_dir / "metadata", records)
     keyword_index = _prepare_keyword_index(work_dir / "keyword", texts, digests, pages)
     faiss_index = _prepare_faiss_index(work_dir / "faiss", vectors, digests, pages)
 
     text_hybrid = HybridVectorMetadataIndex(
         vector_index=faiss_index,
         metadata_index=metadata_index,
-        vector_store_key="text",
     )
     keyword_hybrid = HybridKeywordMetadataIndex(
         keyword_index=keyword_index,

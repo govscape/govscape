@@ -132,15 +132,9 @@ def _prepare_index(
     backend: str,
     index_dir: Path,
     records,
-    vector_digests,
-    vector_pages,
-    vector_array,
-    vector_batch_size: int,
 ):
     # time the index creation
-    print(
-        f"Preparing {backend} with {len(records)} docs, {len(vector_digests)} vectors"
-    )
+    print(f"Preparing {backend} with {len(records)} docs")
 
     start_time = time.perf_counter()
 
@@ -151,20 +145,10 @@ def _prepare_index(
     index = _create_metadata_index(backend, index_dir)
     index.build_index()
     index.add_batch(records)
-
-    for start in range(0, len(vector_digests), vector_batch_size):
-        end = min(start + vector_batch_size, len(vector_digests))
-        index.upsert_vectors(
-            "textual",
-            vector_array[start:end],
-            vector_digests[start:end],
-            vector_pages[start:end],
-        )
-
     index.save_index()
 
     print(
-        f"Built {backend} index with {len(records)} records and vectors in "
+        f"Built {backend} index with {len(records)} records in "
         f"{time.perf_counter() - start_time:.2f} seconds"
     )
 
@@ -231,7 +215,6 @@ def run_benchmark(
     k: int,
     work_dir: Path,
     seed: int,
-    vector_batch_size: int,
 ) -> list[BenchmarkRow]:
     scenarios = [
         Scenario("selective_1pct", 1, [eq("sub_domain", "target.gov")]),
@@ -266,10 +249,6 @@ def run_benchmark(
             backend,
             work_dir / f"{backend}_{documents}_{scenario.name}",
             records,
-            vector_digests,
-            vector_pages,
-            all_vectors,
-            vector_batch_size,
         )
 
         postFilteredIndex = PostFilteredIndex(
@@ -370,12 +349,6 @@ def main():
     parser.add_argument("--queries", type=int, default=20)
     parser.add_argument("--k", type=int, default=20)
     parser.add_argument(
-        "--vector-batch-size",
-        type=int,
-        default=50000,
-        help="Batch size when writing vectors into metadata index.",
-    )
-    parser.add_argument(
         "--work-dir",
         type=Path,
         default=Path("/tmp/govscape_filter_strategy_bench"),
@@ -394,7 +367,6 @@ def main():
         "k": args.k,
         "work_dir": args.work_dir,
         "seed": args.seed,
-        "vector_batch_size": args.vector_batch_size,
     }
 
     tasks = [(b, s) for b in backends for s in sizes]

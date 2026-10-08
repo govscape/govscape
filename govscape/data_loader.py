@@ -216,7 +216,18 @@ class S3DataLoader(DataLoader):
         self.unsigned = False
         if s3_client is None:
             session = boto3.Session(profile_name=profile_name)
-            if session.get_credentials() is None:
+            # A non-AWS endpoint (e.g. the source.coop proxy) rejects AWS
+            # credentials it did not issue, even for public data, so only sign
+            # with credentials that were explicitly selected rather than ambient
+            # ones such as an EC2 instance role or the default profile.
+            explicit_credentials = (
+                profile_name
+                or os.environ.get("AWS_PROFILE")
+                or os.environ.get("AWS_ACCESS_KEY_ID")
+            )
+            if session.get_credentials() is None or (
+                endpoint_url and not explicit_credentials
+            ):
                 self.unsigned = True
                 config = config.merge(Config(signature_version=UNSIGNED))
             s3_client = session.client("s3", endpoint_url=endpoint_url, config=config)
@@ -224,7 +235,6 @@ class S3DataLoader(DataLoader):
         self.max_workers = config.max_pool_connections or 10
 
     def _s5cmd_args(self) -> list[str]:
-        """Global s5cmd flags matching this loader's endpoint and credentials."""
         args = ["poetry", "run", "s5cmd", "--log", "error"]
         if self.endpoint_url:
             args += ["--endpoint-url", self.endpoint_url]

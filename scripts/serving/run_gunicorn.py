@@ -39,6 +39,7 @@ def download_indices(args):
         BUCKET_NAME,
         local_base_dir=LOCAL_MOCK_DIR,
         profile_name=args.profile,
+        endpoint_url=args.endpoint_url,
     )
     for remote_dir, local_dir in [
         (remote_dm.index_keyword_directory, local_dm.index_keyword_directory),

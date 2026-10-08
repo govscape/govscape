@@ -163,6 +163,7 @@ def main() -> None:
             args.pdf_bucket_name,
             args.local_base_dir,
             profile_name=args.pdf_profile,
+            endpoint_url=args.endpoint_url,
         )
         remote_key = os.path.join(args.output_prefix, "complete_cdx.parquet")
         data_loader.upload_file(parquet_path, remote_key)

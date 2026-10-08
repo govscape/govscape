@@ -109,6 +109,7 @@ def main() -> None:
         args.pdf_bucket_name,
         args.local_base_dir,
         profile_name=args.pdf_profile,
+        endpoint_url=args.endpoint_url,
     )
     remote_parquet = os.path.join(args.input_prefix, "complete_cdx.parquet")
 

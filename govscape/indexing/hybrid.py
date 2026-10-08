@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from ..query import Predicate
 from .base import AbstractIndex
 from .keyword import AbstractKeywordIndex
 from .metadata import AbstractMetadataIndex
@@ -59,7 +60,10 @@ class AbstractHybridMetadataIndex(AbstractIndex, ABC):
         return self.metadata_index.estimate_selectivity(predicates)
 
     def _choose_strategy(
-        self, predicates, estimated_selectivity: float, target_results: int
+        self,
+        predicates: list[Predicate] | None,
+        estimated_selectivity: float,
+        target_results: int,
     ) -> tuple[str, float, float]:
 
         # Ensure selectivity is not too close to zero.
@@ -163,19 +167,15 @@ class HybridVectorMetadataIndex(AbstractHybridMetadataIndex):
         self,
         vector_index: AbstractVectorIndex,
         metadata_index: AbstractMetadataIndex,
-        vector_store_key: str = "text",
     ):
         super().__init__(metadata_index=metadata_index)
         self.vector_index = vector_index
-        self.vector_store_key = vector_store_key
 
     def _index_total_entries(self) -> int:
         return self.vector_index.total_entries()
 
     def _run_prefilter(self, query_embedding, predicates, target_results, candidates):
-        vectors, digests, pages = self.metadata_index.get_vectors_for_digests(
-            self.vector_store_key, candidates
-        )
+        vectors, digests, pages = self.vector_index.get_vectors_for_digests(candidates)
         if len(digests) == 0:
             return [], {}, 0
 

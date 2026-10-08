@@ -64,12 +64,14 @@ def main():
         BUCKET_NAME,
         local_base_dir=args.local_base_dir,
         profile_name=args.profile,
+        endpoint_url=args.endpoint_url,
     )
     pdf_data_loader = build_data_loader(
         args.backend,
         args.pdf_bucket_name,
         local_base_dir=args.local_base_dir,
         profile_name=args.pdf_profile,
+        endpoint_url=args.endpoint_url,
     )
 
     remote_iter = RemoteDirectoryIterator(

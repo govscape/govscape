@@ -1,3 +1,4 @@
+import logging
 import multiprocessing as mp
 import os
 from abc import ABC, abstractmethod
@@ -133,22 +134,27 @@ class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
     # single GPU version using self.model (created in __init__)
     @staticmethod
     def _load_and_process_image(image_paths, processor):
+        """Return (pixels of the loadable images, their indices in image_paths)."""
         tensors = []
-        for path in image_paths:
+        loaded_indices = []
+        for i, path in enumerate(image_paths):
             pv = CLIP_VisualEmbeddingModel._safe_load_image(path, processor)
             if pv is not None:
                 tensors.append(pv)  # shape [1,3,H,W]
+                loaded_indices.append(i)
         if not tensors:
-            return None
-        return torch.cat(tensors, dim=0)  # shape [N,3,H,W]
+            return None, loaded_indices
+        return torch.cat(tensors, dim=0), loaded_indices  # shape [N,3,H,W]
 
     def encode_images(self, jpg_paths):
         """
         Load and preprocess images in parallel (CPU workers) then run batched
-        single-GPU forward passes.
+        single-GPU forward passes. Returns one row per path, in order; images
+        that fail to load get a zero vector.
         """
+        embeddings = np.zeros((len(jpg_paths), self.d), dtype=np.float32)
         if not jpg_paths:
-            return np.empty((0, self.d), dtype=np.float32)
+            return embeddings
 
         cpu_batch_size = 256
         print("Processing Images")
@@ -160,20 +166,29 @@ class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
         # Use spawn to avoid CUDA + fork deadlocks
         ctx = mp.get_context("spawn")
         with ctx.Pool(processes=min(os.cpu_count(), len(path_batches))) as pool:
-            batch_tensors = pool.starmap(
+            batch_results = pool.starmap(
                 self._load_and_process_image,
                 [(p, self.processor) for p in path_batches],
             )
 
-        # Flatten and drop empty batches
+        # Keep track of which input rows each preprocessed image belongs to, so
+        # failed images do not shift the embeddings of the ones after them.
         image_tensors = []
-        for i, bt in enumerate(batch_tensors):
-            if bt is not None:
-                image_tensors.append(bt)
-            else:
-                image_tensors.append(
-                    np.zeros(len(path_batches[i]), self.d, dtype=np.float32)
+        loaded_rows: list[int] = []
+        for batch_index, (pixels, loaded_indices) in enumerate(batch_results):
+            if pixels is not None:
+                image_tensors.append(pixels)
+                loaded_rows.extend(
+                    batch_index * cpu_batch_size + i for i in loaded_indices
                 )
+        if len(loaded_rows) < len(jpg_paths):
+            logging.warning(
+                "%d of %d images failed to load; using zero embeddings for them",
+                len(jpg_paths) - len(loaded_rows),
+                len(jpg_paths),
+            )
+        if not image_tensors:
+            return embeddings
 
         all_pixels = torch.cat(image_tensors, dim=0)
         print(f"Total images preprocessed: {all_pixels.size(0)}")
@@ -184,13 +199,18 @@ class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
         for i in range(0, all_pixels.size(0), gpu_batch):
             pixel_batch = all_pixels[i : i + gpu_batch].to(self.device)
             with torch.no_grad():
-                embeddings = self.model.get_image_features(pixel_values=pixel_batch)
-                embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
-            all_embeddings.append(embeddings.cpu())
-            del pixel_batch, embeddings
+                batch_embeddings = self.model.get_image_features(
+                    pixel_values=pixel_batch
+                )
+                batch_embeddings = batch_embeddings / batch_embeddings.norm(
+                    dim=-1, keepdim=True
+                )
+            all_embeddings.append(batch_embeddings.cpu())
+            del pixel_batch, batch_embeddings
             torch.cuda.empty_cache()
 
-        return torch.cat(all_embeddings, dim=0).numpy()
+        embeddings[loaded_rows] = torch.cat(all_embeddings, dim=0).numpy()
+        return embeddings
 
 
 class SigLIP_VisualEmbeddingModel(CLIP_VisualEmbeddingModel):

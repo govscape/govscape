@@ -77,6 +77,7 @@ if __name__ == "__main__":
         BUCKET_NAME,
         local_base_dir=args.local_base_dir,
         profile_name=args.profile,
+        endpoint_url=args.endpoint_url,
     )
 
     remote_iter = RemoteDirectoryIterator(

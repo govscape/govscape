@@ -116,12 +116,6 @@ class SelectiveMetadataIndex:
     def get_candidate_digests(self, _predicates=None):
         return set(self.docs)
 
-    def get_vectors_for_digests(self, _vector_store_key, candidate_digests):
-        names = [name for name in ["doc_2.pdf"] if name in candidate_digests]
-        vectors = np.asarray([[1.0, 1.0, 1.0, 1.0] for _ in names], dtype=np.float32)
-        pages = ["2" for _ in names]
-        return vectors, names, pages
-
     def search(self, pdf_names, _predicates=None):
         return {
             name: [{"crawl_date": "20240101", "crawl_url": "", "sub_domain": ""}]
@@ -142,19 +136,6 @@ class BroadMetadataIndex:
 
     def get_candidate_digests(self, _predicates=None):
         return set(self.docs)
-
-    def get_vectors_for_digests(self, _vector_store_key, candidate_digests):
-        ordered = ["doc_1.pdf", "doc_2.pdf", "doc_3.pdf"]
-        names = [name for name in ordered if name in candidate_digests]
-        vec_map = {
-            "doc_1.pdf": [0.0, 0.0, 0.0, 0.0],
-            "doc_2.pdf": [1.0, 1.0, 1.0, 1.0],
-            "doc_3.pdf": [2.0, 2.0, 2.0, 2.0],
-        }
-        page_map = {"doc_1.pdf": "1", "doc_2.pdf": "2", "doc_3.pdf": "3"}
-        vectors = np.asarray([vec_map[name] for name in names], dtype=np.float32)
-        pages = [page_map[name] for name in names]
-        return vectors, names, pages
 
     def search(self, pdf_names, _predicates=None):
         return {
