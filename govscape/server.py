@@ -23,6 +23,7 @@ from .indexing import (
     WhooshKeywordIndex,
 )
 from .query import Query, Response
+from .utils import load_url_blacklist_patterns
 
 
 # basic pipeline developed:
@@ -116,6 +117,7 @@ class Server:
         )
 
         self.blacklist: set[str] = self._load_blacklist()
+        self.blacklist |= self._load_url_blacklisted_digests()
 
         self.s3 = boto3.client("s3")
 
@@ -164,6 +166,19 @@ class Server:
         except OSError as e:
             print(f"Warning: failed to read blacklist at {path}: {e}")
             return set()
+
+    def _load_url_blacklisted_digests(self) -> set[str]:
+        """Resolve `url_blacklist.txt` regex patterns against crawl_url metadata so
+        every digest crawled from a blacklisted domain is hidden, without
+        requiring each digest to be enumerated individually.
+        """
+        patterns = load_url_blacklist_patterns(self.data_model.url_blacklist_file)
+        if not patterns:
+            return set()
+        digests = self.metadata_index.get_url_blacklisted_digests(patterns)
+        if digests:
+            print(f"Blacklisting {len(digests)} digest(s) matching URL patterns")
+        return digests
 
     def search(self, query: Query) -> Response:
         search_type = query.search_type
