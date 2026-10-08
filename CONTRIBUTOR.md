@@ -144,6 +144,12 @@ poetry run python scripts/data_prep/download_sample_pdfs.py \
     --num_pdfs 500
 ```
 
+This downloads the PDFs to `data/s3_mock/pdfs/` and writes the CDX rows for just
+those PDFs to `data/s3_mock/cdx/complete_cdx.parquet`; the full CDX (~11.5GB) is
+never downloaded. PDFs are sampled by reading random row groups of the remote
+CDX, so a PDF's crawls that fall in other row groups are not included. Running
+the script again adds more PDFs and extends the local CDX.
+
 To work with a focused subset of the data, you can restrict the download to PDFs
 whose original source URL contains a given substring using the optional
 `--url_filter` argument (case-insensitive). For example, to pull only PDFs served
