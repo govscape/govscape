@@ -1,5 +1,0 @@
-ZERANOL
-FSIS analyzed 323 formula-fed veal samples for zeranol residues; zero (0) violations and
-zero (0) non-violative positives were detected. The 95th confidence interval for percent
-violations is: 0, 1.14.
-24
