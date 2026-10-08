@@ -59,7 +59,7 @@ class AbstractHybridMetadataIndex(AbstractIndex, ABC):
         return self.metadata_index.estimate_selectivity(predicates)
 
     def _choose_strategy(
-        self, estimated_selectivity: float, target_results: int
+        self, predicates, estimated_selectivity: float, target_results: int
     ) -> tuple[str, float, float]:
 
         # Ensure selectivity is not too close to zero.
@@ -72,9 +72,12 @@ class AbstractHybridMetadataIndex(AbstractIndex, ABC):
         prefilter_cost: float = safe_selectivity * float(self._metadata_size())
         postfilter_cost: float = 10 * float(target_results) * (1.0 / safe_selectivity)
 
+        # Without predicates there is no candidate set to prefilter on, so the
+        # search is a plain index search even when the cost model favors
+        # prefiltering (e.g. for a small metadata database).
         strategy = (
             STRATEGY_PREFILTER
-            if prefilter_cost <= postfilter_cost
+            if predicates and prefilter_cost <= postfilter_cost
             else STRATEGY_POSTFILTER
         )
         return strategy, prefilter_cost, postfilter_cost
@@ -115,13 +118,8 @@ class AbstractHybridMetadataIndex(AbstractIndex, ABC):
         estimated_selectivity = self._estimate_selectivity(predicates)
 
         strategy, prefilter_cost, postfilter_cost = self._choose_strategy(
-            estimated_selectivity, target_results
+            predicates, estimated_selectivity, target_results
         )
-        # Without predicates there is no candidate set to prefilter on, so the
-        # search is a plain index search. The cost model can still pick
-        # prefiltering when the metadata database is small.
-        if not predicates:
-            strategy = STRATEGY_POSTFILTER
 
         rows = []
         metadata = {}

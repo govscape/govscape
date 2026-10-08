@@ -203,7 +203,7 @@ def _build_faiss_index(
 class PostFilteredIndex(HybridVectorMetadataIndex):
     # Override _choose_strategy to force postfiltering only for benchmarking purposes.
     def _choose_strategy(
-        self, estimated_selectivity: float, target_results: int
+        self, predicates, estimated_selectivity: float, target_results: int
     ) -> tuple[str, float, float]:
         # don't return real cost estimates since we won't use them
         return STRATEGY_POSTFILTER, -1, -1
@@ -212,7 +212,7 @@ class PostFilteredIndex(HybridVectorMetadataIndex):
 class PreFilteredIndex(HybridVectorMetadataIndex):
     # Override _choose_strategy to force prefiltering only for benchmarking purposes.
     def _choose_strategy(
-        self, estimated_selectivity: float, target_results: int
+        self, predicates, estimated_selectivity: float, target_results: int
     ) -> tuple[str, float, float]:
         # don't return real cost estimates since we won't use them
         return STRATEGY_PREFILTER, -1, -1
