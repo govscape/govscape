@@ -1,9 +1,0 @@
-SAMPLES ANALYZED ONLY IN A FSIS LABORATORY
-ANTIBIOTICS AND SULFONAMIDES (7-plate bioassay)
-FSIS analyzed samples from 80 animals for antibiotics and sulfonamides. FSIS laboratories
-confirmed 9 violations in 8 animals. There were one (1) gentamycin, four (4) penicillin, one (1)
-neomycin, one (1) tetracycline, one (1) sulfadimethoxine, and one (1) sulfamethazine residue
-violations. Table 41a, Antibiotics and Sulfonamides, presents testing results by production class.
-Table 41b, Specific Antibiotic and Sulfonamide Violative Residues, presents specific results detected
-within the class.
-71

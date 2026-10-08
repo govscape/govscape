@@ -1,4 +1,0 @@
-Long term
-control =
-Population
-Management

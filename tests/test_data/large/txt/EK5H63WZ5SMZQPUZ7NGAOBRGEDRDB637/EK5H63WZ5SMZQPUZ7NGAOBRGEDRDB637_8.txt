@@ -1,4 +1,0 @@
-Temperature effects on JB:
-0
-Degree day accumulations in soil (base 10 C)
-correlate with first emergence and 50% flight
