@@ -136,37 +136,29 @@ logging.error("Something failed: %s", err)
 
 To do this, you need to start by creating a directory within govscape/data that holds a set of PDFs and one that holds a `pdf_metadata.parquet` file. We will assume that these directories are named `govscape/data/s3_mock/archive/PDFs/` and `govscape/data/s3_mock/archive/CDX/pdf_metadata.parquet`.
 
-You can pull this data from the S3 bucket by using:
+You can pull a sample of PDFs, plus the CDX rows that describe them, from the
+public [source.coop PDF archive](https://source.coop/govscape/eota-pdf-archive).
+No credentials are needed:
 
 ```
-poetry run python scripts/data_prep/download_sample_pdfs.py \
-    --bucket_name us-west-2.opendata.source.coop/govscape/eota-pdf-archive/ \
-    --local_base_dir data/s3_mock \
-    --num_pdfs 500
-```
-
-To work with a focused subset of the data, you can restrict the download to PDFs
-whose original source URL contains a given substring using the optional
-`--url_filter` argument (case-insensitive). For example, to pull only PDFs served
-from EPA domains:
-
-```
-poetry run python scripts/data_prep/download_sample_pdfs.py \
-    --bucket_name us-west-2.opendata.source.coop/govscape/eota-pdf-archive/ \
-    --local_base_dir data/s3_mock \
+poetry run python scripts/data_prep/retrieve_source_coop_data.py \
     --num_pdfs 500 \
-    --url_filter epa.gov
-```
-Omit `--url_filter` to download an unfiltered sample.
-
-To download a sample directly from the public source.coop archive instead, run:
-
-```
-poetry run python scripts/data_prep/retrieve_source_coop_data.py --num_pdfs 100
+    --pdf_dir data/s3_mock/pdfs \
+    --cdx_dir data/s3_mock/cdx
 ```
 
-This saves PDFs by digest under `tests/test_data/pdfs/` and the matching CDX
-records to `tests/test_data/cdx/complete_cdx_sample.parquet`.
+PDFs are saved by digest under `--pdf_dir`. The matching CDX records go to
+`<cdx_dir>/complete_cdx_sample.parquet`, and a `digests_manifest.csv` lists each
+PDF with its source URL. PDFs already in `--pdf_dir` are skipped, so rerunning the
+command adds new PDFs to the sample.
+
+To work with a focused subset of the data, add `--url_filter` to download only PDFs
+whose source URL contains a given substring (case-insensitive), e.g.
+`--url_filter epa.gov`. Add `--random` to take a random sample instead of the first
+digests in CDX order; this scans the whole remote CDX first, so it is slower.
+
+With no `--pdf_dir`/`--cdx_dir`, the script writes to `tests/test_data/pdfs/` and
+`tests/test_data/cdx/`, which is how the committed test sample was made.
 
 
 ### Creating the embeddings
