@@ -1,9 +1,0 @@
-The Authors:
-James W. Bentley and Tony G. Johnson are Resource Analysts
-with the Forest Inventory and Analysis Research Work Unit,
-Southern Research Station, U.S. Department of Agriculture, Forest
-Service, Knoxville, TN 37919.
-October 2004
-Southern Research Station
-P.O. Box 2680
-Asheville, NC 28802

@@ -1,3 +1,0 @@
-Left border sequence from the nopaline Ti plasmid.
-Delineates the T-DNA region for Agrobacterium-mediated transformation.
-149
