@@ -5,14 +5,10 @@ Run locally with `poetry run pytest tests/benchmarks --codspeed`.
 
 from __future__ import annotations
 
-import logging
 import os
 import shutil
-import time
 import uuid
-from collections.abc import Callable
 from pathlib import Path
-from typing import TypeVar
 
 from govscape.config import DataModel
 from govscape.pdf_processing_pipeline import PDFProcessingPipeline
@@ -23,24 +19,9 @@ from govscape.processing import (
 )
 from govscape.processing.pdf_extraction_stage import _convert_single_pdf
 
+from .conftest import _timed_stage
+
 CPU_COUNT = os.cpu_count() or 1
-
-logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
-
-
-def _timed_stage(name: str, fn: Callable[[], T]) -> T:
-    """Run `fn`, logging a start/finish line with elapsed time around it.
-
-    Pair with `--log-cli-level=INFO` to see progress live instead of only at
-    the end of a (potentially many-minute) benchmark round.
-    """
-    logger.info("Starting %s...", name)
-    start = time.perf_counter()
-    result = fn()
-    logger.info("Finished %s in %.1fs", name, time.perf_counter() - start)
-    return result
 
 
 def _fresh_data_model(base_dir: Path) -> DataModel:
