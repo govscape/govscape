@@ -1,16 +1,14 @@
 """Shared fixtures for the CodSpeed PDF-processing benchmark suite.
 
-These benchmarks use the full real-world PDF sample under `tests/test_data/`
-(100 government PDFs, ~1,660 pages, ~96MB), rather than a small synthetic
-sample, so measurements reflect realistic documents. That corpus is paired
-with CDX crawl metadata (see `CONTRIBUTOR.md` -> "Running Govscape Locally"
-for how it was generated): `tests/test_data/cdx/digests_manifest.csv` lists
-each PDF's filename, digest, and source URL, and is used here as the
-authoritative file list.
+Uses the full real-world PDF sample under `tests/test_data/` (100 government
+PDFs, ~1,660 pages), paired with CDX crawl metadata in
+`tests/test_data/cdx/digests_manifest.csv`.
 
-Because `pytest-codspeed` repeatedly invokes each benchmarked callable, and
-this corpus is large, individual CI runs can take several minutes (see the
-docstring in `test_pdf_processing_benchmarks.py` for details per benchmark).
+Also exposes plain (non-fixture) helpers for building the search indices
+Server loads from already-processed PDFExtractionStage/embedding-stage
+output, mirroring `scripts/indexing/generate_index_*.py`. Used by both
+`test_index_and_server_benchmarks.py` and
+`tests/test_index_and_server_regressions.py`.
 """
 
 from __future__ import annotations
@@ -35,10 +33,6 @@ from govscape.indexing.keyword import AbstractKeywordIndex
 from govscape.indexing.metadata import AbstractMetadataIndex
 from govscape.indexing.vector import AbstractVectorIndex
 from govscape.utils import extract_subdomain
-
-from pathlib import Path
-
-import pytest
 
 TEST_DATA_DIR = Path(__file__).resolve().parent.parent / "test_data"
 CDX_DIR = TEST_DATA_DIR / "cdx"

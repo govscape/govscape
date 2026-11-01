@@ -9,14 +9,6 @@ import os
 import shutil
 import uuid
 from pathlib import Path
-import logging
-import os
-import shutil
-import time
-import uuid
-from collections.abc import Callable
-from pathlib import Path
-from typing import TypeVar
 
 from govscape.config import DataModel
 from govscape.pdf_processing_pipeline import PDFProcessingPipeline
@@ -30,25 +22,6 @@ from govscape.processing.pdf_extraction_stage import _convert_single_pdf
 from .conftest import _timed_stage
 
 CPU_COUNT = os.cpu_count() or 1
-
-CPU_COUNT = os.cpu_count() or 1
-
-logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
-
-
-def _timed_stage(name: str, fn: Callable[[], T]) -> T:
-    """Run `fn`, logging a start/finish line with elapsed time around it.
-
-    Pair with `--log-cli-level=INFO` to see progress live instead of only at
-    the end of a (potentially many-minute) benchmark round.
-    """
-    logger.info("Starting %s...", name)
-    start = time.perf_counter()
-    result = fn()
-    logger.info("Finished %s in %.1fs", name, time.perf_counter() - start)
-    return result
 
 
 def _fresh_data_model(base_dir: Path) -> DataModel:
@@ -91,15 +64,13 @@ def test_pdf_extraction_benchmark(benchmark, sample_pdf_files, tmp_path: Path):
 
 def test_end_to_end_pipeline_benchmark(benchmark, sample_pdf_files, tmp_path: Path):
     """Benchmark the full PDF -> text/image -> embeddings pipeline (no OCR),
-    using the real ST/CLIP models (see module docstring)."""
+    using the real ST/CLIP models."""
 
     def run():
         data_model = _fresh_data_model(tmp_path)
         pipeline = PDFProcessingPipeline(
             data_model.data_dir, text_model_type="ST", visual_model_type="CLIP"
         )
-        # pipeline.process_pdfs() already logs a line per internal stage
-        # (extraction, text embedding, image embedding) as it completes each.
         timings = pipeline.process_pdfs(
             sample_pdf_files,
             do_text_embedding=True,
@@ -122,11 +93,6 @@ def test_end_to_end_pipeline_benchmark(benchmark, sample_pdf_files, tmp_path: Pa
 def test_text_embedding_benchmark(benchmark, sample_pdf_files, tmp_path_factory):
     """Benchmark embedding the extracted page text with the real ST model.
     The model is built once, outside the benchmarked callable."""
-
-    The `TextEmbeddingStage` (and its model) is built once, outside the
-    benchmarked callable, so the measured call isolates encoding throughput
-    from the one-time model download/load cost.
-    """
     data_dir = tmp_path_factory.mktemp("text_embedding_benchmark")
     data_model = DataModel(data_dir.as_posix())
     _timed_stage(
@@ -149,12 +115,8 @@ def test_text_embedding_benchmark(benchmark, sample_pdf_files, tmp_path_factory)
 
 
 def test_image_embedding_benchmark(benchmark, sample_pdf_files, tmp_path_factory):
-    """Benchmark embedding the extracted page images with the real CLIP model.
-
-    The `PageImageEmbeddingStage` (and its model) is built once, outside the
-    benchmarked callable, so the measured call isolates encoding throughput
-    from the one-time model download/load cost.
-    """
+    """Benchmark embedding the extracted page images with the real CLIP
+    model. The model is built once, outside the benchmarked callable."""
     data_dir = tmp_path_factory.mktemp("image_embedding_benchmark")
     data_model = DataModel(data_dir.as_posix())
     _timed_stage(
