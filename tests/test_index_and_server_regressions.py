@@ -1,32 +1,13 @@
-"""Output-regression tests for the full index-build -> Server-load -> search
-pipeline.
+"""Output-regression tests for the full index-build -> Server-load -> search pipeline.
 
-Complements `tests/test_pdf_processing_regressions.py` (extraction/embedding
-output): this module covers the next stage -- building the four index types
-`Server` loads (text + visual FAISS vector indices, a keyword index, and a
-metadata index) from real extracted text and real CDX crawl data, loading a
-real `Server` from them, and snapshotting real search results.
+Complements `tests/test_pdf_processing_regressions.py` by covering the four index
+types loaded by `Server` using real extracted text and CDX crawl data.
 
-Unlike `tests/benchmarks/test_index_and_server_benchmarks.py` (which uses
-`Dummy_TextEmbeddingModel`/`Dummy_VisualEmbeddingModel` for speed), this
-module uses a small deterministic hash-based embedding model defined below:
-the `Dummy_*EmbeddingModel` production classes draw from an *unseeded* RNG
-and are non-deterministic across calls/runs, which would make vector-search
-results unreproducible and defeat the purpose of a regression snapshot. The
-hash-based model instead derives each embedding as a pure, reproducible
-function of its input text, so the same build always produces the same
-vectors and the same search rankings.
+Uses a deterministic hash-based embedding model for reproducible vector searches,
+and derives keyword queries from actual extracted text.
 
-Keyword/textual search queries are derived from whatever text the *current*
-run actually extracts from a fixed sample PDF (rather than a hardcoded
-literal string), so this module only regression-tests the index/search
-pipeline itself; extraction-wording drift is already covered independently by
-`tests/test_pdf_processing_regressions.py`.
-
-If a change intentionally alters these results, regenerate the baselines with
+To regenerate baselines after intentional changes:
 `poetry run pytest tests/test_index_and_server_regressions.py --force-regen`
-and commit the updated files under
-`tests/test_index_and_server_regressions/`.
 """
 
 from __future__ import annotations
@@ -59,17 +40,14 @@ EMBEDDING_DIM = 16
 
 def _hash_embedding(text: str, dim: int) -> np.ndarray:
     """A pure, reproducible embedding function: the same input text always
-    yields the same vector, regardless of run order or global RNG state
-    (unlike `Dummy_TextEmbeddingModel`/`Dummy_VisualEmbeddingModel`, which
-    draw from an unseeded RNG and are non-deterministic across calls)."""
+    yields the same vector."""
     seed = int.from_bytes(hashlib.sha256(text.encode("utf-8")).digest()[:8], "big")
     rng = np.random.default_rng(seed)
     return rng.random(dim).astype(np.float32)
 
 
 class _DeterministicTextModel:
-    """Minimal `text_model` stand-in for `ServerConfig`/`Server`, deterministic
-    unlike the real `Dummy_TextEmbeddingModel`."""
+    """Minimal, deterministic `text_model` stand-in for `ServerConfig`."""
 
     d = EMBEDDING_DIM
 
@@ -78,8 +56,7 @@ class _DeterministicTextModel:
 
 
 class _DeterministicVisualModel:
-    """Minimal `visual_model` stand-in for `ServerConfig`/`Server`,
-    deterministic unlike the real `Dummy_VisualEmbeddingModel`."""
+    """Minimal, deterministic `visual_model` stand-in for `ServerConfig`."""
 
     d = EMBEDDING_DIM
 
@@ -89,13 +66,9 @@ class _DeterministicVisualModel:
 
 def _write_deterministic_embeddings(data_model: DataModel, dim: int) -> None:
     """Write deterministic `.npy` embeddings into `embedding_directory`
-    (derived from each page's real extracted text) and
-    `embedding_img_pg_directory` (derived from each page's digest/page
-    identity, since there is no real image-content model here), using the
-    same file layout `TextEmbeddingStage`/`PageImageEmbeddingStage` produce,
-    so `build_vector_index` (from `tests/benchmarks/conftest.py`) can read
-    them back unmodified.
-    """
+    (derived from each page's real text) and `embedding_img_pg_directory`
+    (derived from digest/page identity), in the layout
+    `build_vector_index` expects."""
     for digest_dir in sorted(
         os.scandir(data_model.txt_directory), key=lambda e: e.name
     ):
@@ -146,10 +119,9 @@ def _first_nonempty_page_text(data_model: DataModel, digest: str) -> tuple[str, 
 
 
 def _sanitize_result(result: dict) -> dict:
-    """Project a Server search result to deterministic, regression-safe
-    fields: `jpeg` is an absolute tmp-dir path (changes every run) so only
-    its basename is kept, and `distance` is rounded to avoid float-precision
-    noise."""
+    """Project a Server search result to deterministic fields: `jpeg`'s
+    absolute path (changes every run) is reduced to its basename, and
+    `distance` is rounded to avoid float-precision noise."""
     sanitized = dict(result)
     sanitized["jpeg"] = Path(result["jpeg"]).name
     sanitized["distance"] = round(result["distance"], 4)
@@ -175,8 +147,8 @@ def server_data_model(
     extracted_data_model,
     sample_pdf_files,  # noqa: F811
 ) -> DataModel:
-    """`extracted_data_model`, with all four indices built (using
-    deterministic embeddings) directly into its own `index_*` directories."""
+    """`extracted_data_model`, with all four indices built from deterministic
+    embeddings."""
     _write_deterministic_embeddings(extracted_data_model, EMBEDDING_DIM)
 
     build_keyword_index(
@@ -242,8 +214,8 @@ def test_server_keyword_search_regression(
     sample_pdf_files,  # noqa: F811
     data_regression,
 ):
-    """A keyword-phrase query built from a real document's real extracted
-    text should keep surfacing that document."""
+    """A keyword-phrase query from a real document's extracted text should
+    keep surfacing that document."""
     target_digest = Path(sample_pdf_files[0]).stem
     _page, text = _first_nonempty_page_text(server_data_model, target_digest)
     phrase = " ".join(text.split()[:6])
@@ -265,9 +237,8 @@ def test_server_textual_search_regression(
     sample_pdf_files,  # noqa: F811
     data_regression,
 ):
-    """Querying with a page's own text makes the deterministic hash-based
-    query embedding identical to that page's indexed embedding, so the top
-    textual-search result is reproducibly that exact (digest, page)."""
+    """Querying with a page's own text guarantees an exact-match top result
+    (same deterministic embedding on both sides)."""
     target_digest = Path(sample_pdf_files[0]).stem
     page, text = _first_nonempty_page_text(server_data_model, target_digest)
 
@@ -289,9 +260,8 @@ def test_server_textual_search_with_predicate_regression(
     sample_pdf_files,  # noqa: F811
     data_regression,
 ):
-    """A metadata predicate should correctly filter vector search results,
-    exercising the metadata-driven prefilter/postfilter strategy selection
-    (see `govscape.indexing.hybrid`)."""
+    """A metadata predicate should correctly filter vector search results
+    (exercises prefilter/postfilter strategy selection)."""
     target_digest = Path(sample_pdf_files[0]).stem
     _page, text = _first_nonempty_page_text(server_data_model, target_digest)
 

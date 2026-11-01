@@ -2,16 +2,9 @@
 Server, and querying it.
 
 Complements `test_pdf_processing_benchmarks.py` (extraction + embedding
-compute cost): this module covers the next pipeline stage -- turning
-already-extracted text/metadata and already-computed embeddings into the
-four index types `Server` loads (text + visual FAISS vector indices, a
-keyword index, and a metadata index), then loading a real `Server` from them
-and issuing real queries against it.
-
-Uses the cheap `Dummy` text/visual embedding models (not `ST`/`CLIP`) so these
-benchmarks measure index-build/server-load/query performance in isolation
-from embedding model inference cost, which `test_pdf_processing_benchmarks.py`
-already benchmarks separately.
+compute cost) by covering the next pipeline stage. Uses the cheap `Dummy`
+text/visual embedding models so these benchmarks measure index-build/
+server-load/query performance in isolation from embedding inference cost.
 
 Run locally with `poetry run pytest tests/benchmarks --codspeed`.
 """
@@ -48,16 +41,14 @@ from .conftest import (
 
 CPU_COUNT = os.cpu_count() or 1
 
-# Guaranteed present in essentially any English-language extracted text, so
-# the keyword benchmarks exercise real index traversal rather than a trivial
-# empty-result early exit.
+# Guaranteed present in essentially any English-language extracted text.
 KEYWORD_QUERY = "the"
 
 
 @pytest.fixture(scope="module")
 def processed_data_model(sample_pdf_files, tmp_path_factory) -> DataModel:
-    """Run extraction + cheap Dummy embedding once; shared by every benchmark
-    below so each one measures only its own step, not re-extraction."""
+    """Run extraction + cheap Dummy embedding once, shared by every benchmark
+    below."""
     data_dir = tmp_path_factory.mktemp("index_server_benchmarks_source")
     data_model = DataModel(data_dir.as_posix())
     PDFExtractionStage(
@@ -150,9 +141,8 @@ def test_vector_indices_build_benchmark(
 
 @pytest.fixture(scope="module")
 def server_ready_data_model(processed_data_model, sample_pdf_files) -> DataModel:
-    """`processed_data_model`, with all four indices built directly into its
-    own `index_*` directories -- i.e. with everything a `Server` needs to
-    load already on disk."""
+    """`processed_data_model`, with all four indices built into its own
+    `index_*` directories."""
     build_keyword_index(
         SQLiteKeywordIndex,
         processed_data_model.txt_directory,
@@ -197,8 +187,8 @@ def _build_server(data_model: DataModel) -> Server:
 
 
 def test_server_load_benchmark(benchmark, server_ready_data_model: DataModel):
-    """Benchmark constructing a `Server` from already-built indices on disk
-    (i.e. "loading the indices onto the server")."""
+    """Benchmark constructing a `Server` from already-built indices on
+    disk."""
     server = benchmark.pedantic(
         lambda: _timed_stage(
             "server load", lambda: _build_server(server_ready_data_model)
@@ -238,9 +228,8 @@ def test_server_textual_query_benchmark(benchmark, server_ready_data_model: Data
 def test_server_hybrid_query_with_predicate_benchmark(
     benchmark, server_ready_data_model: DataModel
 ):
-    """Benchmark a hybrid (vector + keyword) search with a metadata
-    predicate, exercising the metadata-driven prefilter/postfilter strategy
-    selection (see `govscape.indexing.hybrid`)."""
+    """Benchmark a hybrid search with a metadata predicate (exercises the
+    prefilter/postfilter strategy selection in `govscape.indexing.hybrid`)."""
     server = _build_server(server_ready_data_model)
     metadata_records = read_cdx_metadata_records(server_ready_data_model)
     sub_domain = next(r["sub_domain"] for r in metadata_records if r.get("sub_domain"))

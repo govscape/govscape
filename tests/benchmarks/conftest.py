@@ -1,27 +1,14 @@
 """Shared fixtures for the CodSpeed PDF-processing benchmark suite.
 
-These benchmarks use the full real-world PDF sample under `tests/test_data/`
-(100 government PDFs, ~1,660 pages, ~96MB), rather than a small synthetic
-sample, so measurements reflect realistic documents. That corpus is paired
-with CDX crawl metadata (see `CONTRIBUTOR.md` -> "Running Govscape Locally"
-for how it was generated): `tests/test_data/cdx/digests_manifest.csv` lists
-each PDF's filename, digest, and source URL, and is used here as the
-authoritative file list.
+Uses the full real-world PDF sample under `tests/test_data/` (100 government
+PDFs, ~1,660 pages), paired with CDX crawl metadata in
+`tests/test_data/cdx/digests_manifest.csv`.
 
-Because `pytest-codspeed` repeatedly invokes each benchmarked callable, and
-this corpus is large, individual CI runs can take several minutes (see the
-docstring in `test_pdf_processing_benchmarks.py` for details per benchmark).
-
-This module also exposes plain (non-fixture) helper functions for building
-the search indices Server loads -- a text/visual FAISS vector index, a
-keyword index, and a metadata index -- from already-processed
-PDFExtractionStage/embedding-stage output. They mirror the field/file-naming
-conventions the production indexing scripts in `scripts/indexing/` use
-(`generate_index_embedding.py`, `generate_index_keyword.py`,
-`generate_index_metadata.py`), so tests build indices the same way the real
-pipeline does. `test_index_and_server_benchmarks.py` (CodSpeed) and
-`tests/test_index_and_server_regressions.py` (pytest-regressions) both import
-these helpers rather than duplicating this logic.
+Also exposes plain (non-fixture) helpers for building the search indices
+Server loads from already-processed PDFExtractionStage/embedding-stage
+output, mirroring `scripts/indexing/generate_index_*.py`. Used by both
+`test_index_and_server_benchmarks.py` and
+`tests/test_index_and_server_regressions.py`.
 """
 
 from __future__ import annotations
@@ -57,11 +44,8 @@ T = TypeVar("T")
 
 
 def _timed_stage(name: str, fn: Callable[[], T]) -> T:
-    """Run `fn`, logging a start/finish line with elapsed time around it.
-
-    Pair with `--log-cli-level=INFO` to see progress live instead of only at
-    the end of a (potentially many-minute) benchmark round.
-    """
+    """Run `fn`, logging a start/finish line with elapsed time (pair with
+    `--log-cli-level=INFO` to see progress live)."""
     logger.info("Starting %s...", name)
     start = time.perf_counter()
     result = fn()
@@ -79,13 +63,8 @@ def sample_pdf_files() -> list[str]:
 
 def read_cdx_metadata_records(data_model: DataModel) -> list[dict]:
     """Build metadata-index records by joining each PDF's extraction metadata
-    (`{data_model.metadata_directory}/{digest}/metadata.json`, written by
-    `PDFExtractionStage`) with its matching CDX crawl record(s) in
-    `tests/test_data/cdx/complete_cdx_sample.parquet` -- the same join
-    `scripts/indexing/generate_index_metadata.py` performs in production.
-
-    A digest crawled more than once yields one metadata record per crawl,
-    mirroring real multiply-crawled documents.
+    with its matching CDX crawl record(s). A digest crawled more than once
+    yields one record per crawl.
     """
     cdx = pd.read_parquet(CDX_DIR / "complete_cdx_sample.parquet")
     cdx["digest"] = cdx["digest"].str.replace("sha1:", "", regex=False)
@@ -122,10 +101,8 @@ def read_cdx_metadata_records(data_model: DataModel) -> list[dict]:
 
 def _iter_npy_embeddings(embedding_dir: str) -> tuple[np.ndarray, list[str], list[str]]:
     """Read every `.npy` embedding under `embedding_dir` (one subdirectory per
-    digest, files named `{digest}_{page}.npy`, as `TextEmbeddingStage`/
-    `PageImageEmbeddingStage` write them), returning (embeddings, digests,
-    pages) -- the shape `FAISSIndex.add_batch`/`upsert_vectors` expect, parsed
-    the same way `generate_index_embedding.py` does in production.
+    digest, files named `{digest}_{page}.npy`), returning (embeddings,
+    digests, pages).
     """
     embeddings: list[np.ndarray] = []
     digests: list[str] = []
@@ -151,9 +128,7 @@ def _iter_npy_embeddings(embedding_dir: str) -> tuple[np.ndarray, list[str], lis
 
 def _iter_extracted_text(txt_dir: str) -> tuple[list[str], list[str], list[str]]:
     """Read every extracted `.txt` page file under `txt_dir`, returning
-    (texts, digests, pages) -- the shape `AbstractKeywordIndex.add_batch`
-    expects, parsed the same way `generate_index_keyword.py` does.
-    """
+    (texts, digests, pages)."""
     texts: list[str] = []
     digests: list[str] = []
     pages: list[str] = []
@@ -179,11 +154,8 @@ def build_vector_index(
     vector_index_cls: type[AbstractVectorIndex], embedding_dir: str, index_dir: str
 ) -> tuple[AbstractVectorIndex, np.ndarray, list[str], list[str]]:
     """Build and save a vector index from `.npy` embeddings under
-    `embedding_dir`.
-
-    Returns the built index alongside (embeddings, digests, pages), since a
-    metadata index also needs these (via `upsert_vectors`) to support
-    prefiltered hybrid search.
+    `embedding_dir`. Also returns (embeddings, digests, pages), since a
+    metadata index needs these too (via `upsert_vectors`).
     """
     embeddings, digests, pages = _iter_npy_embeddings(embedding_dir)
     index = vector_index_cls(index_dir)
@@ -217,8 +189,7 @@ def build_metadata_index(
 ) -> AbstractMetadataIndex:
     """Build and save a metadata index from `metadata_records`, optionally
     upserting per-digest/page vectors (needed for prefiltered hybrid search)
-    under one or more `vector_store_key`s (e.g. "text", "visual").
-    """
+    under one or more `vector_store_key`s (e.g. "text", "visual")."""
     index = metadata_index_cls(index_dir)
     index.build_index()
     if metadata_records:
@@ -233,8 +204,7 @@ def build_metadata_index(
 
 
 def write_total_pdfs_stat(data_model: DataModel, pdf_files: list[str]) -> None:
-    """Write `data_model.stats_file`, which `Server._get_total_pdfs_count`
-    reads for search-result pagination."""
+    """Write `data_model.stats_file`, read by `Server` for pagination."""
     digests = {Path(pdf_file).stem for pdf_file in pdf_files}
     with open(data_model.stats_file, "w", encoding="utf-8") as f:
         f.write(str(len(digests)))

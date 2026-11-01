@@ -29,12 +29,8 @@ def _fresh_data_model(base_dir: Path) -> DataModel:
 
 
 def test_single_pdf_conversion_benchmark(benchmark, sample_pdf_files, tmp_path: Path):
-    """Benchmark converting one PDF to text/images/metadata, in-process.
-
-    Calls the same per-PDF conversion logic `PDFExtractionStage` dispatches to
-    its worker pool, but in-process (no `multiprocessing` spawn), isolating
-    the actual parsing cost from process-startup/import overhead.
-    """
+    """Benchmark converting one PDF to text/images/metadata, in-process (no
+    `multiprocessing` spawn), isolating parsing cost from process overhead."""
     pdf_file = sample_pdf_files[0]
 
     def run():
@@ -68,15 +64,13 @@ def test_pdf_extraction_benchmark(benchmark, sample_pdf_files, tmp_path: Path):
 
 def test_end_to_end_pipeline_benchmark(benchmark, sample_pdf_files, tmp_path: Path):
     """Benchmark the full PDF -> text/image -> embeddings pipeline (no OCR),
-    using the real ST/CLIP models (see module docstring)."""
+    using the real ST/CLIP models."""
 
     def run():
         data_model = _fresh_data_model(tmp_path)
         pipeline = PDFProcessingPipeline(
             data_model.data_dir, text_model_type="ST", visual_model_type="CLIP"
         )
-        # pipeline.process_pdfs() already logs a line per internal stage
-        # (extraction, text embedding, image embedding) as it completes each.
         timings = pipeline.process_pdfs(
             sample_pdf_files,
             do_text_embedding=True,
@@ -98,11 +92,7 @@ def test_end_to_end_pipeline_benchmark(benchmark, sample_pdf_files, tmp_path: Pa
 
 def test_text_embedding_benchmark(benchmark, sample_pdf_files, tmp_path_factory):
     """Benchmark embedding the extracted page text with the real ST model.
-
-    The `TextEmbeddingStage` (and its model) is built once, outside the
-    benchmarked callable, so the measured call isolates encoding throughput
-    from the one-time model download/load cost.
-    """
+    The model is built once, outside the benchmarked callable."""
     data_dir = tmp_path_factory.mktemp("text_embedding_benchmark")
     data_model = DataModel(data_dir.as_posix())
     _timed_stage(
@@ -125,12 +115,8 @@ def test_text_embedding_benchmark(benchmark, sample_pdf_files, tmp_path_factory)
 
 
 def test_image_embedding_benchmark(benchmark, sample_pdf_files, tmp_path_factory):
-    """Benchmark embedding the extracted page images with the real CLIP model.
-
-    The `PageImageEmbeddingStage` (and its model) is built once, outside the
-    benchmarked callable, so the measured call isolates encoding throughput
-    from the one-time model download/load cost.
-    """
+    """Benchmark embedding the extracted page images with the real CLIP
+    model. The model is built once, outside the benchmarked callable."""
     data_dir = tmp_path_factory.mktemp("image_embedding_benchmark")
     data_model = DataModel(data_dir.as_posix())
     _timed_stage(
