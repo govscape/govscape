@@ -87,7 +87,9 @@ poetry run pytest
 
 #### Performance Benchmarks
 
-Benchmarks live in `tests/benchmarks/` and cover two stages: the PDF processing pipeline (extraction, text embedding, and image embedding, in `test_pdf_processing_benchmarks.py`, using the real `ST` and `CLIP` models) and building search indices + loading them onto the `Server` + querying it (in `test_index_and_server_benchmarks.py`, using the cheap `Dummy` embedding models, since embedding cost is already covered by the first file). Both use the full real-world sample corpus in `tests/test_data/pdfs` (100 PDFs, ~1,660 pages). They use [`pytest-codspeed`](https://github.com/CodSpeedHQ/pytest-codspeed). Run these directly with the following command:
+Benchmarks live in `tests/benchmarks/` and cover the PDF processing pipeline (extraction, text embedding, and image embedding), using the real `ST` and
+`CLIP` models over the full real-world sample corpus in `tests/test_data/pdfs`
+(100 PDFs, ~1,660 pages).They use [`pytest-codspeed`](https://github.com/CodSpeedHQ/pytest-codspeed). Run these directly with the following command:
 ```bash
 poetry run pytest tests/benchmarks --codspeed
 ```
@@ -100,18 +102,13 @@ against the `main` baseline on PRs. Add new benchmarks as `test_*.py` files in
 `@pytest.mark.benchmark` marker) from `pytest-codspeed`.
 
 #### Regression Tests
-End-to-end regression tests cover the same two stages as the benchmarks above:
-`tests/test_pdf_processing_regressions.py` (extraction/embedding output) and
-`tests/test_index_and_server_regressions.py` (index sizes and real `Server`
-search results, using a small deterministic embedding model defined in that
-file instead of the real `ST`/`CLIP`/`Dummy` models, so vector search results
-are reproducible), both using
-[`pytest-regressions`](https://pytest-regressions.readthedocs.io/en/latest/overview.html)
-and the full `tests/test_data/pdfs` corpus. If a change intentionally alters
-those outputs, regenerate the baselines with:
+End-to-end regression tests are in
+`tests/test_pdf_processing_regressions.py`, using
+[`pytest-regressions`](https://pytest-regressions.readthedocs.io/en/latest/overview.html).
+This also uses the full `tests/test_data/pdfs` corpus, but with the cheap `Dummy` embedding models. If a change intentionally alters those outputs, regenerate the baselines with:
 
 ```bash
-poetry run pytest tests/test_pdf_processing_regressions.py tests/test_index_and_server_regressions.py --force-regen
+poetry run pytest tests/test_pdf_processing_regressions.py --force-regen
 ```
 
 #### Optional Static Type Checking
