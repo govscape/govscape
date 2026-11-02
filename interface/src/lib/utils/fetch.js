@@ -3,14 +3,19 @@ const IS_DEV = import.meta.env.DEV;
 // Default API request timeout (60 seconds)
 const DEFAULT_API_TIMEOUT_MS = Number(60000);
 
+// Raw PDFs live in the source.coop PDF archive; derived data (page images,
+// indices, ...) live in the derivative data repository.
+const PDF_ARCHIVE_URL = 'https://data.source.coop/govscape/eota-pdf-archive';
+const DERIVATIVE_DATA_URL = 'https://data.source.coop/govscape/eota-derivative-data';
+
 const ENDPOINTS = {
   DEV: {
     API: 'http://localhost:8080/api',
-    S3: 'https://bcgl-public-bucket.s3.amazonaws.com/dev-serving/img'
+    S3: `${DERIVATIVE_DATA_URL}/dev-serving/img`
   },
   PROD: {
     API: 'https://govscape.net/api',
-    S3: 'https://bcgl-public-bucket.s3.amazonaws.com/prod-serving/img'
+    S3: `${DERIVATIVE_DATA_URL}/prod-serving/img`
   }
 };
 
@@ -21,10 +26,15 @@ export const getApiBaseUrl = () => {
 };
 
 export const getImageBaseUrl = () => {
+  // Allows pointing a local frontend at another serving directory, e.g.
+  // VITE_IMAGE_BASE_URL=https://data.source.coop/govscape/eota-derivative-data/test-serving/img
+  if (import.meta.env.VITE_IMAGE_BASE_URL) return import.meta.env.VITE_IMAGE_BASE_URL;
   if (IS_DEV) return ENDPOINTS.DEV.S3;
 
   return ENDPOINTS.PROD.S3;
 };
+
+export const getPdfUrl = (id) => `${PDF_ARCHIVE_URL}/pdfs/${id}.pdf`;
 
 function snakeToCamel(obj) {
     if (obj === null || obj === undefined) return obj;

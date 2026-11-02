@@ -20,6 +20,7 @@ from .utils import base_argument_parser, extract_subdomain, read_txt_file, str2b
 from .visual_embedding_models import (
     CLIP_VisualEmbeddingModel,
     Dummy_VisualEmbeddingModel,
+    SigLIP_VisualEmbeddingModel,
 )
 
 __all__ = [
@@ -40,6 +41,7 @@ __all__ = [
     "ST_TextEmbeddingModel",
     "Server",
     "ServerConfig",
+    "SigLIP_VisualEmbeddingModel",
     "WhooshKeywordIndex",
     "base_argument_parser",
     "build_data_loader",

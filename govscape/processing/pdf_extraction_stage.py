@@ -74,4 +74,8 @@ class PDFExtractionStage(ProcessingStage):
                 _convert_single_pdf,
                 [(self.data_model, pdf_file) for pdf_file in self.pdf_files],
             )
+            # Let workers exit on their own: Pool.__exit__ terminates them, and some
+            # native libs' SIGTERM handlers (e.g. Paddle's) can deadlock.
+            pool.close()
+            pool.join()
         return sum(results)
