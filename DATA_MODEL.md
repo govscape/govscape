@@ -15,8 +15,11 @@ The data in the S3 Bucket should be laid out as follows:
 * {test,dev,prod}-serving/performance/performance_{job_name}.json
 * {test,dev,prod}-serving/checkpoints/checkpoint_{job_name/server_id}.json
 * {test,dev,prod}-serving/blacklist.txt
+* {test,dev,prod}-serving/url_blacklist.txt
 
 The blacklist.txt file is optional. When present, it contains PDF digests (one per line) to hide from all search results and `/pages/<pdf_id>` lookups, used for privacy and copyright takedown requests. Blank lines and lines starting with `#` are ignored, so operational annotations like `# DMCA ticket-1234` are allowed.
+
+The url_blacklist.txt file is optional. When present, it contains regular expressions (one per line, matched case-insensitively against a document's crawl_url) used to hide every digest ever crawled from a matching domain/URL, e.g. `.*\.example\.gov/.*`, without having to enumerate each digest individually. Blank lines and lines starting with `#` are ignored. Matching digests are merged into the same in-memory blacklist enforced for blacklist.txt.
 
 The pdf_metadata.parquet file has the following columns:
 

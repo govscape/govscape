@@ -21,6 +21,7 @@ class DataModel:
         self.performance_directory = os.path.join(data_dir, "performance")
         self.stats_file = os.path.join(data_dir, "total_pdfs.txt")
         self.blacklist_file = os.path.join(data_dir, "blacklist.txt")
+        self.url_blacklist_file = os.path.join(data_dir, "url_blacklist.txt")
 
     # Per-PDF subdirectory helpers
 

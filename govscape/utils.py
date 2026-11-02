@@ -1,10 +1,65 @@
 import argparse
+import os
+import re
 from urllib.parse import urlparse
+
+_WORD_PATTERN = re.compile(r"\w+")
 
 
 def read_txt_file(txt_path):
     with open(txt_path) as file:
         return file.read()
+
+
+def load_word_blacklist(path: str) -> set[str]:
+    """Load a newline-delimited word blacklist file into a lowercased set.
+
+    Blank lines and lines starting with "#" are ignored, matching the
+    format used by the PDF digest blacklist.txt (see DATA_MODEL.md).
+    """
+    if not os.path.exists(path):
+        return set()
+    with open(path, encoding="utf-8") as f:
+        return {
+            line.strip().lower()
+            for line in f
+            if line.strip() and not line.strip().startswith("#")
+        }
+
+
+def load_url_blacklist_patterns(path: str) -> list[re.Pattern]:
+    r"""Load a newline-delimited regex pattern file used to blacklist crawl URLs.
+
+    Each non-blank, non-comment line is compiled as a case-insensitive regex
+    that is matched (via `search`) against a document's crawl_url. This lets
+    an entire domain (or URL path) be excluded from search results without
+    enumerating every digest, e.g. `.*\.example\.gov/.*`.
+    """
+    if not os.path.exists(path):
+        return []
+    patterns = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            patterns.append(re.compile(line, re.IGNORECASE))
+    return patterns
+
+
+def contains_blacklisted_word(text: str, blacklist: set[str]) -> bool:
+    """Return True if `text` contains any whole word from `blacklist`.
+
+    Runs in O(n) time (n = len(text)) regardless of blacklist size: words
+    are tokenized with a single regex pass and looked up in a hash set
+    (O(1) per word), and the scan stops at the first match. `blacklist`
+    entries must already be lowercased (e.g. via `load_word_blacklist`).
+    """
+    if not blacklist:
+        return False
+    return any(
+        match.group() in blacklist for match in _WORD_PATTERN.finditer(text.lower())
+    )
 
 
 def str2bool(v):

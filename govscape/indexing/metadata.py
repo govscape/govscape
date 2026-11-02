@@ -2,6 +2,7 @@
 """Metadata index implementations used by serving and filtering planners."""
 
 import os
+import re
 import sqlite3
 from abc import ABC, abstractmethod
 
@@ -68,6 +69,10 @@ class AbstractMetadataIndex(AbstractIndex, ABC):
         self, predicates: list[Predicate] | None = None
     ) -> set[str]:
         """Return distinct digests that satisfy all predicates."""
+
+    @abstractmethod
+    def get_url_blacklisted_digests(self, url_patterns: list[re.Pattern]) -> set[str]:
+        """Return digests whose crawl_url matches any of `url_patterns`."""
 
     @abstractmethod
     def upsert_vectors(self, vector_store_key, vectors, digests, pages):
@@ -360,6 +365,17 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         for candidate_set in candidate_sets[1:]:
             candidates = candidates.intersection(candidate_set)
         return candidates
+
+    def get_url_blacklisted_digests(self, url_patterns: list[re.Pattern]) -> set[str]:
+        if not url_patterns:
+            return set()
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT DISTINCT digest, crawl_url FROM metadata")
+        return {
+            digest
+            for digest, crawl_url in cursor.fetchall()
+            if crawl_url and any(p.search(crawl_url) for p in url_patterns)
+        }
 
     def upsert_vectors(self, vector_store_key, vectors, digests, pages):
         if self.conn is None:
@@ -690,6 +706,19 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         for candidate_set in candidate_sets[1:]:
             candidates = candidates.intersection(candidate_set)
         return candidates
+
+    def get_url_blacklisted_digests(self, url_patterns: list[re.Pattern]) -> set[str]:
+        if not url_patterns:
+            return set()
+        self._connect()
+        rows = self.conn.execute(
+            "SELECT DISTINCT digest, crawl_url FROM metadata"
+        ).fetchall()
+        return {
+            digest
+            for digest, crawl_url in rows
+            if crawl_url and any(p.search(crawl_url) for p in url_patterns)
+        }
 
     def upsert_vectors(self, vector_store_key, vectors, digests, pages):
         self._connect()
