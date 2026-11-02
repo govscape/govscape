@@ -51,7 +51,14 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11.14'
+          # Not pinned to a patch version (unlike the `test` job's
+          # py3.11.14 container image): ubuntu-latest periodically moves to
+          # a newer Ubuntu release, and actions/setup-python only ships
+          # prebuilt binaries for patch versions released after that
+          # Ubuntu version existed (e.g. 3.11.14 has no Ubuntu 26.04 build,
+          # since 26.04 postdates it). This job doesn't need pylucene/the
+          # custom image, so floating to the latest 3.11.x avoids that.
+          python-version: '3.11'
       - name: Install Poetry
         run: pipx install poetry==2.3.2
       - name: Install packages

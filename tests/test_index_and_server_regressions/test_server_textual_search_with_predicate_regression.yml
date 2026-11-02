@@ -1,0 +1,97 @@
+pagination:
+  has_next_page: true
+  page: 1
+  page_size: 5
+  total_count: 100
+  total_pages: 20
+results:
+- crawl_date: '20250202'
+  crawl_instances:
+  - crawl_date: '20250202'
+    crawl_url: https://biolincc.nhlbi.nih.gov/media/NHLBI_Biospecimen_MTA_Non_Fillable.pdf
+    sub_domain: nih.gov
+  - crawl_date: '20241128'
+    crawl_url: https://biolincc.nhlbi.nih.gov/media/NHLBI_Biospecimen_MTA_Non_Fillable.pdf?link_time=2024-11-27_13:22:20.400456
+    sub_domain: nih.gov
+  - crawl_date: '20240927'
+    crawl_url: https://biolincc.nhlbi.nih.gov/media/NHLBI_Biospecimen_MTA_Non_Fillable.pdf?link_time=2024-09-26_15:06:21.852061
+    sub_domain: nih.gov
+  - crawl_date: ''
+    crawl_url: https://biolincc.nhlbi.nih.gov/media/NHLBI_Biospecimen_MTA_Non_Fillable.pdf?link_time=2024-10-02_01:30:01.760162
+    sub_domain: nih.gov
+  - crawl_date: ''
+    crawl_url: https://biolincc.nhlbi.nih.gov/media/NHLBI_Biospecimen_MTA_Non_Fillable.pdf?link_time=2024-10-31_08:42:42.311486
+    sub_domain: nih.gov
+  - crawl_date: ''
+    crawl_url: https://biolincc.nhlbi.nih.gov/media/NHLBI_Biospecimen_MTA_Non_Fillable.pdf?link_time=2024-11-30_05:01:04.844061
+    sub_domain: nih.gov
+  - crawl_date: ''
+    crawl_url: https://biolincc.nhlbi.nih.gov/media/NHLBI_Biospecimen_MTA_Non_Fillable.pdf?link_time=2025-02-04_22:24:48.808720
+    sub_domain: nih.gov
+  - crawl_date: ''
+    crawl_url: https://biolincc.nhlbi.nih.gov/media/NHLBI_Biospecimen_MTA_Non_Fillable.pdf?link_time=2025-03-13_15:40:39.989228
+    sub_domain: nih.gov
+  crawl_url: https://biolincc.nhlbi.nih.gov/media/NHLBI_Biospecimen_MTA_Non_Fillable.pdf
+  distance: 0.0
+  has_more_crawls: false
+  jpeg: 222227UE3MX2MTWXM2UJ6LV23WG55MYO_0.jpeg
+  page: '0'
+  pdf: 222227UE3MX2MTWXM2UJ6LV23WG55MYO
+  sub_domain: nih.gov
+- crawl_date: '20250206'
+  crawl_instances:
+  - crawl_date: '20250206'
+    crawl_url: https://pmc.ncbi.nlm.nih.gov/articles/PMC10703636/pdf/main.pdf
+    sub_domain: nih.gov
+  - crawl_date: '20250113'
+    crawl_url: https://ftp-trace.ncbi.nih.gov/pub/pmc/oa_pdf/18/26/main.PMC10703636.pdf
+    sub_domain: nih.gov
+  crawl_url: https://pmc.ncbi.nlm.nih.gov/articles/PMC10703636/pdf/main.pdf
+  distance: 1.2247
+  has_more_crawls: false
+  jpeg: 2223BNRYYNSSFAN7IUILPDXN6AC33RFT_10.jpeg
+  page: '10'
+  pdf: 2223BNRYYNSSFAN7IUILPDXN6AC33RFT
+  sub_domain: nih.gov
+- crawl_date: '20250206'
+  crawl_instances:
+  - crawl_date: '20250206'
+    crawl_url: https://pmc.ncbi.nlm.nih.gov/articles/instance/4992211/bin/12909_2016_736_MOESM2_ESM.pdf
+    sub_domain: nih.gov
+  crawl_url: https://pmc.ncbi.nlm.nih.gov/articles/instance/4992211/bin/12909_2016_736_MOESM2_ESM.pdf
+  distance: 1.2289
+  has_more_crawls: false
+  jpeg: 2222FCI7N3NPLBLLMS3CKHJWBXNXTGZO_2.jpeg
+  page: '2'
+  pdf: 2222FCI7N3NPLBLLMS3CKHJWBXNXTGZO
+  sub_domain: nih.gov
+- crawl_date: '20250415'
+  crawl_instances:
+  - crawl_date: '20250415'
+    crawl_url: https://pmc.ncbi.nlm.nih.gov/articles/PMC392008/pdf/pnas00622-0189.pdf
+    sub_domain: nih.gov
+  - crawl_date: '20250206'
+    crawl_url: https://pmc.ncbi.nlm.nih.gov/articles/instance/392008/pdf/pnas00622-0189.pdf
+    sub_domain: nih.gov
+  - crawl_date: '20250115'
+    crawl_url: https://pmc.ncbi.nlm.nih.gov/articles/PMC392008/pdf/pnas00622-0189.pdf
+    sub_domain: nih.gov
+  crawl_url: https://pmc.ncbi.nlm.nih.gov/articles/PMC392008/pdf/pnas00622-0189.pdf
+  distance: 1.2334
+  has_more_crawls: false
+  jpeg: 2222SCPSQZ6AN5OCGRY6VOE7ESY3DK4O_0.jpeg
+  page: '0'
+  pdf: 2222SCPSQZ6AN5OCGRY6VOE7ESY3DK4O
+  sub_domain: nih.gov
+- crawl_date: '20250202'
+  crawl_instances:
+  - crawl_date: '20250202'
+    crawl_url: https://pmc.ncbi.nlm.nih.gov/articles/PMC6309867/pdf/nihms-1002353.pdf
+    sub_domain: nih.gov
+  crawl_url: https://pmc.ncbi.nlm.nih.gov/articles/PMC6309867/pdf/nihms-1002353.pdf
+  distance: 1.2567
+  has_more_crawls: false
+  jpeg: 22224ZB5KUVBQOLUK52IBQOHTDHS374X_2.jpeg
+  page: '2'
+  pdf: 22224ZB5KUVBQOLUK52IBQOHTDHS374X
+  sub_domain: nih.gov
