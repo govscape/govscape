@@ -10,7 +10,7 @@ docker run -v ${LOCAL_WORKSPACE_FOLDER:-.}/data:/data --ipc=host --rm -i --gpus 
 # Embedding with GPU
 
 poetry run python scripts/pipeline/run_embedding_pipeline.py --num_pages_to_process 5 \
-    --batch_size 100 --backend 'local' --local_base_dir '/data/s3_mock' --pdf_dir 'archive/PDFs/' \
+    --batch_size 100 --backend 'local' --local_base_dir '/data/s3_mock' --pdf_dir 'pdfs/' \
     --remote_data_dir "test-serving" --text_model_type 'BGE' --visual_model_type 'CLIP'
 
 # The command above can be modified for different parameters.

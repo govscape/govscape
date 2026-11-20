@@ -157,12 +157,12 @@ def server_data_model(
         extracted_data_model.index_keyword_directory,
     )
 
-    text_index, text_vectors, text_digests, text_pages = build_vector_index(
+    build_vector_index(
         FAISSIndex,
         extracted_data_model.embedding_directory,
         extracted_data_model.index_directory,
     )
-    visual_index, visual_vectors, visual_digests, visual_pages = build_vector_index(
+    build_vector_index(
         FAISSIndex,
         extracted_data_model.embedding_img_pg_directory,
         extracted_data_model.index_img_pg_directory,
@@ -173,10 +173,6 @@ def server_data_model(
         SQLiteMetadataIndex,
         extracted_data_model.index_metadata_directory,
         metadata_records,
-        vectors_by_store_key={
-            "text": (text_vectors, text_digests, text_pages),
-            "visual": (visual_vectors, visual_digests, visual_pages),
-        },
     )
 
     write_total_pdfs_stat(extracted_data_model, sample_pdf_files)

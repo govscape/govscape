@@ -39,7 +39,7 @@ When clicked, VS Code relaunches and builds the dev container; this will take a 
 Poetry will not use the workspace .venv folder, but will create an isolated virtual environment within the dev container with lucene and all other dependencies installed.
 This will not impact any Python environments on your host machine.
 
-AWS credentials at `~/.aws` on your host machine are automatically mounted onto the dev container. Both `aws` and `poetry run s5cmd` commands work without any additional configuration.
+AWS credentials at `~/.aws` on your host machine are automatically mounted onto the dev container, so profiles holding source.coop credentials (see the README) are available there. Remote data is read anonymously from source.coop by default; writing requires selecting one of those profiles with `--profile`/`--pdf_profile` or `AWS_PROFILE`.
 
 `docker` commands within the dev container interact with the Docker daemon on your host machine.
 Note that if you need to bind a directory in the workspace, the path must be from the host, not from within the dev container.
@@ -122,7 +122,7 @@ poetry run mypy .
 
 ## Data Model
 
-Because the data that lives on the remote backend (i.e. AWS S3) is a core aspect of this project, we need clear documentation for how it is structured. This documentation lives in `DATA_MODEL.md`, and you should take a look at it to familiarize yourself with it. Any changes that alter this structure should update the data model file to make sure that it remains up to date.
+Because the data that lives on the remote backend (the govscape repositories on source.coop) is a core aspect of this project, we need clear documentation for how it is structured. This documentation lives in `DATA_MODEL.md`, and you should take a look at it to familiarize yourself with it. Any changes that alter this structure should update the data model file to make sure that it remains up to date.
 
 ## Code Style
 ### Assertions and Validation
@@ -160,7 +160,7 @@ logging.error("Something failed: %s", err)
 
 ## Running Govscape Locally
 
-To do this, you need to start by creating a directory within govscape/data that holds a set of PDFs and one that holds a `pdf_metadata.parquet` file. We will assume that these directories are named `govscape/data/s3_mock/archive/PDFs/` and `govscape/data/s3_mock/archive/CDX/pdf_metadata.parquet`.
+To do this, you need to start by creating a local mirror of the PDF archive within govscape/data that holds a set of PDFs and the CDX parquet file. We will assume that these are located at `govscape/data/s3_mock/pdfs/` and `govscape/data/s3_mock/cdx/complete_cdx_sample.parquet`, mirroring the layout of the [source.coop PDF archive](https://source.coop/govscape/eota-pdf-archive).
 
 You can pull a sample of PDFs, plus the CDX rows that describe them, from the
 public [source.coop PDF archive](https://source.coop/govscape/eota-pdf-archive).
@@ -181,7 +181,8 @@ command adds new PDFs to the sample.
 To work with a focused subset of the data, add `--url_filter` to download only PDFs
 whose source URL contains a given substring (case-insensitive), e.g.
 `--url_filter epa.gov`. Add `--random` to take a random sample instead of the first
-digests in CDX order; this scans the whole remote CDX first, so it is slower.
+digests in CDX order. Random samples are drawn from randomly chosen row groups of
+the remote CDX, so the full CDX (~11.5GB) is never scanned or downloaded.
 
 With no `--pdf_dir`/`--cdx_dir`, the script writes to `tests/test_data/pdfs/` and
 `tests/test_data/cdx/`, which is how the committed test sample was made.
@@ -193,7 +194,7 @@ To create the (dummy) embeddings & additional metadata, first run:
 
 ```
 poetry run python scripts/pipeline/run_embedding_pipeline.py --num_pages_to_process 5 \
-    --batch_size 100 --backend 'local' --local_base_dir 'data/s3_mock' --pdf_dir 'archive/PDFs/' \
+    --batch_size 100 --backend 'local' --local_base_dir 'data/s3_mock' --pdf_dir 'pdfs/' \
     --remote_data_dir "test-serving" --text_model_type 'Dummy' --visual_model_type 'Dummy'
 ```
 
@@ -207,7 +208,7 @@ poetry run python scripts/indexing/generate_index_embedding.py --num_pages_to_pr
 
 poetry run python scripts/indexing/generate_index_keyword.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --keyword_index_type 'SQLite'
 
-poetry run python scripts/indexing/generate_index_metadata.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --cdx_parquet_key  'archive/CDX/pdf_metadata.parquet'
+poetry run python scripts/indexing/generate_index_metadata.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --cdx_parquet_key 'cdx/complete_cdx_sample.parquet'
 ```
 
 At this point, all of the indices required to run the API server have been created. To start the API server locally, run:

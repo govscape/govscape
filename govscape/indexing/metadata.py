@@ -3,15 +3,17 @@
 
 import os
 import sqlite3
+import threading
 from abc import ABC, abstractmethod
-
-import numpy as np
 
 import duckdb
 import pyarrow as pa
 
 from ..query import EqualityPredicate, Predicate, RangePredicate
 from .base import AbstractIndex
+
+# See SQLiteMetadataIndex._read_connection.
+_INHERITED_CONNECTIONS: list[sqlite3.Connection] = []
 
 
 class AbstractMetadataIndex(AbstractIndex, ABC):
@@ -69,14 +71,6 @@ class AbstractMetadataIndex(AbstractIndex, ABC):
     ) -> set[str]:
         """Return distinct digests that satisfy all predicates."""
 
-    @abstractmethod
-    def upsert_vectors(self, vector_store_key, vectors, digests, pages):
-        """Upsert vector rows keyed by (vector_store_key, digest, page)."""
-
-    @abstractmethod
-    def get_vectors_for_digests(self, vector_store_key, candidate_digests):
-        """Return (vectors, digests, pages) for candidate digests."""
-
     @staticmethod
     def _normalize_crawl_date(date_str: str) -> str:
         """Truncate crawl_date to YYYYMMDD, stripping any trailing time component."""
@@ -87,8 +81,11 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
     def __init__(self, index_metadata_directory):
         self.index_metadata_directory = index_metadata_directory
         self.db_path = os.path.join(self.index_metadata_directory, "metadata.db")
+        # self.conn is used for building/writing the index (single threaded).
+        # Searches use _read_connection, which is per thread and per process.
         self.conn = None
         self.cursor = None
+        self._local = threading.local()
         self._total_entries = -1
         self._total_documents = -1
 
@@ -124,12 +121,28 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
 
         return table, clauses, params
 
+    def _read_connection(self) -> sqlite3.Connection:
+        # sqlite3 connections must not be used concurrently from several threads
+        # (hybrid search queries in parallel, and gunicorn workers are threaded)
+        # nor across fork() (the server is loaded before gunicorn forks).
+        conn = getattr(self._local, "conn", None)
+        if conn is None or self._local.pid != os.getpid():
+            if conn is not None:
+                # Keep the handle inherited from the parent alive: closing it in
+                # the child (e.g. via garbage collection) can release the
+                # parent's locks.
+                _INHERITED_CONNECTIONS.append(conn)
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self._local.conn = conn
+            self._local.pid = os.getpid()
+        return conn
+
     def _query_digests_for_predicate(self, predicate):
         table, clauses, params = self._predicate_sql(predicate)
         query = f"SELECT DISTINCT digest FROM {table}"
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
-        cursor = self.conn.cursor()
+        cursor = self._read_connection().cursor()
         cursor.execute(query, params)
         return {row[0] for row in cursor.fetchall()}
 
@@ -138,7 +151,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         query = f"SELECT COUNT(DISTINCT digest) FROM {table}"
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
-        cursor = self.conn.cursor()
+        cursor = self._read_connection().cursor()
         cursor.execute(query, params)
         row = cursor.fetchone()
         return row[0] if row else 0
@@ -146,20 +159,11 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
     def _total_documents_count(self):
         if self._total_documents != -1:
             return self._total_documents
-        cursor = self.conn.cursor()
+        cursor = self._read_connection().cursor()
         cursor.execute("SELECT COUNT(DISTINCT digest) FROM metadata")
         row = cursor.fetchone()
         self._total_documents = row[0] if row else 0
         return self._total_documents
-
-    @staticmethod
-    def _serialize_vector(vector):
-        arr = np.asarray(vector, dtype=np.float32)
-        return arr.tobytes(), int(arr.shape[0])
-
-    @staticmethod
-    def _deserialize_vector(vector_blob, vector_dim):
-        return np.frombuffer(vector_blob, dtype=np.float32, count=vector_dim)
 
     def build_index(self):
         if not os.path.exists(self.index_metadata_directory):
@@ -191,18 +195,6 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             CREATE TABLE IF NOT EXISTS metadata_crawl_date (
                 digest TEXT,
                 crawl_date TEXT
-            );
-            """
-        )
-        self.cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS metadata_vectors (
-                vector_store_key TEXT,
-                digest TEXT,
-                page TEXT,
-                vector BLOB,
-                vector_dim INTEGER,
-                PRIMARY KEY (vector_store_key, digest, page)
             );
             """
         )
@@ -263,11 +255,10 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self.conn.commit()
 
     def load_index(self):
-        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        self.cursor = self.conn.cursor()
         if self._total_entries == -1:
-            self.cursor.execute("SELECT COUNT(*) FROM metadata")
-            self._total_entries = self.cursor.fetchone()[0]
+            cursor = self._read_connection().cursor()
+            cursor.execute("SELECT COUNT(*) FROM metadata")
+            self._total_entries = cursor.fetchone()[0]
         self._total_documents = -1
 
     def save_index(self):
@@ -282,12 +273,6 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             "CREATE INDEX IF NOT EXISTS idx_metadata_crawl_date_crawl_date_digest "
             "ON metadata_crawl_date (digest, crawl_date);"
         )
-        self.cursor.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_metadata_vectors_key_digest
-            ON metadata_vectors (vector_store_key, digest);
-            """
-        )
 
         self.cursor.execute("""PRAGMA journal_mode = WAL;""")
         self.cursor.execute("""PRAGMA optimize;""")
@@ -295,7 +280,7 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self.conn.commit()
 
     def search(self, digests, predicates: list[Predicate] | None = None):
-        cursor = self.conn.cursor()
+        cursor = self._read_connection().cursor()
         placeholders = ",".join(["?"] * len(digests))
         query = (
             "SELECT crawl_url, crawl_date, digest, pretty_name, sub_domain, page_count "
@@ -361,76 +346,13 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             candidates = candidates.intersection(candidate_set)
         return candidates
 
-    def upsert_vectors(self, vector_store_key, vectors, digests, pages):
-        if self.conn is None:
-            self.load_index()
-        rows = []
-        for vector, digest, page in zip(vectors, digests, pages, strict=False):
-            if not digest:
-                continue
-            vector_blob, vector_dim = self._serialize_vector(vector)
-            rows.append(
-                (
-                    str(vector_store_key),
-                    str(digest),
-                    str(page),
-                    sqlite3.Binary(vector_blob),
-                    vector_dim,
-                )
-            )
-        if not rows:
-            return
-
-        self.cursor.execute("DROP INDEX IF EXISTS idx_metadata_vectors_key_digest;")
-        self.cursor.executemany(
-            """
-            INSERT OR REPLACE INTO metadata_vectors
-            (vector_store_key, digest, page, vector, vector_dim)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            rows,
-        )
-        self.conn.commit()
-
-    def get_vectors_for_digests(self, vector_store_key, candidate_digests):
-        if self.conn is None:
-            self.load_index()
-        if not candidate_digests:
-            return np.empty((0, 0), dtype=np.float32), [], []
-
-        all_rows = []
-        candidate_list = list(candidate_digests)
-        chunk_size = 800
-        for i in range(0, len(candidate_list), chunk_size):
-            chunk = candidate_list[i : i + chunk_size]
-            placeholders = ",".join(["?"] * len(chunk))
-            query = (
-                "SELECT digest, page, vector, vector_dim "
-                "FROM metadata_vectors "
-                f"WHERE vector_store_key = ? AND digest IN ({placeholders})"
-            )
-            params = [str(vector_store_key), *chunk]
-            all_rows.extend(self.conn.execute(query, params).fetchall())
-
-        if not all_rows:
-            return np.empty((0, 0), dtype=np.float32), [], []
-
-        digests = []
-        pages = []
-        vectors = []
-        for digest, page, vector_blob, vector_dim in all_rows:
-            digests.append(digest)
-            pages.append(str(page))
-            vectors.append(self._deserialize_vector(vector_blob, int(vector_dim)))
-
-        return np.vstack(vectors), digests, pages
-
 
 class DuckDBMetadataIndex(AbstractMetadataIndex):
     def __init__(self, index_metadata_directory):
         self.index_metadata_directory = index_metadata_directory
         self.db_path = os.path.join(self.index_metadata_directory, "metadata.duckdb")
         self.conn = None
+        self._local = threading.local()
         self._total_entries = -1
         self._total_documents = -1
 
@@ -471,22 +393,26 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         query = f"SELECT DISTINCT digest FROM {table}"
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
-        return {row[0] for row in self.conn.execute(query, params).fetchall()}
+        return {
+            row[0] for row in self._read_connection().execute(query, params).fetchall()
+        }
 
     def _count_digests_for_predicate(self, predicate):
         table, clauses, params = self._predicate_sql(predicate)
         query = f"SELECT COUNT(DISTINCT digest) FROM {table}"
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
-        row = self.conn.execute(query, params).fetchone()
+        row = self._read_connection().execute(query, params).fetchone()
         return row[0] if row else 0
 
     def _total_documents_count(self):
         if self._total_documents != -1:
             return self._total_documents
-        row = self.conn.execute(
-            "SELECT COUNT(DISTINCT digest) FROM metadata"
-        ).fetchone()
+        row = (
+            self._read_connection()
+            .execute("SELECT COUNT(DISTINCT digest) FROM metadata")
+            .fetchone()
+        )
         self._total_documents = row[0] if row else 0
         return self._total_documents
 
@@ -494,6 +420,17 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         if self.conn is None:
             os.makedirs(self.index_metadata_directory, exist_ok=True)
             self.conn = duckdb.connect(self.db_path)
+
+    def _read_connection(self) -> duckdb.DuckDBPyConnection:
+        # A DuckDB connection must not be used concurrently from several threads
+        # (hybrid search queries in parallel); each thread reads through its own
+        # cursor of the shared connection.
+        cursor = getattr(self._local, "cursor", None)
+        if cursor is None:
+            self._connect()
+            cursor = self.conn.cursor()
+            self._local.cursor = cursor
+        return cursor
 
     def build_index(self):
         self._connect()
@@ -520,16 +457,6 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
             CREATE TABLE IF NOT EXISTS metadata_crawl_date (
                 digest TEXT,
                 crawl_date TEXT
-            );
-            """
-        )
-        self.conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS metadata_vectors (
-                vector_store_key TEXT,
-                digest TEXT,
-                page TEXT,
-                vector FLOAT[]
             );
             """
         )
@@ -592,7 +519,11 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
     def load_index(self):
         self._connect()
         if self._total_entries == -1:
-            result = self.conn.execute("SELECT COUNT(*) FROM metadata").fetchone()
+            result = (
+                self._read_connection()
+                .execute("SELECT COUNT(*) FROM metadata")
+                .fetchone()
+            )
             self._total_entries = result[0] if result else 0
         self._total_documents = -1
 
@@ -617,12 +548,6 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
             "CREATE INDEX IF NOT EXISTS idx_metadata_crawl_date_digest "
             "ON metadata_crawl_date (digest);"
         )
-        self.conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_metadata_vectors_key_digest
-            ON metadata_vectors (vector_store_key, digest);
-            """
-        )
         self.conn.checkpoint()
 
     def search(self, digests: list[str], predicates: list[Predicate] | None = None):
@@ -639,7 +564,7 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
                 if clauses:
                     query += " AND " + " AND ".join(clauses)
                     params.extend(clause_params)
-        rows = self.conn.execute(query, params).fetchall()
+        rows = self._read_connection().execute(query, params).fetchall()
         metadata = {}
         for row in rows:
             digest = row[2]
@@ -690,61 +615,3 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         for candidate_set in candidate_sets[1:]:
             candidates = candidates.intersection(candidate_set)
         return candidates
-
-    def upsert_vectors(self, vector_store_key, vectors, digests, pages):
-        self._connect()
-        rows = []
-        for vector, digest, page in zip(vectors, digests, pages, strict=False):
-            if not digest:
-                continue
-            rows.append(
-                {
-                    "vector_store_key": str(vector_store_key),
-                    "digest": str(digest),
-                    "page": str(page),
-                    "vector": np.asarray(vector, dtype=np.float32).tolist(),
-                }
-            )
-        if not rows:
-            return
-
-        self.conn.execute("DROP INDEX IF EXISTS idx_metadata_vectors_key_digest;")
-        vector_table = pa.Table.from_pylist(rows)
-        self.conn.register("_vector_batch", vector_table)
-        self.conn.execute(
-            """
-            DELETE FROM metadata_vectors
-            USING _vector_batch
-            WHERE metadata_vectors.vector_store_key = _vector_batch.vector_store_key
-              AND metadata_vectors.digest = _vector_batch.digest
-              AND metadata_vectors.page = _vector_batch.page
-            """
-        )
-        self.conn.execute("INSERT INTO metadata_vectors SELECT * FROM _vector_batch")
-        self.conn.unregister("_vector_batch")
-
-    def get_vectors_for_digests(self, vector_store_key, candidate_digests):
-        self._connect()
-        if not candidate_digests:
-            return np.empty((0, 0), dtype=np.float32), [], []
-
-        candidate_list = list(candidate_digests)
-        rows = []
-        chunk_size = 800
-        for i in range(0, len(candidate_list), chunk_size):
-            chunk = candidate_list[i : i + chunk_size]
-            placeholders = ",".join(["?"] * len(chunk))
-            query = (
-                "SELECT digest, page, vector FROM metadata_vectors "
-                f"WHERE vector_store_key = ? AND digest IN ({placeholders})"
-            )
-            params = [str(vector_store_key), *chunk]
-            rows.extend(self.conn.execute(query, params).fetchall())
-
-        if not rows:
-            return np.empty((0, 0), dtype=np.float32), [], []
-
-        digests = [row[0] for row in rows]
-        pages = [str(row[1]) for row in rows]
-        vectors = np.asarray([row[2] for row in rows], dtype=np.float32)
-        return vectors, digests, pages

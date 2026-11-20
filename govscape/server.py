@@ -39,6 +39,7 @@ class Server:
         self.data_model = config.data_model
         self.vector_index_type = config.vector_index_type
         self.keyword_index_type = config.keyword_index_type
+        self.forward_index_type = config.forward_index_type
         self.k = config.k
         self.max_crawl_instances = config.max_crawl_instances
 
@@ -50,8 +51,14 @@ class Server:
         self.visual_d = config.visual_d
 
         if self.vector_index_type == "Memory":
-            self.text_index = FAISSIndex(self.data_model.index_directory)
-            self.visual_index = FAISSIndex(self.data_model.index_img_pg_directory)
+            self.text_index = FAISSIndex(
+                self.data_model.index_directory,
+                forward_index_type=self.forward_index_type,
+            )
+            self.visual_index = FAISSIndex(
+                self.data_model.index_img_pg_directory,
+                forward_index_type=self.forward_index_type,
+            )
         else:
             raise ValueError(f"Unsupported vector index type: {self.vector_index_type}")
         self.text_index.load_index()
@@ -85,14 +92,10 @@ class Server:
         self.metadata_index.load_index()
 
         self.text_hybrid_index = HybridVectorMetadataIndex(
-            self.text_index,
-            self.metadata_index,
-            vector_store_key="text",
+            self.text_index, self.metadata_index
         )
         self.visual_hybrid_index = HybridVectorMetadataIndex(
-            self.visual_index,
-            self.metadata_index,
-            vector_store_key="visual",
+            self.visual_index, self.metadata_index
         )
         self.keyword_hybrid_index = HybridKeywordMetadataIndex(
             self.keyword_index,
