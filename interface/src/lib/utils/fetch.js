@@ -14,7 +14,9 @@ const ENDPOINTS = {
     S3: `${DERIVATIVE_DATA_URL}/dev-serving/img`
   },
   PROD: {
-    API: 'https://govscape.net/api',
+    // CloudFront serves the site and routes /api/* to the API server, so the
+    // same build works on any hostname (e.g. next.govscape.net, govscape.net).
+    API: '/api',
     S3: `${DERIVATIVE_DATA_URL}/prod-serving/img`
   }
 };
