@@ -9,6 +9,8 @@ import torch
 from PIL import Image
 from transformers import AutoModel, AutoProcessor, CLIPModel, CLIPProcessor
 
+from .model_device import LazyDeviceModel
+
 
 class VisualEmbeddingModel(ABC):
     @property
@@ -54,7 +56,7 @@ class Dummy_VisualEmbeddingModel(VisualEmbeddingModel):
         return self._rng.random((len(jpg_paths), 128)).astype(np.float32)
 
 
-class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
+class CLIP_VisualEmbeddingModel(LazyDeviceModel, VisualEmbeddingModel):
     @property
     def d(self):
         return 512
@@ -63,10 +65,8 @@ class CLIP_VisualEmbeddingModel(VisualEmbeddingModel):
         self.processor = CLIPProcessor.from_pretrained(
             "openai/clip-vit-base-patch32", use_fast=True
         )
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(
-            self.device
-        )  # online
+        # Loaded on the CPU; LazyDeviceModel moves it on first use.
+        self.model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
         self.model.eval()
 
     def encode_text(
@@ -233,8 +233,7 @@ class SigLIP_VisualEmbeddingModel(CLIP_VisualEmbeddingModel):
     def __init__(self, model_name: str = DEFAULT_MODEL_NAME):
         self.model_name = model_name
         self.processor = AutoProcessor.from_pretrained(model_name, use_fast=True)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = AutoModel.from_pretrained(model_name).to(self.device)
+        self.model = AutoModel.from_pretrained(model_name)
         self.model.eval()
         self.max_text_len = self.model.config.text_config.max_position_embeddings
 

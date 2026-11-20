@@ -1,0 +1,49 @@
+#cloud-config
+# Runs the GovScape API container under systemd. On every start the container
+# pulls the serving indices from source.coop (scripts.serving.run_gunicorn),
+# then starts gunicorn on port ${api_port}.
+package_update: true
+packages:
+  - docker
+
+write_files:
+  - path: /etc/systemd/system/govscape-api.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=GovScape API
+      Requires=docker.service
+      After=docker.service network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Restart=always
+      RestartSec=10
+      # Pulling the image and downloading indices can take a while.
+      TimeoutStartSec=0
+      ExecStartPre=-/usr/bin/docker rm -f govscape-api
+      ExecStartPre=/usr/bin/docker pull ${app_image}
+      ExecStart=/usr/bin/docker run --rm --name govscape-api \
+        -p ${api_port}:${api_port} \
+        -v /data:/data \
+        -e GUNICORN_BIND=0.0.0.0:${api_port} \
+        -e GUNICORN_WORKERS=${gunicorn_workers} \
+        -e GUNICORN_THREADS=${gunicorn_threads} \
+        -e HF_HOME=/data/hf-cache \
+        -e AWS_REGION=us-west-2 \
+        -e AWS_EC2_METADATA_DISABLED=true \
+        ${app_image} \
+        poetry run python -m scripts.serving.run_gunicorn \
+        --backend s3 --remote_data_directory ${serving_data_dir} \
+        --local_data_directory /data/${serving_data_dir} \
+        ${server_args}
+      ExecStop=/usr/bin/docker stop -t 120 govscape-api
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - mkdir -p /data
+  - systemctl enable --now docker
+  - systemctl daemon-reload
+  - systemctl enable --now govscape-api.service

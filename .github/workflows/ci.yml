@@ -26,6 +26,25 @@ jobs:
           poetry run pytest tests
       - uses: codecov/codecov-action@v5
 
+  infra:
+    name: OpenTofu Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v6
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version: 1.13.9
+      - name: Check formatting
+        run: tofu fmt -check -recursive infra
+      - name: Validate
+        run: |
+          for dir in infra infra/bootstrap; do
+            tofu -chdir="$dir" init -backend=false -input=false
+            tofu -chdir="$dir" validate
+          done
+
   benchmarks:
     name: CodSpeed Benchmarks
     runs-on: ubuntu-latest
