@@ -184,6 +184,12 @@ def main():
         default=PDF_ARCHIVE_PDF_DIR,
         help="Directory containing PDFs within the PDF archive",
     )
+    parser.add_argument(
+        "--max_pdfs",
+        type=int,
+        default=None,
+        help="Stop after this many PDFs (overrides --num_pages_to_process)",
+    )
     args = parser.parse_args()
 
     # ---------------------------------------------------------------------------
@@ -264,7 +270,9 @@ def main():
 
     overall_start_time = time.time()
 
-    max_files_to_process = args.num_pages_to_process * 1000
+    max_files_to_process = (
+        args.max_pdfs if args.max_pdfs is not None else args.num_pages_to_process * 1000
+    )
     files_processed = 0
     while files_processed < max_files_to_process:
         print("-" * 93)

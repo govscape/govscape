@@ -4,7 +4,6 @@ set -e
 # Clear the data directory
 rm -rf data/prod
 
-s3_prefix="s3://govscape/eota-derivative-data"
 data_dir="test-serving" # 'test-serving', 'dev-serving', or 'prod-serving'
 
 # Run the embeddings pipeline

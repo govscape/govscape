@@ -39,7 +39,7 @@ When clicked, VS Code relaunches and builds the dev container; this will take a 
 Poetry will not use the workspace .venv folder, but will create an isolated virtual environment within the dev container with lucene and all other dependencies installed.
 This will not impact any Python environments on your host machine.
 
-AWS credentials at `~/.aws` on your host machine are automatically mounted onto the dev container. Both `aws` and `poetry run s5cmd` commands work without any additional configuration.
+AWS credentials at `~/.aws` on your host machine are automatically mounted onto the dev container, so profiles holding source.coop credentials (see the README) are available there. Remote data is read anonymously from source.coop by default; writing requires selecting one of those profiles with `--profile`/`--pdf_profile` or `AWS_PROFILE`.
 
 `docker` commands within the dev container interact with the Docker daemon on your host machine.
 Note that if you need to bind a directory in the workspace, the path must be from the host, not from within the dev container.
@@ -122,7 +122,7 @@ poetry run mypy .
 
 ## Data Model
 
-Because the data that lives on the remote backend (i.e. AWS S3) is a core aspect of this project, we need clear documentation for how it is structured. This documentation lives in `DATA_MODEL.md`, and you should take a look at it to familiarize yourself with it. Any changes that alter this structure should update the data model file to make sure that it remains up to date.
+Because the data that lives on the remote backend (the govscape repositories on source.coop) is a core aspect of this project, we need clear documentation for how it is structured. This documentation lives in `DATA_MODEL.md`, and you should take a look at it to familiarize yourself with it. Any changes that alter this structure should update the data model file to make sure that it remains up to date.
 
 ## Code Style
 ### Assertions and Validation

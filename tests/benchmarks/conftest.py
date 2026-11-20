@@ -152,18 +152,16 @@ def _iter_extracted_text(txt_dir: str) -> tuple[list[str], list[str], list[str]]
 
 def build_vector_index(
     vector_index_cls: type[AbstractVectorIndex], embedding_dir: str, index_dir: str
-) -> tuple[AbstractVectorIndex, np.ndarray, list[str], list[str]]:
-    """Build and save a vector index from `.npy` embeddings under
-    `embedding_dir`. Also returns (embeddings, digests, pages), since a
-    metadata index needs these too (via `upsert_vectors`).
-    """
+) -> AbstractVectorIndex:
+    """Build and save a vector index (and its forward index, used for
+    prefiltered hybrid search) from `.npy` embeddings under `embedding_dir`."""
     embeddings, digests, pages = _iter_npy_embeddings(embedding_dir)
     index = vector_index_cls(index_dir)
     index.build_index()
     if len(embeddings):
         index.add_batch(embeddings, digests, pages)
     index.save_index()
-    return index, embeddings, digests, pages
+    return index
 
 
 def build_keyword_index(
@@ -184,21 +182,12 @@ def build_metadata_index(
     metadata_index_cls: type[AbstractMetadataIndex],
     index_dir: str,
     metadata_records: list[dict],
-    vectors_by_store_key: dict[str, tuple[np.ndarray, list[str], list[str]]]
-    | None = None,
 ) -> AbstractMetadataIndex:
-    """Build and save a metadata index from `metadata_records`, optionally
-    upserting per-digest/page vectors (needed for prefiltered hybrid search)
-    under one or more `vector_store_key`s (e.g. "text", "visual")."""
+    """Build and save a metadata index from `metadata_records`."""
     index = metadata_index_cls(index_dir)
     index.build_index()
     if metadata_records:
         index.add_batch(metadata_records)
-    for vector_store_key, (vectors, digests, pages) in (
-        vectors_by_store_key or {}
-    ).items():
-        if len(vectors):
-            index.upsert_vectors(vector_store_key, vectors, digests, pages)
     index.save_index()
     return index
 

@@ -152,12 +152,14 @@ if __name__ == "__main__":
                 local_batch = []
                 with ProcessPoolExecutor(max_workers=num_workers) as executor:
                     futures = [
+                        # Metadata lives in the derivative repo, but the PDFs
+                        # being copied live in the PDF archive.
                         executor.submit(
                             copy_to_clean,
                             args.backend,
-                            bucket_name,
+                            args.pdf_bucket_name,
                             args.local_base_dir,
-                            args.profile,
+                            args.pdf_profile,
                             args.endpoint_url,
                             dirty_data_prefix,
                             clean_data_prefix,

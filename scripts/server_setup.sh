@@ -1,16 +1,12 @@
 #!/usr/bin/env bash
 set -e
 
-# Server setup
-s3_prefix="s3://govscape/eota-derivative-data/prod-serving"
-data_dir="data/prod" # 'dev-serving', 'test-serving', or 'prod-serving'
-#s5cmd --endpoint-url https://data.source.coop sync $s3_prefix/embeddings/* data/prod/embeddings
-#s5cmd --endpoint-url https://data.source.coop sync $s3_prefix/embeddings_img_pg/* data/prod/embeddings_img_pg
-#s5cmd --endpoint-url https://data.source.coop sync $s3_prefix/img/* data/prod/img
-s5cmd --endpoint-url https://data.source.coop sync $s3_prefix/index/* data/prod/index
-s5cmd --endpoint-url https://data.source.coop sync $s3_prefix/index_img_pg/* data/prod/index_img_pg
-s5cmd --endpoint-url https://data.source.coop sync $s3_prefix/index_keyword/* data/prod/index_keyword
-s5cmd --endpoint-url https://data.source.coop sync $s3_prefix/index_metadata/* data/prod/index_metadata
-#s5cmd --endpoint-url https://data.source.coop sync $s3_prefix/metadata/* data/prod/metadata
+# Server setup: run_gunicorn downloads the indices from the serving directory in the
+# source.coop derivative repository (anonymously) before starting gunicorn.
+remote_data_dir="prod-serving" # 'dev-serving', 'test-serving', or 'prod-serving'
+local_data_dir="data/prod"
 
-poetry run python scripts/serving/run_gunicorn.py --data-directory ./data/prod --text_model BGE --visual_model CLIP --keyword_index_type SQLite --vector_index_type Memory
+poetry run python -m scripts.serving.run_gunicorn --backend s3 \
+    --remote_data_directory "$remote_data_dir" --local_data_directory "$local_data_dir" \
+    --text_model BGE --visual_model CLIP --keyword_index_type SQLite \
+    --vector_index_type Memory --forward_index_type LMDB
