@@ -9,6 +9,7 @@ import numpy as np
 import torch
 
 from govscape import text_embedding_models
+from govscape.model_device import LazyDeviceModel
 from govscape.text_embedding_models import BGE_TextEmbeddingModel
 
 
@@ -20,12 +21,22 @@ class FakeSentenceTransformer:
     def half(self):
         self.calls.append(("half",))
 
+    def float(self):
+        self.calls.append(("float",))
+
     def to(self, device):
         self.calls.append(("to", device.type))
 
     def encode(self, text, batch_size, device):
         self.calls.append(("encode", device.type))
         return np.zeros(4)
+
+
+class GPUFullSentenceTransformer(FakeSentenceTransformer):
+    def to(self, device):
+        super().to(device)
+        if device.type == "cuda":
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory")
 
 
 def _cuda_check_forbidden():
@@ -65,18 +76,69 @@ def test_text_model_stays_full_precision_on_cpu(monkeypatch):
     assert model.model.calls == [("to", "cpu"), ("encode", "cpu")]
 
 
+def test_text_model_falls_back_to_cpu_when_gpu_is_full(monkeypatch):
+    monkeypatch.setattr(
+        text_embedding_models, "SentenceTransformer", GPUFullSentenceTransformer
+    )
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    model = BGE_TextEmbeddingModel()
+    model.encode_text("query", is_query=True)
+    model.encode_text("another query", is_query=True)
+
+    assert model.device.type == "cpu"
+    assert model.model.calls == [
+        ("half",),
+        ("to", "cuda"),
+        ("to", "cpu"),
+        ("float",),
+        ("encode", "cpu"),
+        ("encode", "cpu"),
+    ]
+
+
+class HalfThenOOMModel(LazyDeviceModel):
+    """Fails the way a real move can: converted to half precision, then out of
+    GPU memory part-way through."""
+
+    def __init__(self):
+        self.model = torch.nn.Linear(4, 2)
+
+    def _move_model_to(self, device):
+        self.model.half()
+        raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+
+
+def test_gpu_fallback_restores_full_precision_cpu_weights(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    model = HalfThenOOMModel()
+
+    assert model.device.type == "cpu"
+    for param in model.model.parameters():
+        assert param.dtype == torch.float32
+        assert param.device.type == "cpu"
+
+
 # Mirrors gunicorn's preload_app: models are loaded in a parent process and used
 # from a forked child. Runs in a fresh interpreter so CUDA state from other tests
 # can't leak in.
 _FORK_SCRIPT = textwrap.dedent(
     """
     import multiprocessing as mp
+    import sys
+
+    import torch
+
     import govscape as gs
 
     text_model = gs.BGE_TextEmbeddingModel()
     visual_model = gs.CLIP_VisualEmbeddingModel()
 
     def encode(query):
+        if len(sys.argv) > 1:
+            # Cap this worker's GPU allocations below the size of either model.
+            limit = int(sys.argv[1]) * 2**20
+            total = torch.cuda.get_device_properties(0).total_memory
+            torch.cuda.set_per_process_memory_fraction(limit / total)
         text = text_model.encode_text(query, is_query=True)
         visual = visual_model.encode_text(query)
         return text_model.device.type, len(text), visual.shape[-1]
@@ -87,13 +149,22 @@ _FORK_SCRIPT = textwrap.dedent(
 )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a CUDA GPU")
-def test_models_loaded_before_fork_run_on_gpu_in_child():
+def _run_fork_script(*args: str) -> str:
     result = subprocess.run(
-        [sys.executable, "-c", _FORK_SCRIPT],
+        [sys.executable, "-c", _FORK_SCRIPT, *args],
         capture_output=True,
         text=True,
         timeout=600,
     )
     assert result.returncode == 0, result.stderr[-2000:]
-    assert result.stdout.strip().splitlines()[-1] == "('cuda', 768, 512)"
+    return result.stdout.strip().splitlines()[-1]
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a CUDA GPU")
+def test_models_loaded_before_fork_run_on_gpu_in_child():
+    assert _run_fork_script() == "('cuda', 768, 512)"
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a CUDA GPU")
+def test_models_fall_back_to_cpu_in_child_when_gpu_is_full():
+    assert _run_fork_script("64") == "('cpu', 768, 512)"
