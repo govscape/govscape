@@ -11,6 +11,9 @@ jobs:
         python: ['3.11.14']
       fail-fast: false
     runs-on: ${{ matrix.os }}
+    # The suite takes ~6 minutes; fail a hung run quickly instead of after
+    # GitHub's 6-hour default (pytest dumps stacks after 5 minutes on one test).
+    timeout-minutes: 30
     container:
       image: ghcr.io/bcglee/govscape-base:py${{ matrix.python }}-lucene10.0.0-poetry2.3.2
     steps:
