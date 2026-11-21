@@ -590,7 +590,12 @@ class RemoteDirectoryIterator:
     def close(self) -> None:
         """Shut down the cached multiprocessing pool, if any."""
         if self._mp_pool is not None:
-            self._mp_pool.terminate()
+            # Let the idle workers exit on their own rather than terminate()
+            # them: they inherit native SIGTERM handlers (e.g. Paddle's, which
+            # `import govscape` installs) that can keep them alive, hanging the
+            # join inside terminate().
+            self._mp_pool.close()
+            self._mp_pool.join()
             self._mp_pool = None
 
     def __enter__(self) -> Self:

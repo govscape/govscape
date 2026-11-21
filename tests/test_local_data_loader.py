@@ -1,5 +1,8 @@
 import math
 import os
+import signal
+import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -350,6 +353,45 @@ def test_remote_directory_iterator_checkpoint_loader(
     ]
     assert ckpt_loader.exists("checkpoints/ckpt.json")
     assert not src_loader.exists("checkpoints/ckpt.json")
+
+
+def _hang_forever(signum, frame) -> None:
+    while True:
+        time.sleep(60)
+
+
+def test_remote_directory_iterator_close_with_sigterm_proof_workers(
+    tmp_path: Path,
+) -> None:
+    """Workers inherit native SIGTERM handlers (Paddle installs one on import)
+    that can deadlock instead of exiting, so close() must not terminate them.
+    A handler that never returns makes that deterministic."""
+    loader = LocalDataLoader(base_dir=str(tmp_path / "data"))
+    for i in range(3):
+        loader.upload_bytes(b"x", f"pdfs/file_{i}.pdf")
+
+    previous = signal.signal(signal.SIGTERM, _hang_forever)
+    try:
+        remote_iter = RemoteDirectoryIterator(
+            loader,
+            "pdfs/",
+            "checkpoints/ckpt.json",
+            str(tmp_path / "ckpt.json"),
+            local_dir=str(tmp_path / "download"),
+            use_multiprocessing=True,
+        )
+        assert len(remote_iter.download_batch(max_keys=10)) == 3
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+    closer = threading.Thread(target=remote_iter.close, daemon=True)
+    closer.start()
+    closer.join(timeout=30)
+    if closer.is_alive():
+        # Kill the stuck workers so the failure doesn't also hang pytest's exit.
+        for worker in remote_iter._mp_pool._pool:
+            worker.kill()
+        pytest.fail("close() hung waiting for pool workers")
 
 
 def test_list_objects_treats_prefix_as_directory(loader: DataLoader) -> None:
