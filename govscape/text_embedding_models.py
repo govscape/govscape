@@ -109,6 +109,48 @@ class BGESmall_TextEmbeddingModel(_SentenceTransformerModel):
             )
 
 
+class Qwen3_TextEmbeddingModel(_SentenceTransformerModel):
+    QUERY_PREFIX = (
+        "Instruct: Given a web search query, retrieve relevant passages that "
+        "answer the query\nQuery:"
+    )
+
+    # Qwen3 accepts 32k tokens, but the rare very long pages then dominate
+    # runtime and GPU memory; few pages exceed this.
+    MAX_SEQ_LENGTH = 2048
+    FLASH_ATTENTION = "kernels-community/flash-attn2"
+
+    def __init__(self):
+        super().__init__("Qwen/Qwen3-Embedding-0.6B")
+        self.model.max_seq_length = self.MAX_SEQ_LENGTH
+
+    def _move_model_to(self, device):
+        # Qwen3 is trained in bf16 and can overflow in fp16.
+        if device.type != "cpu":
+            self.model.to(torch.bfloat16)
+        self.model.to(device)
+        # Prebuilt FlashAttention-2 kernel from the HF Hub (needs Ampere or
+        # newer). Switched only once the model is on the GPU, so a CPU
+        # fallback keeps SDPA; transformers also falls back to SDPA itself if
+        # the kernel can't be loaded.
+        if device.type == "cuda" and torch.cuda.get_device_capability(device)[0] >= 8:
+            self.model[0].auto_model.set_attn_implementation(self.FLASH_ATTENTION)
+
+    def encode_text(self, text, is_query=False):
+        if is_query:
+            text = self.QUERY_PREFIX + text
+        with torch.no_grad():
+            return self.model.encode(text, device=self.device)
+
+    def encode_text_batch(self, texts, is_query=False):
+        if is_query:
+            texts = [self.QUERY_PREFIX + text for text in texts]
+        with torch.no_grad():
+            return self.model.encode(
+                texts, batch_size=GPU_BATCH_SIZE, device=self.device
+            )
+
+
 class Dummy_TextEmbeddingModel(TextEmbeddingModel):
     @property
     def d(self):

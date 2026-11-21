@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import textwrap
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,7 +11,10 @@ import torch
 
 from govscape import text_embedding_models
 from govscape.model_device import LazyDeviceModel
-from govscape.text_embedding_models import BGE_TextEmbeddingModel
+from govscape.text_embedding_models import (
+    BGE_TextEmbeddingModel,
+    Qwen3_TextEmbeddingModel,
+)
 
 
 class FakeSentenceTransformer:
@@ -27,7 +31,7 @@ class FakeSentenceTransformer:
     def to(self, device):
         self.calls.append(("to", device.type))
 
-    def encode(self, text, batch_size, device):
+    def encode(self, text, device, batch_size=None):
         self.calls.append(("encode", device.type))
         return np.zeros(4)
 
@@ -94,6 +98,86 @@ def test_text_model_falls_back_to_cpu_when_gpu_is_full(monkeypatch):
         ("encode", "cpu"),
         ("encode", "cpu"),
     ]
+
+
+class FakeHFModel:
+    def __init__(self, calls):
+        self.calls = calls
+
+    def set_attn_implementation(self, attn_implementation):
+        self.calls.append(("attn", attn_implementation))
+
+
+class FakeQwen3SentenceTransformer(FakeSentenceTransformer):
+    def __getitem__(self, idx):
+        return SimpleNamespace(auto_model=FakeHFModel(self.calls))
+
+    def to(self, target):
+        if isinstance(target, torch.dtype):
+            self.calls.append(("to", target))
+        else:
+            super().to(target)
+
+
+class GPUFullQwen3SentenceTransformer(FakeQwen3SentenceTransformer):
+    def to(self, target):
+        super().to(target)
+        if isinstance(target, torch.device) and target.type == "cuda":
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+
+
+def test_qwen3_caps_sequence_length(monkeypatch):
+    monkeypatch.setattr(
+        text_embedding_models, "SentenceTransformer", FakeQwen3SentenceTransformer
+    )
+    model = Qwen3_TextEmbeddingModel()
+    assert model.model.max_seq_length == Qwen3_TextEmbeddingModel.MAX_SEQ_LENGTH
+
+
+@pytest.mark.parametrize(
+    ("capability", "uses_flash"), [((12, 1), True), ((8, 0), True), ((7, 5), False)]
+)
+def test_qwen3_uses_flash_attention_on_ampere_or_newer_gpus(
+    monkeypatch, capability, uses_flash
+):
+    monkeypatch.setattr(
+        text_embedding_models, "SentenceTransformer", FakeQwen3SentenceTransformer
+    )
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda d: capability)
+    model = Qwen3_TextEmbeddingModel()
+    model.encode_text("query", is_query=True)
+
+    flash = [("attn", Qwen3_TextEmbeddingModel.FLASH_ATTENTION)] if uses_flash else []
+    assert model.model.calls == [
+        ("to", torch.bfloat16),
+        ("to", "cuda"),
+        *flash,
+        ("encode", "cuda"),
+    ]
+
+
+def test_qwen3_keeps_sdpa_on_cpu(monkeypatch):
+    monkeypatch.setattr(
+        text_embedding_models, "SentenceTransformer", FakeQwen3SentenceTransformer
+    )
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    model = Qwen3_TextEmbeddingModel()
+    model.encode_text("query")
+
+    assert model.model.calls == [("to", "cpu"), ("encode", "cpu")]
+
+
+def test_qwen3_keeps_sdpa_when_gpu_is_full(monkeypatch):
+    monkeypatch.setattr(
+        text_embedding_models, "SentenceTransformer", GPUFullQwen3SentenceTransformer
+    )
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    model = Qwen3_TextEmbeddingModel()
+    model.encode_text("query", is_query=True)
+
+    assert model.device.type == "cpu"
+    assert ("attn", Qwen3_TextEmbeddingModel.FLASH_ATTENTION) not in model.model.calls
 
 
 class HalfThenOOMModel(LazyDeviceModel):

@@ -110,6 +110,8 @@ def _build_app_from_args(args):
         text_model = gs.BGE_TextEmbeddingModel()
     elif args.text_model == "BGESmall":
         text_model = gs.BGESmall_TextEmbeddingModel()
+    elif args.text_model == "Qwen3":
+        text_model = gs.Qwen3_TextEmbeddingModel()
     elif args.text_model == "Dummy":
         text_model = gs.Dummy_TextEmbeddingModel()
     else:
