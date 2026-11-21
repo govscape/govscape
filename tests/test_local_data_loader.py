@@ -384,12 +384,14 @@ def test_remote_directory_iterator_close_with_sigterm_proof_workers(
     finally:
         signal.signal(signal.SIGTERM, previous)
 
+    pool = remote_iter._mp_pool
+    assert pool is not None
     closer = threading.Thread(target=remote_iter.close, daemon=True)
     closer.start()
     closer.join(timeout=30)
     if closer.is_alive():
         # Kill the stuck workers so the failure doesn't also hang pytest's exit.
-        for worker in remote_iter._mp_pool._pool:
+        for worker in pool._pool:
             worker.kill()
         pytest.fail("close() hung waiting for pool workers")
 
