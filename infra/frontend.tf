@@ -2,69 +2,17 @@
 # distribution routes /api/* to the API instance, so the site and API share an
 # origin and the frontend can call the relative /api path.
 
-locals {
-  site_bucket_name = coalesce(var.site_bucket_name, "${local.name}-site")
-  site_origin_id   = "site-bucket"
-  api_origin_id    = "api"
-}
-
-data "aws_route53_zone" "main" {
-  name         = var.zone_name
-  private_zone = false
-}
-
+# New buckets are private, owner-enforced and SSE-S3 encrypted by default.
 resource "aws_s3_bucket" "site" {
-  bucket = local.site_bucket_name
+  bucket = "${local.name}-site"
 }
 
-resource "aws_s3_bucket_ownership_controls" "site" {
-  bucket = aws_s3_bucket.site.id
-
-  rule {
-    object_ownership = "BucketOwnerEnforced"
-  }
-}
-
-resource "aws_s3_bucket_public_access_block" "site" {
-  bucket = aws_s3_bucket.site.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "site" {
-  bucket = aws_s3_bucket.site.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
-# ListBucket lets missing files return 404 instead of 403.
+# Only this distribution may read the bucket. ListBucket lets missing files
+# return 404 instead of 403.
 data "aws_iam_policy_document" "site_bucket" {
   statement {
-    actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.site.arn}/*"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["cloudfront.amazonaws.com"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "AWS:SourceArn"
-      values   = [aws_cloudfront_distribution.site.arn]
-    }
-  }
-
-  statement {
-    actions   = ["s3:ListBucket"]
-    resources = [aws_s3_bucket.site.arn]
+    actions   = ["s3:GetObject", "s3:ListBucket"]
+    resources = [aws_s3_bucket.site.arn, "${aws_s3_bucket.site.arn}/*"]
 
     principals {
       type        = "Service"
@@ -82,8 +30,6 @@ data "aws_iam_policy_document" "site_bucket" {
 resource "aws_s3_bucket_policy" "site" {
   bucket = aws_s3_bucket.site.id
   policy = data.aws_iam_policy_document.site_bucket.json
-
-  depends_on = [aws_s3_bucket_public_access_block.site]
 }
 
 resource "aws_acm_certificate" "site" {
@@ -159,14 +105,14 @@ resource "aws_cloudfront_distribution" "site" {
   price_class         = "PriceClass_100"
 
   origin {
-    origin_id                = local.site_origin_id
+    origin_id                = "site"
     domain_name              = aws_s3_bucket.site.bucket_regional_domain_name
     origin_access_control_id = aws_cloudfront_origin_access_control.site.id
   }
 
   origin {
-    origin_id   = local.api_origin_id
-    domain_name = aws_route53_record.api_origin.fqdn
+    origin_id   = "api"
+    domain_name = aws_eip.api.public_dns
 
     custom_origin_config {
       http_port              = local.api_port
@@ -179,7 +125,7 @@ resource "aws_cloudfront_distribution" "site" {
   }
 
   default_cache_behavior {
-    target_origin_id       = local.site_origin_id
+    target_origin_id       = "site"
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET", "HEAD", "OPTIONS"]
     cached_methods         = ["GET", "HEAD"]
@@ -194,7 +140,7 @@ resource "aws_cloudfront_distribution" "site" {
 
   ordered_cache_behavior {
     path_pattern             = "/api/*"
-    target_origin_id         = local.api_origin_id
+    target_origin_id         = "api"
     viewer_protocol_policy   = "redirect-to-https"
     allowed_methods          = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
     cached_methods           = ["GET", "HEAD"]

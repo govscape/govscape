@@ -22,10 +22,6 @@ output "api_instance_id" {
   value       = aws_instance.api.id
 }
 
-output "api_origin_domain" {
-  value = aws_route53_record.api_origin.fqdn
-}
-
 output "api_public_ip" {
   value = aws_eip.api.public_ip
 }

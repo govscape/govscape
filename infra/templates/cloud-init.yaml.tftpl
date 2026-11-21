@@ -28,7 +28,7 @@ write_files:
         -v /data:/data \
         -e GUNICORN_BIND=0.0.0.0:${api_port} \
         -e GUNICORN_WORKERS=${gunicorn_workers} \
-        -e GUNICORN_THREADS=${gunicorn_threads} \
+        -e GUNICORN_THREADS=4 \
         -e HF_HOME=/data/hf-cache \
         -e AWS_REGION=us-west-2 \
         -e AWS_EC2_METADATA_DISABLED=true \

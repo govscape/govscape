@@ -1,11 +1,10 @@
 # A single EC2 instance runs the API container. CloudFront reaches it over HTTP
-# on port 8080 through a DNS name pointing at its Elastic IP; the security group
+# on port 8080 through its Elastic IP's public DNS name; the security group
 # only admits CloudFront's origin-facing IP ranges. Shell access is through SSM
 # Session Manager, so there is no SSH port or key pair.
 
 locals {
-  api_port      = 8080
-  origin_domain = "origin.${var.site_domains[0]}"
+  api_port = 8080
 }
 
 data "aws_ssm_parameter" "al2023_ami" {
@@ -77,7 +76,6 @@ resource "aws_instance" "api" {
     serving_data_dir = var.serving_data_dir
     server_args      = var.server_args
     gunicorn_workers = var.gunicorn_workers
-    gunicorn_threads = var.gunicorn_threads
   })
   # Deploys (a new app_image or server settings) replace the instance.
   user_data_replace_on_change = true
@@ -115,12 +113,4 @@ resource "aws_eip" "api" {
   }
 
   depends_on = [aws_internet_gateway.main]
-}
-
-resource "aws_route53_record" "api_origin" {
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = local.origin_domain
-  type    = "A"
-  ttl     = 60
-  records = [aws_eip.api.public_ip]
 }

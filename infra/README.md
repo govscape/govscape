@@ -7,7 +7,7 @@ All data (page images, indices, PDFs) is served from source.coop; AWS only hosts
 viewer ──HTTPS──► CloudFront (site_domains, ACM cert)
                     ├─ default  ──► S3 bucket (SvelteKit static build, private via OAC)
                     │               + spa_rewrite function: extension-less paths → /index.html
-                    └─ /api/*   ──► origin.<site domain>:8080 (HTTP) ──► EC2 instance (Elastic IP)
+                    └─ /api/*   ──► Elastic IP public DNS name:8080 (HTTP) ──► EC2 instance
                                      Docker: ghcr.io/govscape/govscape, run_gunicorn
                                      indices pulled anonymously from source.coop on start
 browser ──► data.source.coop/govscape/eota-derivative-data/<serving dir>/img  (page images)
@@ -19,8 +19,9 @@ The stack starts out serving `next.govscape.net` (see `terraform.tfvars`). The e
 | File | Contents |
 | --- | --- |
 | `bootstrap/` | S3 bucket for this stack's state (applied once, keeps its own local state) |
+| `main.tf` | OpenTofu and provider versions, state backend, AWS providers, `govscape.net` zone lookup |
 | `network.tf` | VPC, one public subnet, internet gateway |
-| `api.tf` | API instance, Elastic IP, security group (CloudFront origin-facing IPs only), SSM role, `origin.` DNS record |
+| `api.tf` | API instance, Elastic IP, security group (CloudFront origin-facing IPs only), SSM role |
 | `frontend.tf` | Site bucket, CloudFront distribution and SPA function, ACM certificate, DNS aliases |
 | `github.tf` | GitHub Actions OIDC provider and the frontend deploy role |
 | `templates/cloud-init.yaml.tftpl` | Instance bootstrap: Docker + `govscape-api` systemd service |

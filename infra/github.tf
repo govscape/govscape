@@ -41,7 +41,7 @@ data "aws_iam_policy_document" "site_deploy_assume_role" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:ref:refs/heads/${var.github_deploy_branch}"]
+      values   = ["repo:govscape/govscape:ref:refs/heads/main"]
     }
   }
 }
