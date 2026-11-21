@@ -81,7 +81,9 @@ Security note: traffic between CloudFront and the instance is plain HTTP. The se
 
 ## Sizing
 
-The FAISS indices are held in memory by every gunicorn worker (shared copy-on-write through `preload_app`), and the text and visual models run on the CPU. `t3.xlarge` (16 GiB) is enough for a 100-PDF serving directory. Before serving the full dataset, size `instance_type` (a memory-optimized `r7i.*` instance is a good start) and `root_volume_gb` to the sizes of `index/`, `index_img_pg/`, `index_keyword/` and `index_metadata/`. Then tune `gunicorn_workers`.
+The downloaded indices and the model cache live in `/data`, on the instance's local NVMe instance store: the keyword and metadata indices need fast local disk. Instance-store data is lost on stop/start (not on reboot); the service formats the disk on boot and downloads the indices again. So `instance_type` must be one with instance storage (a `d` type such as `m6id` or `r6id`); `tofu plan` rejects others.
+
+The FAISS indices are also held in memory by every gunicorn worker (shared copy-on-write through `preload_app`), and the text and visual models run on the CPU. `m6id.xlarge` (4 vCPU, 16 GiB, 237 GB NVMe) is enough for a 100-PDF serving directory. Before serving the full dataset, size `instance_type` so the instance store fits `index/`, `index_img_pg/`, `index_keyword/` and `index_metadata/` and RAM fits the FAISS indices (a memory-optimized `r6id.*` instance is a good start). Then tune `gunicorn_workers`. Only the first instance-store device is used, so prefer sizes with a single NVMe disk.
 
 ## Cutover to govscape.net
 

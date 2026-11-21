@@ -1,19 +1,46 @@
 #cloud-config
 # Runs the GovScape API container under systemd. On every start the container
-# pulls the serving indices from source.coop (scripts.serving.run_gunicorn),
-# then starts gunicorn on port ${api_port}.
+# pulls the serving indices from source.coop (scripts.serving.run_gunicorn)
+# into /data, then starts gunicorn on port ${api_port}. /data is the instance's
+# local NVMe instance store, which comes up blank after every stop/start, so it
+# is formatted on boot when needed; the indices are downloaded again anyway.
 package_update: true
 packages:
   - docker
 
 write_files:
+  - path: /usr/local/sbin/mount-instance-store
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      dev=$(lsblk -dnpo NAME,MODEL | awk '/Instance Storage/ {print $1; exit}')
+      if [ -z "$dev" ]; then
+        echo "no NVMe instance store found" >&2
+        exit 1
+      fi
+      blkid "$dev" >/dev/null || mkfs.xfs -f "$dev"
+      mkdir -p /data
+      mountpoint -q /data || mount -o noatime "$dev" /data
+
+  - path: /etc/systemd/system/govscape-data.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Mount the NVMe instance store at /data
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/local/sbin/mount-instance-store
+
   - path: /etc/systemd/system/govscape-api.service
     permissions: "0644"
     content: |
       [Unit]
       Description=GovScape API
-      Requires=docker.service
-      After=docker.service network-online.target
+      Requires=docker.service govscape-data.service
+      After=docker.service govscape-data.service network-online.target
       Wants=network-online.target
 
       [Service]
@@ -43,7 +70,6 @@ write_files:
       WantedBy=multi-user.target
 
 runcmd:
-  - mkdir -p /data
   - systemctl enable --now docker
   - systemctl daemon-reload
   - systemctl enable --now govscape-api.service

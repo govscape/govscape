@@ -11,6 +11,10 @@ data "aws_ssm_parameter" "al2023_ami" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
 }
 
+data "aws_ec2_instance_type" "api" {
+  instance_type = var.instance_type
+}
+
 data "aws_ec2_managed_prefix_list" "cloudfront_origin_facing" {
   name = "com.amazonaws.global.cloudfront.origin-facing"
 }
@@ -98,6 +102,11 @@ resource "aws_instance" "api" {
   }
 
   lifecycle {
+    precondition {
+      condition     = data.aws_ec2_instance_type.api.instance_storage_supported
+      error_message = "instance_type must have NVMe instance storage (e.g. m6id, r6id, c6id); /data lives there."
+    }
+
     # Don't replace the instance whenever AWS publishes a new AMI; a replacement
     # for any other reason picks up the latest one.
     ignore_changes = [ami]

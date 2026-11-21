@@ -19,13 +19,13 @@ variable "app_image" {
 }
 
 variable "instance_type" {
-  description = "x86_64 instance type for the API; FAISS indices are held in memory, so size RAM to the serving data"
+  description = "x86_64 instance type with NVMe instance storage, which holds the downloaded indices; FAISS indices are also held in memory, so size RAM to the serving data"
   type        = string
-  default     = "t3.xlarge"
+  default     = "m6id.xlarge"
 }
 
 variable "root_volume_gb" {
-  description = "Root volume size, which holds the Docker image, downloaded indices, and model cache"
+  description = "Root volume size, which holds the OS and the Docker image (data lives on the instance store)"
   type        = number
   default     = 60
 }

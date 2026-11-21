@@ -6,4 +6,4 @@ site_domains = ["next.govscape.net"]
 app_image = "ghcr.io/govscape/govscape:main"
 
 serving_data_dir = "prod-serving"
-instance_type    = "t3.xlarge"
+instance_type    = "m6id.xlarge"
