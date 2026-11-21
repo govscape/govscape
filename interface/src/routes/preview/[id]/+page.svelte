@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { apiFetch, getImageBaseUrl } from '$lib/utils/fetch';
+  import { apiFetch, getImageBaseUrl, getPdfUrl } from '$lib/utils/fetch';
 
   export let data;
   let id = data.id;
@@ -121,9 +121,9 @@
 
   async function downloadPDF() {
     if (!id) return;
-    const s3Url = `https://bcgl-public-bucket.s3.amazonaws.com/archive/2020/PDFs/${id}.pdf`;
+    const pdfUrl = getPdfUrl(id);
     try {
-      const response = await fetch(s3Url);
+      const response = await fetch(pdfUrl);
       if (!response.ok) throw new Error('Failed to download PDF');
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);

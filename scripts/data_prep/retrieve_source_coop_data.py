@@ -1,16 +1,25 @@
 import argparse
 import logging
+import random
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import duckdb
 import pandas as pd
 import requests
 
-PARQUET_URL = (
-    "https://data.source.coop/govscape/eota-pdf-archive/cdx/complete_cdx.parquet"
+from govscape.config import (
+    PDF_ARCHIVE_BUCKET,
+    PDF_ARCHIVE_CDX_KEY,
+    PDF_ARCHIVE_PDF_DIR,
+    SOURCE_COOP_ENDPOINT,
 )
-PDF_BASE_URL = "https://data.source.coop/govscape/eota-pdf-archive/pdfs"
+from govscape.utils import iter_cdx_row_groups
+
+ARCHIVE_URL = f"{SOURCE_COOP_ENDPOINT}/{PDF_ARCHIVE_BUCKET}"
+PARQUET_URL = f"{ARCHIVE_URL}{PDF_ARCHIVE_CDX_KEY}"
+PDF_BASE_URL = f"{ARCHIVE_URL}{PDF_ARCHIVE_PDF_DIR}".rstrip("/")
 DEFAULT_PDF_DIR = Path("tests/test_data/pdfs")
 DEFAULT_CDX_DIR = Path("tests/test_data/cdx")
 CDX_SAMPLE_FILENAME = "complete_cdx_sample.parquet"
@@ -46,16 +55,38 @@ def _download_pdf(session: requests.Session, digest: str, pdf_dir: Path) -> Path
 
 
 def _save_cdx_rows(
-    connection: duckdb.DuckDBPyConnection, digests: list[str], cdx_path: Path
+    connection: duckdb.DuckDBPyConnection,
+    digests: list[str],
+    cdx_path: Path,
+    known_rows: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
+    """Write the CDX rows of the given digests to cdx_path and return them.
+
+    Rows in known_rows (already read from the CDX) are reused; only the
+    remaining digests are looked up in the remote CDX, which requires scanning
+    its whole digest column because the CDX is not sorted by digest.
+    """
     if not digests:
         raise ValueError("No PDF digests found; cannot create a matching CDX sample.")
 
-    placeholders = ", ".join("?" for _ in digests)
-    rows = connection.execute(
-        f"SELECT * FROM read_parquet(?) WHERE digest IN ({placeholders})",
-        [PARQUET_URL, *digests],
-    ).df()
+    frames = []
+    lookup_digests = list(digests)
+    if known_rows is not None and not known_rows.empty:
+        known_rows = known_rows[known_rows["digest"].isin(digests)]
+        frames.append(known_rows)
+        lookup_digests = sorted(set(digests) - set(known_rows["digest"]))
+    if lookup_digests:
+        logger.info(
+            "Looking up CDX rows for %d PDFs in the remote CDX", len(lookup_digests)
+        )
+        placeholders = ", ".join("?" for _ in lookup_digests)
+        frames.append(
+            connection.execute(
+                f"SELECT * FROM read_parquet(?) WHERE digest IN ({placeholders})",
+                [PARQUET_URL, *lookup_digests],
+            ).df()
+        )
+    rows = pd.concat(frames, ignore_index=True).drop_duplicates()
     missing_digests = set(digests) - set(rows["digest"])
     if missing_digests:
         logger.warning(
@@ -65,6 +96,29 @@ def _save_cdx_rows(
         raise ValueError("No CDX records found for any PDF digest.")
     rows.to_parquet(cdx_path, index=False)
     return rows
+
+
+def _iter_candidate_rows(
+    connection: duckdb.DuckDBPyConnection, url_filter: str | None, sample: bool
+) -> Iterator[pd.DataFrame]:
+    """Yield batches of CDX rows to pick PDFs from.
+
+    By default rows are streamed in CDX order, so DuckDB stops reading the remote
+    parquet once enough PDFs have been downloaded. With sample=True, whole row
+    groups are read in random order instead (see iter_cdx_row_groups).
+    """
+    if sample:
+        yield from iter_cdx_row_groups(connection, PARQUET_URL, url_filter)
+        return
+
+    query = "SELECT * FROM read_parquet(?) WHERE digest IS NOT NULL AND digest <> ''"
+    params = [PARQUET_URL]
+    if url_filter:
+        query += " AND lower(url) LIKE ?"
+        params.append(f"%{url_filter.lower()}%")
+    result = connection.execute(query, params)
+    while not (rows := result.fetch_df_chunk()).empty:
+        yield rows
 
 
 def main() -> None:
@@ -98,8 +152,8 @@ def main() -> None:
     parser.add_argument(
         "--random",
         action="store_true",
-        help="Download a random sample instead of the first digests in CDX order. "
-        "This scans the whole remote CDX before the first download.",
+        help="Download a random sample instead of the first digests in CDX order, "
+        "drawn from randomly chosen row groups of the remote CDX.",
     )
     args = parser.parse_args()
     if args.num_pdfs <= 0:
@@ -114,30 +168,25 @@ def main() -> None:
             "Skipping %d PDFs already in %s", len(existing_digests), args.pdf_dir
         )
 
-    # Stream candidates without GROUP BY so DuckDB stops reading the remote parquet
-    # once enough new digests have been downloaded (unless --random forces a sort).
-    query = (
-        "SELECT digest FROM read_parquet(?) WHERE digest IS NOT NULL AND digest <> ''"
-    )
-    params = [PARQUET_URL]
-    if args.url_filter:
-        query += " AND lower(url) LIKE ?"
-        params.append(f"%{args.url_filter.lower()}%")
-    if args.random:
-        query += " ORDER BY random()"
     connection = duckdb.connect()
-    candidates = connection.execute(query, params)
-
     seen_digests = set(existing_digests)
     downloaded: list[str] = []
+    downloaded_rows = []
     with requests.Session() as session:
-        while len(downloaded) < args.num_pdfs:
-            candidate_batch = candidates.fetchmany(1000)
-            if not candidate_batch:
-                break
-            for (digest,) in candidate_batch:
-                if digest in seen_digests:
-                    continue
+        for candidate_rows in _iter_candidate_rows(
+            connection, args.url_filter, args.random
+        ):
+            # dict.fromkeys de-duplicates while keeping CDX order.
+            candidates = [
+                digest
+                for digest in dict.fromkeys(candidate_rows["digest"])
+                if digest not in seen_digests
+            ]
+            if args.random:
+                random.shuffle(candidates)
+            for digest in candidates:
+                if len(downloaded) == args.num_pdfs:
+                    break
                 seen_digests.add(digest)
                 try:
                     _download_pdf(session, digest, args.pdf_dir)
@@ -148,15 +197,28 @@ def main() -> None:
                     continue
                 downloaded.append(digest)
                 logger.info("Downloaded %d of %d PDFs", len(downloaded), args.num_pdfs)
-                if len(downloaded) == args.num_pdfs:
-                    break
+            downloaded_rows.append(
+                candidate_rows[candidate_rows["digest"].isin(downloaded)]
+            )
+            if len(downloaded) == args.num_pdfs:
+                break
 
     # The CDX sample and manifest both describe every PDF in pdf_dir, so they stay
-    # consistent across repeated runs into the same directory.
+    # consistent across repeated runs into the same directory. CDX rows already
+    # read while picking PDFs, or saved by an earlier run, are reused so that the
+    # remote CDX is only searched for the remaining PDFs. A new PDF's crawls that
+    # appear in parts of the CDX that were not read are therefore not included.
     pdf_digests = sorted(existing_digests | set(downloaded))
     if pdf_digests:
         cdx_path = args.cdx_dir / CDX_SAMPLE_FILENAME
-        rows = _save_cdx_rows(connection, pdf_digests, cdx_path)
+        if cdx_path.exists():
+            downloaded_rows.append(
+                pd.read_parquet(cdx_path, filters=[("digest", "in", pdf_digests)])
+            )
+        known_rows = (
+            pd.concat(downloaded_rows, ignore_index=True) if downloaded_rows else None
+        )
+        rows = _save_cdx_rows(connection, pdf_digests, cdx_path, known_rows)
         manifest = rows.groupby("digest", as_index=False)["url"].min()
         manifest.insert(0, "file", manifest["digest"] + ".pdf")
         manifest_path = args.cdx_dir / "digests_manifest.csv"

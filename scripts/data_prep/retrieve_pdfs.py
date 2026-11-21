@@ -24,9 +24,21 @@ _USER_AGENT = "govscape/0.1 (PDF Retrieval Script; kdeeds@cs.washington.edu)"
 _worker_data_loader: DataLoader | None = None
 
 
-def _init_worker(backend: str, bucket_name: str, local_base_dir: str) -> None:
+def _init_worker(
+    backend: str,
+    bucket_name: str,
+    local_base_dir: str,
+    profile_name: str | None,
+    endpoint_url: str | None,
+) -> None:
     global _worker_data_loader
-    _worker_data_loader = build_data_loader(backend, bucket_name, local_base_dir)
+    _worker_data_loader = build_data_loader(
+        backend,
+        bucket_name,
+        local_base_dir,
+        profile_name=profile_name,
+        endpoint_url=endpoint_url,
+    )
 
 
 def _is_parseable_pdf(data: bytes) -> bool:
@@ -101,7 +113,7 @@ def main() -> None:
     parser.add_argument(
         "--cdx_parquet",
         required=True,
-        help="Remote key of CDX parquet file in the output bucket",
+        help="Remote key of CDX parquet file in the PDF archive",
     )
     parser.add_argument(
         "--output_dir", required=True, help="Remote key prefix for output PDFs"
@@ -120,7 +132,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    data_loader = build_data_loader(args.backend, args.bucket_name, args.local_base_dir)
+    data_loader = build_data_loader(
+        args.backend,
+        args.pdf_bucket_name,
+        args.local_base_dir,
+        profile_name=args.pdf_profile,
+        endpoint_url=args.endpoint_url,
+    )
     with tempfile.TemporaryDirectory(prefix="retrieve_pdfs_") as tmp_dir:
         local_parquet = os.path.join(tmp_dir, "cdx.parquet")
         logging.info("Downloading %s", args.cdx_parquet)
@@ -153,7 +171,13 @@ def main() -> None:
         with ctx.Pool(
             processes=num_workers,
             initializer=_init_worker,
-            initargs=(args.backend, args.bucket_name, args.local_base_dir),
+            initargs=(
+                args.backend,
+                args.pdf_bucket_name,
+                args.local_base_dir,
+                args.pdf_profile,
+                args.endpoint_url,
+            ),
         ) as pool:
             for status in pool.imap_unordered(
                 _process_one_pdf,

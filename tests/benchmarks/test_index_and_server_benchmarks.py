@@ -115,12 +115,12 @@ def test_vector_indices_build_benchmark(
 
     def run():
         index_dir = tmp_path / uuid.uuid4().hex
-        text_index, *_ = build_vector_index(
+        text_index = build_vector_index(
             FAISSIndex,
             processed_data_model.embedding_directory,
             str(index_dir / "text"),
         )
-        visual_index, *_ = build_vector_index(
+        visual_index = build_vector_index(
             FAISSIndex,
             processed_data_model.embedding_img_pg_directory,
             str(index_dir / "visual"),
@@ -149,12 +149,12 @@ def server_ready_data_model(processed_data_model, sample_pdf_files) -> DataModel
         processed_data_model.index_keyword_directory,
     )
 
-    text_index, text_vectors, text_digests, text_pages = build_vector_index(
+    build_vector_index(
         FAISSIndex,
         processed_data_model.embedding_directory,
         processed_data_model.index_directory,
     )
-    visual_index, visual_vectors, visual_digests, visual_pages = build_vector_index(
+    build_vector_index(
         FAISSIndex,
         processed_data_model.embedding_img_pg_directory,
         processed_data_model.index_img_pg_directory,
@@ -165,10 +165,6 @@ def server_ready_data_model(processed_data_model, sample_pdf_files) -> DataModel
         SQLiteMetadataIndex,
         processed_data_model.index_metadata_directory,
         metadata_records,
-        vectors_by_store_key={
-            "text": (text_vectors, text_digests, text_pages),
-            "visual": (visual_vectors, visual_digests, visual_pages),
-        },
     )
 
     write_total_pdfs_stat(processed_data_model, sample_pdf_files)

@@ -1,4 +1,11 @@
 from .base import AbstractIndex
+from .forward import (
+    FORWARD_INDEX_TYPES,
+    ForwardIndex,
+    LMDBForwardIndex,
+    SQLiteForwardIndex,
+    build_forward_index,
+)
 from .hybrid import (
     STRATEGY_POSTFILTER,
     STRATEGY_PREFILTER,
@@ -26,6 +33,7 @@ from .vector import (
 )
 
 __all__ = [
+    "FORWARD_INDEX_TYPES",
     "STRATEGY_POSTFILTER",
     "STRATEGY_PREFILTER",
     "AbstractHybridMetadataIndex",
@@ -35,13 +43,17 @@ __all__ = [
     "AbstractVectorIndex",
     "DuckDBMetadataIndex",
     "FAISSIndex",
+    "ForwardIndex",
     "HybridIndex",
     "HybridKeywordMetadataIndex",
     "HybridVectorMetadataIndex",
+    "LMDBForwardIndex",
     "LanceDBKeywordIndex",
     "LanceDBVectorIndex",
     "LuceneKeywordIndex",
+    "SQLiteForwardIndex",
     "SQLiteKeywordIndex",
     "SQLiteMetadataIndex",
     "WhooshKeywordIndex",
+    "build_forward_index",
 ]

@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from govscape.indexing import (
@@ -142,3 +144,22 @@ def test_predicate_no_matches_returns_empty(index):
         ["air_quality.pdf"], [EqualityPredicate("sub_domain", "nasa.gov")]
     )
     assert result == {}
+
+
+def test_concurrent_queries(index):
+    # Hybrid search queries the metadata index from several threads at once.
+    predicates = [EqualityPredicate("sub_domain", "epa.gov")]
+
+    def query(_):
+        return (
+            index.estimate_selectivity(predicates),
+            index.get_candidate_digests(predicates),
+            sorted(index.search(["air_quality.pdf", "solar_grid.pdf"], predicates)),
+        )
+
+    expected = query(None)
+    with ThreadPoolExecutor(max_workers=16) as executor:
+        results = list(executor.map(query, range(400)))
+
+    assert expected[0] == pytest.approx(0.5)
+    assert all(result == expected for result in results)
