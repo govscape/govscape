@@ -4,14 +4,11 @@ name: Deploy Site
 # variables come from `tofu output` (see infra/README.md):
 #   AWS_SITE_DEPLOY_ROLE_ARN, SITE_BUCKET, SITE_DISTRIBUTION_ID
 # The current govscape.net site is still deployed by deploy-frontend.yml.
+#
+# Run by hand from main (the deploy role only trusts main):
+#   gh workflow run deploy-site.yml --ref main
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'interface/**'
-      - '.github/workflows/deploy-site.yml'
   workflow_dispatch:
 
 permissions:

@@ -57,11 +57,11 @@ gh variable set SITE_BUCKET              --body "$(tofu output -raw site_bucket)
 gh variable set SITE_DISTRIBUTION_ID     --body "$(tofu output -raw site_distribution_id)"
 ```
 
-4. Run the **Deploy Site** workflow (Actions → Deploy Site → Run workflow), or push a change under `interface/` to `main`.
+4. Run the **Deploy Site** workflow from `main` (Actions → Deploy Site → Run workflow, or `gh workflow run deploy-site.yml --ref main`).
 
 ## Deploying
 
-- **Frontend:** `deploy-site.yml` runs on every push to `main` that touches `interface/`. It syncs the build to the site bucket and invalidates `/index.html`.
+- **Frontend:** run `deploy-site.yml` by hand from `main` (`gh workflow run deploy-site.yml --ref main`); it doesn't run on pushes. It builds `interface/`, syncs the build to the site bucket and invalidates `/index.html`. The deploy role only trusts `main`, so runs from other branches fail to get AWS credentials.
 - **API:** `publish-app-image.yml` publishes `ghcr.io/govscape/govscape:sha-<short sha>` (and `:main`) on every push to `main`. To deploy, set `app_image` in `terraform.tfvars` to the new `sha-` tag and run `tofu apply`. This replaces the instance, so expect a few minutes of API downtime while the new one pulls the image, downloads the indices and loads the models. Changing other server settings (`serving_data_dir`, `server_args`, gunicorn settings) works the same way.
 - **New data:** after regenerating the serving directory, restart the service (below). The service downloads the indices again every time it starts.
 
