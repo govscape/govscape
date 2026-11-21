@@ -162,13 +162,12 @@ class DataLoader(ABC):
             ]
             if tasks:
                 workers = min(os.cpu_count() or 1, len(tasks))
-                with Pool(processes=workers) as pool:
-                    pool.map(self._create_tar_chunk, tasks)
-                    # Let workers exit on their own: Pool.__exit__ terminates
-                    # them, and some native libs' SIGTERM handlers (e.g.
-                    # Paddle's) can deadlock.
-                    pool.close()
-                    pool.join()
+                # Threads, not a forked Pool: zlib releases the GIL while
+                # compressing, and forking a process that has other threads
+                # running (servers, native libs) can leave a worker deadlocked
+                # on a lock inherited mid-use, hanging the pool's join forever.
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    list(executor.map(self._create_tar_chunk, tasks))
             self.upload_directory(tmp_dir, remote_prefix, compress=False)
 
     @abstractmethod
