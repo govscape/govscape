@@ -118,10 +118,14 @@ class Server:
 
         # Initialize Flask app and API
         self.app = Flask(__name__, static_folder=build_dir, static_url_path="")
-        # TODO: Remove localhost:5173 soon for security concerns
+        # TODO: Remove localhost/127.0.0.1:5173 soon for security concerns
         CORS(
             self.app,
-            origins=["https://govscape.net", "http://localhost:5173"],
+            origins=[
+                "https://govscape.net",
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+            ],
             supports_credentials=True,
         )
 
