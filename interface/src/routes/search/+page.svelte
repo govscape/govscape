@@ -36,7 +36,7 @@
 
     return {
       q,
-      mode: ['textual', 'visual', 'keyword'].includes(mode) ? mode : 'textual',
+      mode: ['textual', 'visual', 'keyword', 'hybrid_weights'].includes(mode) ? mode : 'textual',
       page: Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1,
       filters: {
         crawledAfter: crawledAfter || null,

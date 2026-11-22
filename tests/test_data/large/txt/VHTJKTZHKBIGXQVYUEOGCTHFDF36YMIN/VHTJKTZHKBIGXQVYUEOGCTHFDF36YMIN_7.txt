@@ -1,9 +1,0 @@
-IInnccrreeaassiinngg DDiiggeessttiibbllee FFiibbeerr ooff AAllffaallffaa
-CChhaannggeess iinn CCPP NNDDFF ddNNDDFF TTDDNN
-ddNNDDFF ------------------%% ooff ddrryy wweeiigghhtt----------------
-2200 %% hhiigghheerr 2222 3366 6688 6677..44
-1100 %% hhiigghheerr 2222 3366 5588 6644..33
-AAssssuummeedd nnooww 2222 3366 4488 6611..33
-1100 %% lloowweerr 2222 3366 3388 5588..33
-AAddaapptteedd ffrroomm RRoobbiinnssoonn,, 11999988
-USDFRC

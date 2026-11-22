@@ -8,6 +8,9 @@ import numpy as np
 
 import pyarrow as pa
 
+from .base import AbstractIndex
+from .forward import ForwardIndex, build_forward_index
+
 
 # Avoid annoying output from faiss during import
 @contextlib.contextmanager
@@ -28,10 +31,14 @@ with suppress_output():
     import faiss
 
 
-class AbstractVectorIndex(ABC):
-    @abstractmethod
-    def __init__(self):
-        pass
+class AbstractVectorIndex(AbstractIndex, ABC):
+    # Each vector index maintains a forward index (digest -> page vectors) next
+    # to its search structure, used for exact scoring when prefiltering.
+    forward_index: ForwardIndex
+
+    def get_vectors_for_digests(self, candidate_digests):
+        """Return (vectors, digests, pages) for every page of the candidates."""
+        return self.forward_index.get_vectors_for_digests(candidate_digests)
 
     @abstractmethod
     def build_index(self):
@@ -67,8 +74,9 @@ class AbstractVectorIndex(ABC):
 
 
 class FAISSIndex(AbstractVectorIndex):
-    def __init__(self, index_directory, index_type="IVFPQ"):
+    def __init__(self, index_directory, index_type="IVFPQ", forward_index_type="LMDB"):
         self.index_directory = index_directory
+        self.forward_index = build_forward_index(forward_index_type, index_directory)
         self.faiss_index = None
         self.index_type = index_type
         self.d = None
@@ -128,6 +136,7 @@ class FAISSIndex(AbstractVectorIndex):
         self.faiss_index.add(embeddings)
         self.pdf_names.extend(pdf_names)
         self.pdf_pages.extend(pdf_pages)
+        self.forward_index.add_batch(embeddings, pdf_names, pdf_pages)
 
     def build_index(self):
         return
@@ -137,10 +146,12 @@ class FAISSIndex(AbstractVectorIndex):
         index_path = os.path.join(self.index_directory, "faiss_index.pkl")
         with open(index_path, "wb") as handle:
             pkl.dump(self, handle)
+        self.forward_index.save_index()
         print(f"Index saved to {self.index_directory}/faiss_index.pkl")
         return
 
     def load_index(self):
+        self.forward_index.load_index()
         index_path = os.path.join(self.index_directory, "faiss_index.pkl")
         if not os.path.exists(index_path):
             return
@@ -180,8 +191,11 @@ class FAISSIndex(AbstractVectorIndex):
 
 
 class LanceDBVectorIndex(AbstractVectorIndex):
-    def __init__(self, index_directory, table_name="vector_index"):
+    def __init__(
+        self, index_directory, table_name="vector_index", forward_index_type="LMDB"
+    ):
         self.index_directory = index_directory
+        self.forward_index = build_forward_index(forward_index_type, index_directory)
         self.table_name = table_name
         self.db = None
         self.table = None
@@ -247,8 +261,10 @@ class LanceDBVectorIndex(AbstractVectorIndex):
         ]
         if rows:
             self.table.add(rows)
+        self.forward_index.add_batch(embeddings, pdf_names, pdf_pages)
 
     def save_index(self):
+        self.forward_index.save_index()
         if self.table is None:
             self.load_index()
         if self.table is None:
@@ -263,6 +279,7 @@ class LanceDBVectorIndex(AbstractVectorIndex):
         self.table.optimize()
 
     def load_index(self):
+        self.forward_index.load_index()
         self._connect()
         try:
             self.table = self.db.open_table(self.table_name)

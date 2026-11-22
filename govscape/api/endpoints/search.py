@@ -13,6 +13,9 @@ search_input = ns.model(
         "query": fields.String(required=True, description="Search query text"),
         "search_type": fields.String(required=True, description="Search query text"),
         "filters": fields.Raw(description="Filters to apply to the search"),
+        "weights": fields.Raw(
+            description=("Optional per-search weights for hybrid searches")
+        ),
         "page": fields.Integer(description="Page number for pagination", default=1),
         "page_size": fields.Integer(description="Page size for pagination"),
     },
@@ -121,7 +124,7 @@ class Search(Resource):
             search_type=search_type,
             predicates=predicates,
             page=data.get("page", 1),
-            page_size=data.get("page_size"),
+            weights=data.get("weights", None),
         )
 
         server = current_app.server

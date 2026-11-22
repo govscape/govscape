@@ -44,6 +44,7 @@ class Query:
         page: int = 1,
         page_size: int | None = None,
         include_metadata: bool = False,
+        weights: dict | None = None,
     ):
         self.q_text = q_text
         self.search_type = search_type
@@ -51,6 +52,9 @@ class Query:
         self.page = page
         self.page_size = page_size
         self.include_metadata = include_metadata
+        # Optional per-query weights for hybrid searches.
+        # Example: {"textual": 0.3, "visual": 0.3, "keyword": 0.4}
+        self.weights = weights or {}
 
 
 class Response:

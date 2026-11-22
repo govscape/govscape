@@ -11,6 +11,9 @@ jobs:
         python: ['3.11.14']
       fail-fast: false
     runs-on: ${{ matrix.os }}
+    # The suite takes ~6 minutes; fail a hung run quickly instead of after
+    # GitHub's 6-hour default (pytest dumps stacks after 5 minutes on one test).
+    timeout-minutes: 30
     container:
       image: ghcr.io/bcglee/govscape-base:py${{ matrix.python }}-lucene10.0.0-poetry2.3.2
     steps:
@@ -25,6 +28,58 @@ jobs:
           export PATH=$PATH:/opt/poetry/bin
           poetry run pytest tests
       - uses: codecov/codecov-action@v5
+
+  benchmarks:
+    name: CodSpeed Benchmarks
+    runs-on: ubuntu-latest
+    # These benchmarks run the real ST/CLIP embedding models over the full
+    # ~1,660-page sample corpus (see tests/benchmarks/conftest.py) and took
+    # ~10 minutes on a 16-core machine; CI runners typically have fewer
+    # cores, so allow generous headroom before treating the job as hung.
+    timeout-minutes: 60
+    # Deliberately NOT run inside the govscape-base container (unlike the
+    # `test` job): CodSpeed's `walltime` instrument needs to adjust a
+    # host-level kernel sysctl (kernel.kptr_restrict), which a Docker
+    # container job can't do even running as root, causing
+    # "sysctl: permission denied" / "Failed to execute command with sudo"
+    # failures. This is safe because tests/benchmarks never touches
+    # govscape.indexing/pylucene (the only reason the other job needs the
+    # custom image), so a plain Python + Poetry setup is sufficient.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v6
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Not pinned to a patch version (unlike the `test` job's
+          # py3.11.14 container image): ubuntu-latest periodically moves to
+          # a newer Ubuntu release, and actions/setup-python only ships
+          # prebuilt binaries for patch versions released after that
+          # Ubuntu version existed (e.g. 3.11.14 has no Ubuntu 26.04 build,
+          # since 26.04 postdates it). This job doesn't need pylucene/the
+          # custom image, so floating to the latest 3.11.x avoids that.
+          python-version: '3.11'
+      - name: Install Poetry
+        run: pipx install poetry==2.3.2
+      - name: Install packages
+        run: poetry install
+      - name: Run CodSpeed benchmarks
+        uses: CodSpeedHQ/action@v5
+        with:
+          # The benchmarked PDF-processing stages do real file I/O and spawn
+          # worker processes, which CPU simulation can't instrument well;
+          # `walltime` measures real elapsed time instead (see
+          # `tests/benchmarks/test_pdf_processing_benchmarks.py`).
+          mode: walltime
+          # -v: print each test's name/result as it finishes (not just dots).
+          # --log-cli-level=INFO: stream the stage-by-stage `logging.info(...)`
+          # progress markers in test_pdf_processing_benchmarks.py live, so a
+          # long-running benchmark's progress (or lack of it) is visible
+          # instead of only seeing output once it completes.
+          run: poetry run pytest tests/benchmarks --codspeed -v --log-cli-level=INFO
 
 on:
   # Trigger the workflow on push or pull request,

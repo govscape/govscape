@@ -1,6 +1,0 @@
-Understanding: ….. Predicting
-Year to year population fluctuations
-Seasonal population development
-Daily activity fluctuations
-(effects of wind, temperature, cloud cover)
-Population hot spots

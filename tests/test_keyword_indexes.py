@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from govscape.indexing import (
@@ -92,4 +94,24 @@ def test_keyword_indexes_round_trip(tmp_path, index_cls, sample_documents):
     _, filtered_pdfs, _ = reloaded_index.search_filtered(
         "resilience", k=5, allowed_names=allowed
     )
+    assert filtered_pdfs == [digests[1]]
+
+
+def test_sqlite_keyword_index_search_filtered_is_thread_safe(
+    tmp_path, sample_documents
+):
+    texts, digests, pages = sample_documents
+    index_dir = tmp_path / "keyword_index"
+    index = SQLiteKeywordIndex(index_dir.as_posix())
+    index.build_index()
+    index.add_batch(texts, digests, pages)
+    index.save_index()
+
+    index.load_index()
+    allowed = {digests[1]}
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(index.search_filtered, "resilience", 5, allowed)
+        _, filtered_pdfs, _ = future.result()
+
     assert filtered_pdfs == [digests[1]]

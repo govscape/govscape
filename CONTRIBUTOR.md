@@ -39,7 +39,7 @@ When clicked, VS Code relaunches and builds the dev container; this will take a 
 Poetry will not use the workspace .venv folder, but will create an isolated virtual environment within the dev container with lucene and all other dependencies installed.
 This will not impact any Python environments on your host machine.
 
-AWS credentials at `~/.aws` on your host machine are automatically mounted onto the dev container. Both `aws` and `poetry run s5cmd` commands work without any additional configuration.
+AWS credentials at `~/.aws` on your host machine are automatically mounted onto the dev container, so profiles holding source.coop credentials (see the README) are available there. Remote data is read anonymously from source.coop by default; writing requires selecting one of those profiles with `--profile`/`--pdf_profile` or `AWS_PROFILE`.
 
 `docker` commands within the dev container interact with the Docker daemon on your host machine.
 Note that if you need to bind a directory in the workspace, the path must be from the host, not from within the dev container.
@@ -85,6 +85,32 @@ poetry run pytest
 - Tests are located in the `govscape/tests/` directory at the project root.
 - Write thorough tests for your new features and bug fixes.
 
+#### Performance Benchmarks
+
+Benchmarks live in `tests/benchmarks/` and cover the PDF processing pipeline (extraction, text embedding, and image embedding), using the real `ST` and
+`CLIP` models over the full real-world sample corpus in `tests/test_data/pdfs`
+(100 PDFs, ~1,660 pages).They use [`pytest-codspeed`](https://github.com/CodSpeedHQ/pytest-codspeed). Run these directly with the following command:
+```bash
+poetry run pytest tests/benchmarks --codspeed
+```
+
+The dedicated `benchmarks` CI job runs them with `--codspeed` on every push to
+`main` and every pull request using [CodSpeed](https://codspeed.io/) in
+`walltime` mode (TODO: find a dedicated runner), posting a performance comparison
+against the `main` baseline on PRs. Add new benchmarks as `test_*.py` files in
+`tests/benchmarks/`, using the `benchmark` fixture (or the
+`@pytest.mark.benchmark` marker) from `pytest-codspeed`.
+
+#### Regression Tests
+End-to-end regression tests are in
+`tests/test_pdf_processing_regressions.py`, using
+[`pytest-regressions`](https://pytest-regressions.readthedocs.io/en/latest/overview.html).
+This also uses the full `tests/test_data/pdfs` corpus, but with the cheap `Dummy` embedding models. If a change intentionally alters those outputs, regenerate the baselines with:
+
+```bash
+poetry run pytest tests/test_pdf_processing_regressions.py --force-regen
+```
+
 #### Optional Static Type Checking
 
 The pytest will run mypy to check for type errors, so you shouldn't need to run it manually.
@@ -96,7 +122,7 @@ poetry run mypy .
 
 ## Data Model
 
-Because the data that lives on the remote backend (i.e. AWS S3) is a core aspect of this project, we need clear documentation for how it is structured. This documentation lives in `DATA_MODEL.md`, and you should take a look at it to familiarize yourself with it. Any changes that alter this structure should update the data model file to make sure that it remains up to date.
+Because the data that lives on the remote backend (the govscape repositories on source.coop) is a core aspect of this project, we need clear documentation for how it is structured. This documentation lives in `DATA_MODEL.md`, and you should take a look at it to familiarize yourself with it. Any changes that alter this structure should update the data model file to make sure that it remains up to date.
 
 ## Code Style
 ### Assertions and Validation
@@ -134,30 +160,32 @@ logging.error("Something failed: %s", err)
 
 ## Running Govscape Locally
 
-To do this, you need to start by creating a directory within govscape/data that holds a set of PDFs and one that holds a `pdf_metadata.parquet` file. We will assume that these directories are named `govscape/data/s3_mock/archive/PDFs/` and `govscape/data/s3_mock/archive/CDX/pdf_metadata.parquet`.
+To do this, you need to start by creating a local mirror of the PDF archive within govscape/data that holds a set of PDFs and the CDX parquet file. We will assume that these are located at `govscape/data/s3_mock/pdfs/` and `govscape/data/s3_mock/cdx/complete_cdx_sample.parquet`, mirroring the layout of the [source.coop PDF archive](https://source.coop/govscape/eota-pdf-archive).
 
-You can pull this data from the S3 bucket by using:
-
-```
-poetry run python scripts/data_prep/download_sample_pdfs.py \
-    --bucket_name us-west-2.opendata.source.coop/govscape/eota-pdf-archive/ \
-    --local_base_dir data/s3_mock \
-    --num_pdfs 500
-```
-
-To work with a focused subset of the data, you can restrict the download to PDFs
-whose original source URL contains a given substring using the optional
-`--url_filter` argument (case-insensitive). For example, to pull only PDFs served
-from EPA domains:
+You can pull a sample of PDFs, plus the CDX rows that describe them, from the
+public [source.coop PDF archive](https://source.coop/govscape/eota-pdf-archive).
+No credentials are needed:
 
 ```
-poetry run python scripts/data_prep/download_sample_pdfs.py \
-    --bucket_name us-west-2.opendata.source.coop/govscape/eota-pdf-archive/ \
-    --local_base_dir data/s3_mock \
+poetry run python scripts/data_prep/retrieve_source_coop_data.py \
     --num_pdfs 500 \
-    --url_filter epa.gov
+    --pdf_dir data/s3_mock/pdfs \
+    --cdx_dir data/s3_mock/cdx
 ```
-Omit `--url_filter` to download an unfiltered sample.
+
+PDFs are saved by digest under `--pdf_dir`. The matching CDX records go to
+`<cdx_dir>/complete_cdx_sample.parquet`, and a `digests_manifest.csv` lists each
+PDF with its source URL. PDFs already in `--pdf_dir` are skipped, so rerunning the
+command adds new PDFs to the sample.
+
+To work with a focused subset of the data, add `--url_filter` to download only PDFs
+whose source URL contains a given substring (case-insensitive), e.g.
+`--url_filter epa.gov`. Add `--random` to take a random sample instead of the first
+digests in CDX order. Random samples are drawn from randomly chosen row groups of
+the remote CDX, so the full CDX (~11.5GB) is never scanned or downloaded.
+
+With no `--pdf_dir`/`--cdx_dir`, the script writes to `tests/test_data/pdfs/` and
+`tests/test_data/cdx/`, which is how the committed test sample was made.
 
 If you don't have AWS credentials configured, you can instead download directly
 over HTTP from the public `data.source.coop` endpoint (no credentials required)
@@ -184,7 +212,7 @@ To create the (dummy) embeddings & additional metadata, first run:
 
 ```
 poetry run python scripts/pipeline/run_embedding_pipeline.py --num_pages_to_process 5 \
-    --batch_size 100 --backend 'local' --local_base_dir 'data/s3_mock' --pdf_dir 'archive/PDFs/' \
+    --batch_size 100 --backend 'local' --local_base_dir 'data/s3_mock' --pdf_dir 'pdfs/' \
     --remote_data_dir "test-serving" --text_model_type 'Dummy' --visual_model_type 'Dummy'
 ```
 
@@ -198,7 +226,7 @@ poetry run python scripts/indexing/generate_index_embedding.py --num_pages_to_pr
 
 poetry run python scripts/indexing/generate_index_keyword.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --keyword_index_type 'SQLite'
 
-poetry run python scripts/indexing/generate_index_metadata.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --cdx_parquet_key  'archive/CDX/pdf_metadata.parquet'
+poetry run python scripts/indexing/generate_index_metadata.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --cdx_parquet_key 'cdx/complete_cdx_sample.parquet'
 ```
 
 At this point, all of the indices required to run the API server have been created. To start the API server locally, run:

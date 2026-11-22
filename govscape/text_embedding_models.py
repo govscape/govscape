@@ -33,7 +33,11 @@ class ST_TextEmbeddingModel(TextEmbeddingModel):
     def __init__(self):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
-        self.model.half()
+        # fp16 is a GPU-only optimization; converting to half precision on CPU
+        # is unsupported/unoptimized in PyTorch and makes inference an order
+        # of magnitude slower rather than faster.
+        if self.device != "cpu":
+            self.model.half()
 
     def encode_text(self, text, is_query=False):
         if self.model.device != self.device:
@@ -63,7 +67,11 @@ class BGE_TextEmbeddingModel(TextEmbeddingModel):
     def __init__(self):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.model = SentenceTransformer("BAAI/bge-base-en-v1.5")
-        self.model.half()
+        # fp16 is a GPU-only optimization; converting to half precision on CPU
+        # is unsupported/unoptimized in PyTorch and makes inference an order
+        # of magnitude slower rather than faster.
+        if self.device != "cpu":
+            self.model.half()
 
     def encode_text(self, text, is_query=False):
         if self.model.device != self.device:
@@ -98,7 +106,11 @@ class BGESmall_TextEmbeddingModel(TextEmbeddingModel):
     def __init__(self):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.model = SentenceTransformer("BAAI/bge-small-en-v1.5")
-        self.model.half()
+        # fp16 is a GPU-only optimization; converting to half precision on CPU
+        # is unsupported/unoptimized in PyTorch and makes inference an order
+        # of magnitude slower rather than faster.
+        if self.device != "cpu":
+            self.model.half()
 
     def encode_text(self, text, is_query=False):
         if self.model.device != self.device:

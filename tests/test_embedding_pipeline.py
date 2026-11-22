@@ -15,7 +15,13 @@ from govscape.processing.pdf_extraction_stage import _convert_single_pdf
 
 @pytest.fixture()
 def sample_pipeline(tmp_path):
-    source_pdfs = Path(__file__).resolve().parent / "test_data" / "small" / "PDFs"
+    source_pdfs = (
+        Path(__file__).resolve().parent
+        / "test_data"
+        / "old_Test_Data"
+        / "small"
+        / "PDFs"
+    )
     pdf_dir = tmp_path / "pdfs"
     shutil.copytree(source_pdfs, pdf_dir)
     data_dir = tmp_path / "data"

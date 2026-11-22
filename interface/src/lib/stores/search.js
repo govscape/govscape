@@ -16,6 +16,7 @@ export const searchStore = writable({
   hasMore: false,
   totalCount: null,
   totalPages: null,
+  hybridWeights: { textual: 0.33, visual: 0.33, keyword: 0.34 },
 });
 
 export const searchActions = {
@@ -36,6 +37,16 @@ export const searchActions = {
       hasMore: false,
       totalCount: null,
       totalPages: null,
+    }));
+  },
+
+  setHybridWeights: (weights) => {
+    searchStore.update(store => ({
+      ...store,
+      hybridWeights: {
+        ...store.hybridWeights,
+        ...weights
+      }
     }));
   },
 
@@ -107,11 +118,16 @@ export const searchActions = {
     }));
 
     try {
-      const { query, filters, currentSearchMode, pageSize } = get(searchStore)
+      const { query, filters, currentSearchMode } = get(searchStore)
+      const body = { query, filters, searchType: currentSearchMode, page: pageNumber };
+      if (currentSearchMode === 'hybrid_weights') {
+        body.weights = get(searchStore).hybridWeights;
+      }
+
       const responseData = await apiFetch('/search/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, filters, searchType: currentSearchMode, page: pageNumber, pageSize })
+        body: JSON.stringify(body)
       });
 
       const imageBase = getImageBaseUrl();

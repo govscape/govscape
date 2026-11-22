@@ -66,6 +66,10 @@ paddleocr = { version = "^2.7.0", optional = true }
 paddlepaddle = { version = "^2.6.0", optional = true }
 pytesseract = { version = "^0.3.10", optional = true }
 setuptools = "^82.0.1"
+sentencepiece = "^0.2.2"
+protobuf = ">=3.20,<=3.20.2"
+lmdb = "^3.0.0"
+requests = "^2.34.2"
 
 [tool.poetry.extras]
 easyocr = ["opencv-python", "easyocr"]
@@ -99,7 +103,8 @@ dev = [
     "pandas-stubs (>=3.0.0.260204,<4.0.0.0)",
     "types-flask-cors (>=6.0.0.20250809,<7.0.0.0)",
     "moto[server] (>=5.0.0,<6.0.0)",
-    "ruff (>=0.16.2,<0.17.0)"
+    "pytest-codspeed (>=5.0.3,<6.0.0)",
+    "pytest-regressions (>=2.11.0,<3.0.0)"
 ]
 
 [tool.ruff]

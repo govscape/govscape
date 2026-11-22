@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
+from govscape.config import DERIVATIVE_BUCKET
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 from govscape.indexing import AbstractVectorIndex, FAISSIndex, LanceDBVectorIndex
 
@@ -134,7 +135,7 @@ def compute_recall_at_k(
 
 
 def generate_embeddings(num_embeddings: int, dim: int, seed: int) -> np.ndarray:
-    data_loader = build_data_loader("s3", bucket_name="bcgl-public-bucket")
+    data_loader = build_data_loader("s3", bucket_name=DERIVATIVE_BUCKET)
     iterator = RemoteDirectoryIterator(
         data_loader=data_loader,
         prefix="test-serving/embeddings_compressed/",

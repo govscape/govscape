@@ -1,8 +1,0 @@
-NNDDFF DDiiggeessttiibbiilliittyy ooff FFoorraaggeess
-Legume silage/hay
-Grass silage/hay
-Corn silage
-Poor Fair Average Good Excellent
-20 25 30 35 40 45 50 55 60 65 70 75
-NDF digestibility, % of NDF
-USDFRC

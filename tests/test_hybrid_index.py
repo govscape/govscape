@@ -1,10 +1,73 @@
 import numpy as np
 
 from govscape.indexing.hybrid import (
+    HybridIndex,
     HybridKeywordMetadataIndex,
+    HybridSearchState,
     HybridVectorMetadataIndex,
 )
 from govscape.query import EqualityPredicate
+
+
+class DummyHybridIndex:
+    def __init__(self, rows):
+        self.rows = rows
+        self.queries = []
+
+    def search(self, query, _predicates, _k, blacklist):
+        self.queries.append((query, blacklist))
+        rows = [row for row in self.rows if row[1] not in blacklist]
+        state = HybridSearchState("test", len(rows), 1.0, 0.0, 0.0)
+        metadata = {row[1]: [] for row in rows}
+        return rows, metadata, state
+
+    def total_entries(self):
+        return len(self.rows)
+
+
+def test_generic_hybrid_combines_two_indices_with_weights():
+    text_index = DummyHybridIndex([(0.1, "text_only", "1"), (0.2, "shared", "1")])
+    keyword_index = DummyHybridIndex([(0.1, "shared", "1"), (0.2, "keyword_only", "1")])
+    hybrid = HybridIndex([text_index, keyword_index], weights=[0.2, 0.8])
+
+    rows, metadata, _state = hybrid.search(
+        ["text query", "keyword query"],
+        predicates=[],
+        target_results=3,
+        blacklist={"text_only"},
+        parallel=False,
+    )
+
+    assert [digest for _, digest, _ in rows] == [
+        "shared",
+        "keyword_only",
+    ]
+    assert text_index.queries == [("text query", {"text_only"})]
+    assert keyword_index.queries == [("keyword query", {"text_only"})]
+    assert set(metadata) == {"shared", "keyword_only"}
+
+
+def test_generic_hybrid_supports_three_indices():
+    indices = [
+        DummyHybridIndex([(0.1, "text", "1")]),
+        DummyHybridIndex([(0.1, "visual", "1")]),
+        DummyHybridIndex([(0.1, "keyword", "1")]),
+    ]
+    hybrid = HybridIndex(indices, weights=[1.0, 1.0, 1.0])
+
+    rows, _metadata, _state = hybrid.search(
+        ["text", "visual", "keyword"],
+        predicates=[],
+        target_results=3,
+        parallel=False,
+    )
+
+    assert {digest for _, digest, _ in rows} == {"text", "visual", "keyword"}
+    assert [index.queries[0][0] for index in indices] == [
+        "text",
+        "visual",
+        "keyword",
+    ]
 
 
 class DummyVectorIndex:
@@ -53,12 +116,6 @@ class SelectiveMetadataIndex:
     def get_candidate_digests(self, _predicates=None):
         return set(self.docs)
 
-    def get_vectors_for_digests(self, _vector_store_key, candidate_digests):
-        names = [name for name in ["doc_2.pdf"] if name in candidate_digests]
-        vectors = np.asarray([[1.0, 1.0, 1.0, 1.0] for _ in names], dtype=np.float32)
-        pages = ["2" for _ in names]
-        return vectors, names, pages
-
     def search(self, pdf_names, _predicates=None):
         return {
             name: [{"crawl_date": "20240101", "crawl_url": "", "sub_domain": ""}]
@@ -79,19 +136,6 @@ class BroadMetadataIndex:
 
     def get_candidate_digests(self, _predicates=None):
         return set(self.docs)
-
-    def get_vectors_for_digests(self, _vector_store_key, candidate_digests):
-        ordered = ["doc_1.pdf", "doc_2.pdf", "doc_3.pdf"]
-        names = [name for name in ordered if name in candidate_digests]
-        vec_map = {
-            "doc_1.pdf": [0.0, 0.0, 0.0, 0.0],
-            "doc_2.pdf": [1.0, 1.0, 1.0, 1.0],
-            "doc_3.pdf": [2.0, 2.0, 2.0, 2.0],
-        }
-        page_map = {"doc_1.pdf": "1", "doc_2.pdf": "2", "doc_3.pdf": "3"}
-        vectors = np.asarray([vec_map[name] for name in names], dtype=np.float32)
-        pages = [page_map[name] for name in names]
-        return vectors, names, pages
 
     def search(self, pdf_names, _predicates=None):
         return {
@@ -231,3 +275,26 @@ def test_keyword_hybrid_prefilter_applies_blacklist_before_search_filtered():
     assert metadata == {}
     assert keyword_index.search_filtered_calls == []
     assert not keyword_index.search_calls
+
+
+def test_hybrid_uses_postfilter_without_predicates():
+    # A tiny metadata database makes prefiltering look cheaper, but without
+    # predicates there are no candidates to prefilter on.
+    class TinyMetadataIndex(BroadMetadataIndex):
+        def total_entries(self):
+            return 3
+
+    hybrid = HybridVectorMetadataIndex(
+        vector_index=DummyVectorIndex(),
+        metadata_index=TinyMetadataIndex(),
+    )
+
+    rows, _, state = hybrid.search(
+        query_embedding=np.ones(4, dtype=np.float32),
+        predicates=[],
+        target_results=2,
+    )
+
+    assert state.prefilter_cost <= state.postfilter_cost
+    assert state.strategy == "postfilter"
+    assert [name for _, name, _ in rows] == ["doc_1.pdf", "doc_2.pdf"]
