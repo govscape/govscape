@@ -349,7 +349,8 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self, predicates: list[Predicate] | None = None
     ) -> set[str]:
         if not predicates:
-            return set()
+            # No predicates means every digest is a candidate, not none.
+            return self._all_digests()
         candidate_sets = [
             self._query_digests_for_predicate(predicate) for predicate in predicates
         ]
@@ -359,6 +360,11 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         for candidate_set in candidate_sets[1:]:
             candidates = candidates.intersection(candidate_set)
         return candidates
+
+    def _all_digests(self) -> set[str]:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT DISTINCT digest FROM metadata")
+        return {row[0] for row in cursor.fetchall()}
 
     def upsert_vectors(self, vector_store_key, vectors, digests, pages):
         if self.conn is None:
@@ -679,7 +685,8 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         self, predicates: list[Predicate] | None = None
     ) -> set[str]:
         if not predicates:
-            return set()
+            # No predicates means every digest is a candidate, not none.
+            return self._all_digests()
         candidate_sets = [
             self._query_digests_for_predicate(predicate) for predicate in predicates
         ]
@@ -689,6 +696,10 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         for candidate_set in candidate_sets[1:]:
             candidates = candidates.intersection(candidate_set)
         return candidates
+
+    def _all_digests(self) -> set[str]:
+        rows = self.conn.execute("SELECT DISTINCT digest FROM metadata").fetchall()
+        return {row[0] for row in rows}
 
     def upsert_vectors(self, vector_store_key, vectors, digests, pages):
         self._connect()
