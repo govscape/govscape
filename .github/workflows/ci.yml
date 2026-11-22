@@ -79,7 +79,14 @@ jobs:
           # progress markers in test_pdf_processing_benchmarks.py live, so a
           # long-running benchmark's progress (or lack of it) is visible
           # instead of only seeing output once it completes.
-          run: poetry run pytest tests/benchmarks --codspeed -v --log-cli-level=INFO
+          # -o faulthandler_timeout=1500: pytest.ini's default (300s) is tuned
+          # for the fast `test` job and fires mid-benchmark here, since the
+          # real ST/CLIP embedding benchmarks legitimately run for several
+          # minutes on CPU-only runners. That's a harmless diagnostic thread
+          # dump (the benchmark is still actively computing, not hung), but
+          # looks alarming, so raise it well above this job's own slowest
+          # known benchmark while staying under its 60-minute job timeout.
+          run: poetry run pytest tests/benchmarks --codspeed -v --log-cli-level=INFO -o faulthandler_timeout=1500
 
 on:
   # Trigger the workflow on push or pull request,
