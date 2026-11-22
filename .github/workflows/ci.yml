@@ -36,7 +36,7 @@ jobs:
     # ~1,660-page sample corpus (see tests/benchmarks/conftest.py) and took
     # ~10 minutes on a 16-core machine; CI runners typically have fewer
     # cores, so allow generous headroom before treating the job as hung.
-    timeout-minutes: 60
+    timeout-minutes: 90
     # Deliberately NOT run inside the govscape-base container (unlike the
     # `test` job): CodSpeed's `walltime` instrument needs to adjust a
     # host-level kernel sysctl (kernel.kptr_restrict), which a Docker
