@@ -159,6 +159,24 @@ poetry run python scripts/data_prep/download_sample_pdfs.py \
 ```
 Omit `--url_filter` to download an unfiltered sample.
 
+If you don't have AWS credentials configured, you can instead download directly
+over HTTP from the public `data.source.coop` endpoint (no credentials required)
+using:
+
+```
+poetry run python scripts/data_prep/download_source_coop_pdfs.py \
+    --account govscape \
+    --repository eota-pdf-archive \
+    --local_base_dir data/s3_mock \
+    --num_pdfs 500
+```
+
+This downloads PDFs from URLs of the form
+`https://data.source.coop/<account>/<repository>/pdfs/<digest>.pdf` and also
+writes a `pdf_metadata.parquet` file for the downloaded digests, queried
+directly from the repository's CDX parquet over HTTP range requests (so the
+full, multi-gigabyte CDX file is never downloaded in its entirety).
+
 
 ### Creating the embeddings
 

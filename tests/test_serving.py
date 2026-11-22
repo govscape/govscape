@@ -233,8 +233,11 @@ def test_build_search_csv_generates_expected_columns(server_fixture):
 
     rows = list(csv.DictReader(io.StringIO(csv_text)))
     assert rows[0]["pdf_digest"] == "doc_0.pdf"
-    assert rows[0]["source_coop_url"] == "https://source.coop/download/doc_0.pdf"
-    assert rows[0]["page"] == "0"
+    assert (
+        rows[0]["source_coop_url"]
+        == "https://data.source.coop/govscape/eota-pdf-archive/pdfs/doc_0.pdf.pdf"
+    )
+    assert rows[0]["most_relevant_page"] == "0"
     assert json.loads(rows[0]["metadata_json"])[0]["crawl_date"] == "2024-01-01"
 
 

@@ -285,26 +285,29 @@ class Server:
             [
                 "pdf_digest",
                 "source_coop_url",
-                "page",
+                "most_relevant_page",
                 "metadata_json",
             ]
         )
         for result in response.results:
             pdf_digest = result.get("pdf", "")
-            page = result.get("page", "")
+            most_relevant_page = result.get("page", "")
             metadata = result.get("metadata", [])
             writer.writerow(
                 [
                     pdf_digest,
                     self._source_coop_download_url(pdf_digest),
-                    page,
+                    most_relevant_page,
                     json.dumps(metadata, ensure_ascii=False),
                 ]
             )
         return output.getvalue()
 
     def _source_coop_download_url(self, digest: str) -> str:
-        return f"https://source.coop/download/{digest}"
+        # PDFs are hosted on source.coop under the govscape/eota-pdf-archive
+        # repository, keyed by the 32-character PDF digest, e.g.:
+        # https://data.source.coop/govscape/eota-pdf-archive/pdfs/22223HMLFQ7P5VQVLKZR3PZAI7YMGOXC.pdf
+        return f"https://data.source.coop/govscape/eota-pdf-archive/pdfs/{digest}.pdf"
 
     def pdf_pages(self, pdf_id):
         """

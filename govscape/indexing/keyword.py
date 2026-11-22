@@ -350,7 +350,8 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
             self.load_index()
 
         params = [query]
-        name_column = "name" if self._has_name_column() else "pdf_name"
+        has_name_column = self._has_name_column()
+        name_column = "name" if has_name_column else "pdf_name"
         filtered_clause = ""
         if allowed_names is not None:
             names = [str(name) for name in allowed_names]
@@ -373,13 +374,17 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
         except sqlite3.ProgrammingError:
             self.load_index()
             rows = self.cursor.execute(search_query, params).fetchall()
+        # Columns are (text, pdf_name, page_count, [name], rank); the rank
+        # column's position shifts depending on whether the UNINDEXED "name"
+        # column is present in this index's schema.
+        rank_index = 4 if has_name_column else 3
         distances = []
         digests = []
         pages = []
         for row in rows:
             digests.append(row[1])
             pages.append(str(row[2]))
-            distances.append(row[3])
+            distances.append(row[rank_index])
         return distances, digests, pages
 
     def search(self, query, k):
