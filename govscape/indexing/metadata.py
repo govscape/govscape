@@ -6,6 +6,8 @@ import sqlite3
 import threading
 from abc import ABC, abstractmethod
 
+import numpy as np
+
 import duckdb
 import pyarrow as pa
 
