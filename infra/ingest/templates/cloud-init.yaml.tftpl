@@ -1,0 +1,62 @@
+#cloud-config
+# Runs this worker's share of the embedding pipeline (server ${server_id} of
+# ${num_servers}) under systemd, then powers the instance off. Progress lives in
+# source.coop's per-shard checkpoints, so a restarted worker resumes where it
+# left off; the local working directory only holds the batch in progress.
+
+write_files:
+  - path: /etc/systemd/system/govscape-ingest.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=GovScape ingestion pipeline
+      Requires=docker.service
+      After=docker.service network-online.target
+      Wants=network-online.target
+      # Power off once this worker's shards are done. If it keeps failing, power
+      # off too rather than idle on a GPU; the logs say which happened.
+      SuccessAction=poweroff
+      FailureAction=poweroff
+      StartLimitIntervalSec=6h
+      StartLimitBurst=5
+
+      [Service]
+      Restart=on-failure
+      RestartSec=60
+      TimeoutStartSec=0
+      ExecStartPre=-/usr/bin/docker rm -f govscape-ingest
+      ExecStartPre=/usr/bin/mkdir -p /var/lib/govscape-ingest
+      # Drop any half-finished batch; it's redone from the shard checkpoint.
+      # The model cache (hf-cache) is kept.
+      ExecStartPre=/usr/bin/rm -rf /var/lib/govscape-ingest/prod
+      ExecStartPre=/usr/bin/docker pull ${app_image}
+      # Fail loudly if the image can't use the GPU (e.g. the driver is too old
+      # for its CUDA build); the models would otherwise fall back to the CPU.
+      ExecStartPre=/usr/bin/docker run --rm --gpus all \
+        --log-driver awslogs --log-opt awslogs-region=${region} \
+        --log-opt awslogs-group=${log_group} --log-opt awslogs-stream=server-${server_id} \
+        ${app_image} \
+        poetry run python -c "import torch; assert torch.cuda.is_available(), 'no usable GPU'; print('GPU:', torch.cuda.get_device_name(0))"
+      ExecStart=/usr/bin/docker run --rm --name govscape-ingest --gpus all \
+        -v /var/lib/govscape-ingest:/home/govscape/data \
+        -e HF_HOME=/home/govscape/data/hf-cache \
+        -e AWS_REGION=${region} \
+        --log-driver awslogs --log-opt awslogs-region=${region} \
+        --log-opt awslogs-group=${log_group} --log-opt awslogs-stream=server-${server_id} \
+        ${app_image} \
+        poetry run python -u scripts/pipeline/run_embedding_pipeline.py \
+        --server_id ${server_id} --num_servers ${num_servers} \
+        --endpoint_url= \
+        --bucket_name us-west-2.opendata.source.coop/govscape/eota-derivative-data/ \
+        --pdf_bucket_name us-west-2.opendata.source.coop/govscape/eota-pdf-archive/ \
+        --remote_data_dir ${remote_data_dir} \
+        ${pipeline_args}
+      ExecStop=/usr/bin/docker stop -t 120 govscape-ingest
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - systemctl daemon-reload
+  - systemctl enable --now docker
+  - systemctl enable --now govscape-ingest.service

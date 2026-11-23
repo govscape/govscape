@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import os
 import shutil
 import time
@@ -196,8 +197,11 @@ def main():
         "--max_pdfs",
         type=int,
         default=None,
-        help="Stop after this many PDFs (overrides --num_pages_to_process)",
+        help="Stop after this many PDFs (overrides --num_pages_to_process, which "
+        "caps at 1000 PDFs per unit); by default all of this server's shards",
     )
+    # No cap unless --num_pages_to_process or --max_pdfs is given.
+    parser.set_defaults(num_pages_to_process=None)
     args = parser.parse_args()
 
     # ---------------------------------------------------------------------------
@@ -263,9 +267,12 @@ def main():
 
     overall_start_time = time.time()
 
-    max_files_to_process = (
-        args.max_pdfs if args.max_pdfs is not None else args.num_pages_to_process * 1000
-    )
+    if args.max_pdfs is not None:
+        max_files_to_process = args.max_pdfs
+    elif args.num_pages_to_process is not None:
+        max_files_to_process = args.num_pages_to_process * 1000
+    else:
+        max_files_to_process = math.inf
     shards = digest_shards(args.shard_prefix_length)[args.server_id :: args.num_servers]
     files_processed = 0
     for shard in shards:
