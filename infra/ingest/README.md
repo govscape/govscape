@@ -15,7 +15,7 @@ not terminated, so its root volume and logs remain until `tofu destroy`.
 | --- | --- |
 | `main.tf` | State backend, provider, GPU AMI, default-VPC subnets, security group, log group, role attachments, workers |
 | `variables.tf` | Run settings: `num_servers`, `remote_data_dir`, `app_image`, `max_pdfs`, ... |
-| `templates/cloud-init.yaml.tftpl` | Runs the pipeline as the `govscape-ingest` systemd service |
+| `templates/cloud-init.yaml.tftpl` | The `govscape-ingest` systemd service and its retry script |
 
 ## How a worker runs
 
@@ -36,8 +36,12 @@ not terminated, so its root volume and logs remain until `tofu destroy`.
   | What happens | Result |
   | --- | --- |
   | The pipeline exits 0 | The worker powers off |
-  | The pipeline fails | It is restarted after 60 s |
-  | It fails 5 times within 6 hours | The worker powers off as well |
+  | The image pull, GPU check or pipeline fails | It is retried after 60 s |
+  | It fails 5 times in a row | The worker powers off as well |
+
+  The retry script's own messages (attempts and failures) go to the serial
+  console, so `aws ec2 get-console-output --instance-id <id> --latest` shows them
+  even after the worker has stopped.
 
 - **Spot (the default):** a persistent spot request that stops the worker on
   interruption. AWS starts it again when capacity returns, and the service resumes
