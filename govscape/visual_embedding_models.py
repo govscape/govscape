@@ -196,13 +196,13 @@ class CLIP_VisualEmbeddingModel(LazyDeviceModel, VisualEmbeddingModel):
 
 
 class SigLIP_VisualEmbeddingModel(CLIP_VisualEmbeddingModel):
-    """Google SigLIP image/text embeddings.
+    """Google SigLIP image/text embeddings; SigLIP 2 by default.
 
     Image encoding reuses the batched CLIP implementation; only model loading
     and text encoding differ.
     """
 
-    DEFAULT_MODEL_NAME = "google/siglip-base-patch16-224"
+    DEFAULT_MODEL_NAME = "google/siglip2-base-patch16-224"
 
     @property
     def d(self):

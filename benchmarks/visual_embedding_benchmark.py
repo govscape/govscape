@@ -13,7 +13,7 @@ Models are given as ``clip`` or ``siglip:<huggingface model name>``.
 
 Example:
     poetry run python -m benchmarks.visual_embedding_benchmark \
-        --models clip siglip:google/siglip-base-patch16-224 \
+        --models clip siglip:google/siglip2-base-patch16-224 \
         --max-pages 1024
 """
 
