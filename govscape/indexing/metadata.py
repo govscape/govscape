@@ -6,6 +6,8 @@ import sqlite3
 import threading
 from abc import ABC, abstractmethod
 
+import numpy as np
+
 import duckdb
 import pyarrow as pa
 
@@ -335,7 +337,8 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self, predicates: list[Predicate] | None = None
     ) -> set[str]:
         if not predicates:
-            return set()
+            # No predicates means every digest is a candidate, not none.
+            return self._all_digests()
         candidate_sets = [
             self._query_digests_for_predicate(predicate) for predicate in predicates
         ]
@@ -605,7 +608,8 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         self, predicates: list[Predicate] | None = None
     ) -> set[str]:
         if not predicates:
-            return set()
+            # No predicates means every digest is a candidate, not none.
+            return self._all_digests()
         candidate_sets = [
             self._query_digests_for_predicate(predicate) for predicate in predicates
         ]
@@ -615,3 +619,65 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
         for candidate_set in candidate_sets[1:]:
             candidates = candidates.intersection(candidate_set)
         return candidates
+
+    def _all_digests(self) -> set[str]:
+        rows = self.conn.execute("SELECT DISTINCT digest FROM metadata").fetchall()
+        return {row[0] for row in rows}
+
+    def upsert_vectors(self, vector_store_key, vectors, digests, pages):
+        self._connect()
+        rows = []
+        for vector, digest, page in zip(vectors, digests, pages, strict=False):
+            if not digest:
+                continue
+            rows.append(
+                {
+                    "vector_store_key": str(vector_store_key),
+                    "digest": str(digest),
+                    "page": str(page),
+                    "vector": np.asarray(vector, dtype=np.float32).tolist(),
+                }
+            )
+        if not rows:
+            return
+
+        self.conn.execute("DROP INDEX IF EXISTS idx_metadata_vectors_key_digest;")
+        vector_table = pa.Table.from_pylist(rows)
+        self.conn.register("_vector_batch", vector_table)
+        self.conn.execute(
+            """
+            DELETE FROM metadata_vectors
+            USING _vector_batch
+            WHERE metadata_vectors.vector_store_key = _vector_batch.vector_store_key
+              AND metadata_vectors.digest = _vector_batch.digest
+              AND metadata_vectors.page = _vector_batch.page
+            """
+        )
+        self.conn.execute("INSERT INTO metadata_vectors SELECT * FROM _vector_batch")
+        self.conn.unregister("_vector_batch")
+
+    def get_vectors_for_digests(self, vector_store_key, candidate_digests):
+        self._connect()
+        if not candidate_digests:
+            return np.empty((0, 0), dtype=np.float32), [], []
+
+        candidate_list = list(candidate_digests)
+        rows = []
+        chunk_size = 800
+        for i in range(0, len(candidate_list), chunk_size):
+            chunk = candidate_list[i : i + chunk_size]
+            placeholders = ",".join(["?"] * len(chunk))
+            query = (
+                "SELECT digest, page, vector FROM metadata_vectors "
+                f"WHERE vector_store_key = ? AND digest IN ({placeholders})"
+            )
+            params = [str(vector_store_key), *chunk]
+            rows.extend(self.conn.execute(query, params).fetchall())
+
+        if not rows:
+            return np.empty((0, 0), dtype=np.float32), [], []
+
+        digests = [row[0] for row in rows]
+        pages = [str(row[1]) for row in rows]
+        vectors = np.asarray([row[2] for row in rows], dtype=np.float32)
+        return vectors, digests, pages

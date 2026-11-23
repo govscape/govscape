@@ -365,7 +365,8 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
         cursor = self._get_cursor()
 
         params = [query]
-        name_column = "name" if self._has_name_column() else "pdf_name"
+        has_name_column = self._has_name_column()
+        name_column = "name" if has_name_column else "pdf_name"
         filtered_clause = ""
         if allowed_names is not None:
             names = [str(name) for name in allowed_names]

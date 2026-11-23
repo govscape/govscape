@@ -97,6 +97,11 @@
 
 <main>
   <SearchBox on:setMode={handleSetModeEvent} />
+  <section class="results-header">
+    <div class="results-header-left">
+      <h2>Search results for "{$searchStore.query}"</h2>
+    </div>
+  </section>
   <ResultsGrid on:pdfSelect={handlePDFSelect} />
   <PDFPreview
     show={shouldShowPreview}
@@ -113,5 +118,23 @@
     align-items: center;
     min-height: calc(100vh - 50px);
     padding-top: 80px;
+    width: 100%;
+  }
+
+  .results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 90%;
+    max-width: 1400px;
+    margin-bottom: 1rem;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .results-header-left h2 {
+    font-size: 1.1rem;
+    margin: 0;
+    color: var(--text-color-primary);
   }
 </style>

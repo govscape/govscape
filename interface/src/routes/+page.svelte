@@ -1,7 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { assets } from '$app/paths';
-  import { searchStore, searchActions } from '$lib/stores/search';
   import SearchBox from '$lib/components/SearchBox.svelte';
   import TypingEffect from '$lib/components/TypingEffect.svelte';
 
@@ -27,7 +26,6 @@
 
   onDestroy(() => {
     window.removeEventListener('resize', checkScreenSize);
-    searchActions.reset();
   });
 </script>
 

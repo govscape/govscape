@@ -1,4 +1,7 @@
 # This file defines the logic for serving requests to the user.
+import csv
+import io
+import json
 import math
 import os
 import time
@@ -135,10 +138,14 @@ class Server:
 
         # Initialize Flask app and API
         self.app = Flask(__name__, static_folder=build_dir, static_url_path="")
-        # TODO: Remove localhost:5173 soon for security concerns
+        # TODO: Remove localhost/127.0.0.1:5173 soon for security concerns
         CORS(
             self.app,
-            origins=["https://govscape.net", "http://localhost:5173"],
+            origins=[
+                "https://govscape.net",
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+            ],
             supports_credentials=True,
         )
 
@@ -173,8 +180,9 @@ class Server:
         predicates = query.predicates
         page = query.page
 
+        page_size = query.page_size or self.k
         results_needed_for_page = (
-            page * self.k + 1
+            page * page_size + 1
         )  # we need one extra result to check if there is a next page
 
         if search_type == "textual":
@@ -192,7 +200,11 @@ class Server:
                 f"{search_type}, strategy: {state.strategy}, "
                 f"results found after filtering: {len(rows)}"
             )
-            search_results = self._build_search_results(rows, pdf_metadata)
+            search_results = self._build_search_results(
+                rows,
+                pdf_metadata,
+                include_metadata=query.include_metadata,
+            )
 
         elif search_type == "visual":
             query_embedding = self.visual_model.encode_text(query.q_text)
@@ -209,7 +221,11 @@ class Server:
                 f"{search_type}, strategy: {state.strategy}, "
                 f"results found after filtering: {len(rows)}"
             )
-            search_results = self._build_search_results(rows, pdf_metadata)
+            search_results = self._build_search_results(
+                rows,
+                pdf_metadata,
+                include_metadata=query.include_metadata,
+            )
 
         elif search_type == "keyword":
             query_text = query.q_text
@@ -225,6 +241,11 @@ class Server:
                 "Search type: "
                 f"{search_type}, strategy: {state.strategy}, "
                 f"results found after filtering: {len(rows)}"
+            )
+            search_results = self._build_search_results(
+                rows,
+                pdf_metadata,
+                include_metadata=query.include_metadata,
             )
             search_results = self._build_search_results(rows, pdf_metadata)
         elif search_type == "hybrid":
@@ -306,24 +327,24 @@ class Server:
         else:
             raise ValueError(f"Unsupported search type: {search_type}")
 
-        start_index = (page - 1) * self.k
-        end_index = start_index + self.k
+        start_index = (page - 1) * page_size
+        end_index = start_index + page_size
 
         total_count = self._get_total_pdfs_count() or 0
-        total_pages = math.ceil(total_count / self.k) if total_count else 0
+        total_pages = math.ceil(total_count / page_size) if total_count else 0
 
         return Response(
             results=search_results[start_index:end_index],
             pagination={
                 "page": page,
-                "page_size": self.k,
+                "page_size": page_size,
                 "has_next_page": len(search_results) > end_index,
                 "total_count": total_count,
                 "total_pages": total_pages,
             },
         )
 
-    def _build_search_results(self, rows, pdf_metadata):
+    def _build_search_results(self, rows, pdf_metadata, include_metadata: bool = False):
         search_results: list[dict] = []
         for distance, name, page_num in rows:
             metadata = pdf_metadata.get(name, None)
@@ -335,27 +356,59 @@ class Server:
                 limited_records = all_records[: self.max_crawl_instances]
                 newest = all_records[0]
                 jpeg_file = self.data_model.img_page_path(name, int(page_num))
-                search_results.append(
-                    {
-                        "pdf": name,
-                        "page": page_num,
-                        "distance": float(distance),
-                        "jpeg": jpeg_file,
-                        "crawl_url": newest.get("crawl_url", ""),
-                        "crawl_date": newest.get("crawl_date", ""),
-                        "sub_domain": newest.get("sub_domain", ""),
-                        "has_more_crawls": has_more_crawls,
-                        "crawl_instances": [
-                            {
-                                "crawl_url": r.get("crawl_url", ""),
-                                "crawl_date": r.get("crawl_date", ""),
-                                "sub_domain": r.get("sub_domain", ""),
-                            }
-                            for r in limited_records
-                        ],
-                    }
-                )
+                result = {
+                    "pdf": name,
+                    "page": page_num,
+                    "distance": float(distance),
+                    "jpeg": jpeg_file,
+                    "crawl_url": newest.get("crawl_url", ""),
+                    "crawl_date": newest.get("crawl_date", ""),
+                    "sub_domain": newest.get("sub_domain", ""),
+                    "has_more_crawls": has_more_crawls,
+                    "crawl_instances": [
+                        {
+                            "crawl_url": r.get("crawl_url", ""),
+                            "crawl_date": r.get("crawl_date", ""),
+                            "sub_domain": r.get("sub_domain", ""),
+                        }
+                        for r in limited_records
+                    ],
+                }
+                if include_metadata:
+                    result["metadata"] = all_records
+                search_results.append(result)
         return search_results
+
+    def build_search_csv(self, response):
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(
+            [
+                "pdf_digest",
+                "source_coop_url",
+                "most_relevant_page",
+                "metadata_json",
+            ]
+        )
+        for result in response.results:
+            pdf_digest = result.get("pdf", "")
+            most_relevant_page = result.get("page", "")
+            metadata = result.get("metadata", [])
+            writer.writerow(
+                [
+                    pdf_digest,
+                    self._source_coop_download_url(pdf_digest),
+                    most_relevant_page,
+                    json.dumps(metadata, ensure_ascii=False),
+                ]
+            )
+        return output.getvalue()
+
+    def _source_coop_download_url(self, digest: str) -> str:
+        # PDFs are hosted on source.coop under the govscape/eota-pdf-archive
+        # repository, keyed by the 32-character PDF digest, e.g.:
+        # https://data.source.coop/govscape/eota-pdf-archive/pdfs/22223HMLFQ7P5VQVLKZR3PZAI7YMGOXC.pdf
+        return f"https://data.source.coop/govscape/eota-pdf-archive/pdfs/{digest}.pdf"
 
     def pdf_pages(self, pdf_id):
         """

@@ -214,6 +214,7 @@
     border-bottom-right-radius: 0;
   }
 
+
   .search-input {
     width: 100%;
     flex-grow: 1;
@@ -234,8 +235,8 @@
   .filter-toggle-button {
     background: none;
     border: none;
-    padding: 8px;
-    margin-left: 8px;
+    padding: 6px;
+    margin-left: 6px;
     cursor: pointer;
     color: var(--text-color-primary);
     display: flex;
@@ -243,6 +244,8 @@
     justify-content: center;
     border-radius: 50%;
     transition: background-color 0.2s;
+    min-width: 34px;
+    min-height: 34px;
   }
 
   .filter-toggle-button:hover {

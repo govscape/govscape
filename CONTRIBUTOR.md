@@ -187,6 +187,24 @@ the remote CDX, so the full CDX (~11.5GB) is never scanned or downloaded.
 With no `--pdf_dir`/`--cdx_dir`, the script writes to `tests/test_data/pdfs/` and
 `tests/test_data/cdx/`, which is how the committed test sample was made.
 
+If you don't have AWS credentials configured, you can instead download directly
+over HTTP from the public `data.source.coop` endpoint (no credentials required)
+using:
+
+```
+poetry run python scripts/data_prep/download_source_coop_pdfs.py \
+    --account govscape \
+    --repository eota-pdf-archive \
+    --local_base_dir data/s3_mock \
+    --num_pdfs 500
+```
+
+This downloads PDFs from URLs of the form
+`https://data.source.coop/<account>/<repository>/pdfs/<digest>.pdf` and also
+writes a `pdf_metadata.parquet` file for the downloaded digests, queried
+directly from the repository's CDX parquet over HTTP range requests (so the
+full, multi-gigabyte CDX file is never downloaded in its entirety).
+
 
 ### Creating the embeddings
 
