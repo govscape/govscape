@@ -203,3 +203,50 @@ def test_ocr_processing_stage_writes_txt(
     for page_num in range(2):
         with open(data_model.txt_page_path(digest, page_num), encoding="utf-8") as f:
             assert f.read() == _StaticTextOCR.TEXT
+
+
+def test_ocr_processing_stage_skips_pages_with_text_or_blank(temp_data_dir):
+    cv2 = pytest.importorskip("cv2")
+    _, data_model = temp_data_dir
+
+    digest = "abc123def456abc123def456abc123def45"
+    img_dir = os.path.join(data_model.image_directory, digest)
+    os.makedirs(img_dir, exist_ok=True)
+    os.makedirs(data_model.txt_pdf_directory(digest), exist_ok=True)
+    text_layer = "A page with a real text layer from the PDF."
+    pages = {
+        0: (_create_test_image("PAGE ZERO"), text_layer),
+        1: (_create_test_image("PAGE ONE"), "12"),
+        2: (np.full((80, 300, 3), 255, dtype=np.uint8), None),
+        3: (_create_test_image("PAGE THREE"), None),
+    }
+    for page_num, (img, txt) in pages.items():
+        cv2.imwrite(os.path.join(img_dir, f"{digest}_{page_num}.jpeg"), img)
+        if txt is not None:
+            with open(data_model.txt_page_path(digest, page_num), "w") as f:
+                f.write(txt)
+
+    stage = OCRProcessingStage(data_model=data_model, ocr_type="easyocr")
+    with (
+        patch(
+            "govscape.processing.ocr_processing_stage._build_ocr_engine",
+            return_value=_StaticTextOCR(),
+        ),
+        patch(
+            "govscape.processing.ocr_processing_stage.ProcessPoolExecutor",
+            _InlineProcessPoolExecutor,
+        ),
+    ):
+        stage.run()
+
+    def page_text(page_num):
+        path = data_model.txt_page_path(digest, page_num)
+        if not os.path.exists(path):
+            return None
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+
+    assert page_text(0) == text_layer
+    assert page_text(1) == _StaticTextOCR.TEXT
+    assert page_text(2) is None
+    assert page_text(3) == _StaticTextOCR.TEXT

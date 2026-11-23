@@ -56,7 +56,17 @@ class OCRProcessingStage(ProcessingStage):
 
     Reads images from {image_directory}/{digest}/{digest}_{pg_no}.jpeg and
     writes extracted text to {txt_directory}/{digest}/{digest}_{pg_no}.txt.
+
+    Only pages that need it are OCR'd: pages whose PDF text layer is missing or
+    nearly empty (e.g. a bare page number), and that aren't blank.
     """
+
+    MAX_TEXT_LAYER_CHARS = 20
+    # A page is blank if fewer than MIN_INK_FRACTION of its pixels are darker
+    # than INK_LEVEL. On a sample of the archive's pages without a text layer,
+    # this matched only truly blank pages (~9% of them).
+    INK_LEVEL = 160
+    MIN_INK_FRACTION = 0.002
 
     def __init__(self, data_model: DataModel, ocr_type: str = "easyocr", **ocr_kwargs):
         self.data_model = data_model
@@ -122,6 +132,7 @@ class OCRProcessingStage(ProcessingStage):
     def _collect_images_and_metadata(self) -> tuple[list, list[tuple[str, int]], int]:
         cv2 = _load_cv2()
         error_count = 0
+        skipped_text = skipped_blank = 0
         all_images: list = []
         all_metadata: list[tuple[str, int]] = []
 
@@ -139,22 +150,42 @@ class OCRProcessingStage(ProcessingStage):
             for page_file in page_files:
                 image_path = os.path.join(digest_dir.path, page_file)
                 try:
+                    page_num = int(page_file.split("_")[-1].replace(".jpeg", ""))
+                    if self._has_text_layer(digest, page_num):
+                        skipped_text += 1
+                        continue
                     image = cv2.imread(image_path)
                     if image is None:
                         self.logger.warning(f"Failed to read image: {image_path}")
                         error_count += 1
                         continue
+                    if self._is_blank(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)):
+                        skipped_blank += 1
+                        continue
                     if self.ocr_type != "paddleocr":
                         with contextlib.suppress(Exception):
                             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                    page_num = int(page_file.split("_")[-1].replace(".jpeg", ""))
                     all_images.append(image)
                     all_metadata.append((digest, page_num))
                 except Exception as e:
                     self.logger.error(f"Error loading {image_path}: {e}")
                     error_count += 1
 
+        self.logger.info(
+            f"OCR needed for {len(all_images)} pages; skipped {skipped_text} with a "
+            f"text layer and {skipped_blank} blank",
+        )
         return all_images, all_metadata, error_count
+
+    def _has_text_layer(self, digest: str, page_num: int) -> bool:
+        txt_path = self.data_model.txt_page_path(digest, page_num)
+        if not os.path.exists(txt_path):
+            return False
+        with open(txt_path, encoding="utf-8", errors="replace") as f:
+            return len(f.read().strip()) > self.MAX_TEXT_LAYER_CHARS
+
+    def _is_blank(self, gray) -> bool:
+        return (gray < self.INK_LEVEL).mean() < self.MIN_INK_FRACTION
 
     def _write_page_text(self, digest: str, page_num: int, text: str) -> bool:
         try:
