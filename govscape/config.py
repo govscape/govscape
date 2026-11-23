@@ -1,5 +1,6 @@
 # These classes should contain all the configuration information necessary for
 # starting the server and serving queries, respectively.
+import itertools
 import os
 
 # Remote storage on source.coop. Raw PDFs and the CDX live in the PDF archive;
@@ -13,6 +14,17 @@ PDF_ARCHIVE_BUCKET = f"{SOURCE_COOP_PREFIX}/eota-pdf-archive/"
 DERIVATIVE_BUCKET = f"{SOURCE_COOP_PREFIX}/eota-derivative-data/"
 PDF_ARCHIVE_PDF_DIR = "pdfs/"
 PDF_ARCHIVE_CDX_KEY = "cdx/complete_cdx.parquet"
+
+# PDF digests are base32 SHA-1 hashes, so their leading characters split the
+# archive into evenly sized shards.
+DIGEST_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+
+
+def digest_shards(prefix_length: int) -> list[str]:
+    return [
+        "".join(chars)
+        for chars in itertools.product(DIGEST_ALPHABET, repeat=prefix_length)
+    ]
 
 
 class DataModel:

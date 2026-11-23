@@ -1,3 +1,4 @@
+import functools
 import logging
 import os
 import time
@@ -26,6 +27,22 @@ class PDFProcessingPipeline:
         self.visual_model_type = visual_model_type
         self.ocr_type = ocr_type
         self.ocr_kwargs = ocr_kwargs
+
+    # The embedding stages hold their models, so they're built once and reused
+    # for every batch rather than reloading the models each time.
+    @functools.cached_property
+    def _text_embedding_stage(self) -> TextEmbeddingStage:
+        return TextEmbeddingStage(
+            data_model=self.data_model, model_type=self.text_model_type
+        )
+
+    @functools.cached_property
+    def _page_image_embedding_stage(self) -> PageImageEmbeddingStage:
+        return PageImageEmbeddingStage(
+            data_model=self.data_model,
+            model_type=self.visual_model_type,
+            cpu_count=self.cpu_count,
+        )
 
     def process_pdfs(
         self,
@@ -71,23 +88,14 @@ class PDFProcessingPipeline:
 
         if do_text_embedding:
             logging.info("Converting txts to embeddings")
-            text_embedding_stage = TextEmbeddingStage(
-                data_model=self.data_model,
-                model_type=self.text_model_type,
-            )
-            text_embedding_stage.validate()
-            text_embedding_stage.run()
+            self._text_embedding_stage.validate()
+            self._text_embedding_stage.run()
         time4 = time.time()
 
         if do_img_embedding:
             logging.info("Converting imgs to embeddings")
-            page_image_embedding_stage = PageImageEmbeddingStage(
-                data_model=self.data_model,
-                model_type=self.visual_model_type,
-                cpu_count=self.cpu_count,
-            )
-            page_image_embedding_stage.validate()
-            page_image_embedding_stage.run()
+            self._page_image_embedding_stage.validate()
+            self._page_image_embedding_stage.run()
         time5 = time.time()
 
         pdf_to_txt_img_metadata = time2 - time1

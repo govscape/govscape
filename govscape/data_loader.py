@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import mimetypes
 import os
@@ -24,6 +25,11 @@ from botocore.exceptions import ClientError
 from govscape.config import SOURCE_COOP_ENDPOINT
 
 
+def _chunk_digest(chunk_files: list[str], local_dir: str) -> str:
+    rel_paths = "\n".join(os.path.relpath(f, local_dir) for f in chunk_files)
+    return hashlib.sha1(rel_paths.encode()).hexdigest()
+
+
 @dataclass
 class ListResult:
     keys: list[str]
@@ -42,7 +48,10 @@ class DataLoader(ABC):
         prefix: str,
         max_keys: int = 1000,
         continuation_token: str | None = None,
+        name_prefix: str = "",
     ) -> ListResult:
+        """List keys under the directory *prefix* whose path relative to it
+        starts with *name_prefix*."""
         raise NotImplementedError
 
     @abstractmethod
@@ -131,9 +140,9 @@ class DataLoader(ABC):
         """Upload a directory as a series of compressed .tar.gz chunks.
 
         Each chunk archive contains at most *chunk_size* files.  Archives are
-        named using a hash of their contents for uniqueness across concurrent
-        uploaders, e.g. ``chunk_<hash>.tar.gz``, and uploaded under
-        *remote_prefix*.
+        named by a hash of the relative paths they contain, e.g.
+        ``chunk_<sha1>.tar.gz``, so concurrent uploaders don't collide and
+        uploading the same files again overwrites the same chunk.
         """
         all_files: list[str] = [
             os.path.join(root, filename)
@@ -150,8 +159,7 @@ class DataLoader(ABC):
             chunk_idx: int, tmp_dir: str
         ) -> tuple[list[str], str, str]:
             chunk_files = all_files[chunk_idx : chunk_idx + chunk_size]
-            chunk_hash = hash(tuple(chunk_files))
-            chunk_name = f"chunk_{chunk_hash}.tar.gz"
+            chunk_name = f"chunk_{_chunk_digest(chunk_files, local_dir)}.tar.gz"
             tar_path = os.path.join(tmp_dir, chunk_name)
             return (chunk_files, local_dir, tar_path)
 
@@ -262,6 +270,7 @@ class S3DataLoader(DataLoader):
         prefix: str,
         max_keys: int = 1000,
         continuation_token: str | None = None,
+        name_prefix: str = "",
     ) -> ListResult:
         # Treat the prefix as a directory, matching LocalDataLoader, so that e.g.
         # "embeddings" does not also match "embeddings_img_pg/".
@@ -269,7 +278,7 @@ class S3DataLoader(DataLoader):
             prefix += "/"
         kwargs = {
             "Bucket": self.bucket_name,
-            "Prefix": self.base_prefix + prefix,
+            "Prefix": self.base_prefix + prefix + name_prefix,
             "MaxKeys": max_keys,
         }
         if continuation_token:
@@ -403,6 +412,7 @@ class LocalDataLoader(DataLoader):
         prefix: str,
         max_keys: int = 1000,
         continuation_token: str | None = None,
+        name_prefix: str = "",
     ) -> ListResult:
         start_index = int(continuation_token) if continuation_token else 0
         base_path = self._resolve(prefix)
@@ -411,6 +421,8 @@ class LocalDataLoader(DataLoader):
             for root, _, files in os.walk(base_path):
                 for filename in files:
                     abs_path = os.path.join(root, filename)
+                    if not os.path.relpath(abs_path, base_path).startswith(name_prefix):
+                        continue
                     rel_path = os.path.relpath(abs_path, self.base_dir)
                     keys.append(rel_path.replace("\\", "/"))
         keys.sort()
@@ -562,12 +574,16 @@ class RemoteDirectoryIterator:
         local_dir: str,
         use_multiprocessing: bool = True,
         checkpoint_loader: DataLoader | None = None,
+        name_prefix: str = "",
     ) -> None:
         self.data_loader = data_loader
         # Checkpoints may live in a different store than the iterated data,
         # e.g. when reading from a read-only archive.
         self.checkpoint_loader = checkpoint_loader or data_loader
         self.prefix = prefix
+        # Restricts iteration to keys under prefix whose names start with this,
+        # e.g. one shard of the PDFs by digest prefix.
+        self.name_prefix = name_prefix
         self.remote_checkpoint_path = remote_checkpoint_path
         self.local_dir = local_dir
         self.local_checkpoint_path = local_checkpoint_path
@@ -591,7 +607,10 @@ class RemoteDirectoryIterator:
     def close(self) -> None:
         """Shut down the cached multiprocessing pool, if any."""
         if self._mp_pool is not None:
-            self._mp_pool.terminate()
+            # Let workers exit on their own: terminate() sends SIGTERM, which
+            # some native libs' handlers (e.g. Paddle's) can deadlock on.
+            self._mp_pool.close()
+            self._mp_pool.join()
             self._mp_pool = None
 
     def __enter__(self) -> Self:
@@ -655,6 +674,7 @@ class RemoteDirectoryIterator:
                 self.prefix,
                 max_keys=min(100000, remaining),
                 continuation_token=self._continuation_token,
+                name_prefix=self.name_prefix,
             )
             self._continuation_token = result.continuation_token
             keys = result.keys

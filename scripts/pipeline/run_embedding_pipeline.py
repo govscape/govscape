@@ -5,7 +5,7 @@ import shutil
 import time
 
 import govscape as gs
-from govscape.config import PDF_ARCHIVE_PDF_DIR, DataModel
+from govscape.config import PDF_ARCHIVE_PDF_DIR, DataModel, digest_shards
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 from govscape.utils import base_argument_parser, str2bool
 
@@ -137,6 +137,14 @@ def main():
         "--server_id", type=int, help="The ID of the current server", default=0
     )
     parser.add_argument(
+        "--shard_prefix_length",
+        type=int,
+        default=2,
+        help="PDFs are split into shards by this many leading digest characters "
+        "(32 ** length shards), which are dealt out across servers; each shard is "
+        "checkpointed separately, so --num_servers can change between runs",
+    )
+    parser.add_argument(
         "--do_text_embedding",
         type=str2bool,
         help="Whether to do text embedding",
@@ -197,12 +205,6 @@ def main():
     local_dm = DataModel(os.path.join(project_root, "data", "prod"))
     remote_dm = DataModel(args.remote_data_dir)
     local_pdf_dir = os.path.join(local_dm.data_dir, "PDFs")
-    local_checkpoint_path = local_dm.checkpoint_file_path(
-        f"embedding_pipeline_{args.server_id}"
-    )
-    remote_checkpoint_path = remote_dm.checkpoint_file_path(
-        f"embedding_pipeline_{args.server_id}"
-    )
     local_perf_path = local_dm.performance_file_path(
         f"embedding_pipeline_{args.server_id}"
     )
@@ -242,15 +244,6 @@ def main():
         profile_name=args.pdf_profile,
         endpoint_url=args.endpoint_url,
     )
-    remote_pdf_iter = RemoteDirectoryIterator(
-        pdf_data_loader,
-        args.pdf_dir,
-        remote_checkpoint_path=remote_checkpoint_path,
-        local_checkpoint_path=local_checkpoint_path,
-        local_dir=local_pdf_dir,
-        checkpoint_loader=data_loader,
-    )
-
     _ocr_kwargs: dict = {}
     if args.do_ocr:
         if args.ocr_type in ("easyocr", "olmocr"):
@@ -273,53 +266,63 @@ def main():
     max_files_to_process = (
         args.max_pdfs if args.max_pdfs is not None else args.num_pages_to_process * 1000
     )
+    shards = digest_shards(args.shard_prefix_length)[args.server_id :: args.num_servers]
     files_processed = 0
-    while files_processed < max_files_to_process:
-        print("-" * 93)
-        print("FILES PROCESSED: ", files_processed)
-        print("-" * 93)
-        time_download = time.time()
-        os.makedirs(local_pdf_dir, exist_ok=True)
-        batch_limit = min(args.batch_size, max_files_to_process - files_processed)
-        local_batch = remote_pdf_iter.download_batch(
-            max_keys=batch_limit,
-            filter_fn=lambda key: (
-                key.endswith(".pdf")
-                and (hash(key) % args.num_servers) == args.server_id
-            ),
-        )
-        pipeline_times["download"] += time.time() - time_download
-        if not local_batch:
+    for shard in shards:
+        if files_processed >= max_files_to_process:
             break
-        print("len(local_batch) = ", len(local_batch))
-
-        process_pdfs(
-            local_batch,
-            processor,
-            args.do_text_embedding,
-            args.do_img_embedding,
-            args.do_metadata_collection,
-            args.do_ocr,
-            pipeline_times,
-            data_loader,
-            local_dm,
-            remote_dm,
+        job_name = f"embedding_pipeline_shard_{shard}"
+        remote_pdf_iter = RemoteDirectoryIterator(
+            pdf_data_loader,
+            args.pdf_dir,
+            remote_checkpoint_path=remote_dm.checkpoint_file_path(job_name),
+            local_checkpoint_path=local_dm.checkpoint_file_path(job_name),
+            local_dir=local_pdf_dir,
+            checkpoint_loader=data_loader,
+            name_prefix=shard,
         )
+        while files_processed < max_files_to_process:
+            print("-" * 93)
+            print(f"SHARD {shard}, FILES PROCESSED: {files_processed}")
+            print("-" * 93)
+            time_download = time.time()
+            os.makedirs(local_pdf_dir, exist_ok=True)
+            batch_limit = min(args.batch_size, max_files_to_process - files_processed)
+            local_batch = remote_pdf_iter.download_batch(
+                max_keys=batch_limit, filter_fn=lambda key: key.endswith(".pdf")
+            )
+            pipeline_times["download"] += time.time() - time_download
+            if not local_batch:
+                break
+            print("len(local_batch) = ", len(local_batch))
 
-        remote_pdf_iter.save_checkpoint()
-        files_processed += len(local_batch)
+            process_pdfs(
+                local_batch,
+                processor,
+                args.do_text_embedding,
+                args.do_img_embedding,
+                args.do_metadata_collection,
+                args.do_ocr,
+                pipeline_times,
+                data_loader,
+                local_dm,
+                remote_dm,
+            )
 
-        # Delete local data to free up space for the next batch
-        cleanup(local_dm, local_pdf_dir)
+            remote_pdf_iter.save_checkpoint()
+            files_processed += len(local_batch)
 
-        # Write pipeline_times to a JSON file
-        with open(local_perf_path, "w") as f:
-            json.dump(pipeline_times, f, indent=2)
+            # Delete local data to free up space for the next batch
+            cleanup(local_dm, local_pdf_dir)
 
-        # Upload the performance JSON to S3
-        data_loader.upload_file(local_perf_path, remote_perf_path)
+            # Write pipeline_times to a JSON file
+            with open(local_perf_path, "w") as f:
+                json.dump(pipeline_times, f, indent=2)
 
-    remote_pdf_iter.close()
+            # Upload the performance JSON to S3
+            data_loader.upload_file(local_perf_path, remote_perf_path)
+
+        remote_pdf_iter.close()
 
     # After all batches are processed, clean up the directories
     if os.path.exists(local_dm.data_dir):

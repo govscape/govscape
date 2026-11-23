@@ -1,3 +1,4 @@
+import hashlib
 import math
 import os
 import uuid
@@ -128,9 +129,8 @@ def test_upload_directory_compressed(loader: DataLoader, tmp_path: Path) -> None
 
     uploaded_names = _remote_basenames(loader, remote_prefix)
 
-    # Build the expected chunk names using the same hash logic as the
-    # implementation: collect all files sorted, split into chunks, and hash
-    # each chunk's file-path tuple.
+    # Chunks are named by the SHA-1 of the relative paths they contain, which
+    # is the same in every process (unlike Python's randomized hash()).
     all_files: list[str] = [
         os.path.join(root, filename)
         for root, _, files in os.walk(str(source_dir))
@@ -141,7 +141,9 @@ def test_upload_directory_compressed(loader: DataLoader, tmp_path: Path) -> None
     expected_names: list[str] = []
     for idx in range(0, len(all_files), chunk_size):
         chunk_files = all_files[idx : idx + chunk_size]
-        expected_names.append(f"chunk_{hash(tuple(chunk_files))}.tar.gz")
+        rel_paths = "\n".join(os.path.relpath(f, source_dir) for f in chunk_files)
+        digest = hashlib.sha1(rel_paths.encode()).hexdigest()
+        expected_names.append(f"chunk_{digest}.tar.gz")
     expected_names.sort()
 
     expected_chunks = math.ceil(num_files / chunk_size)
@@ -350,6 +352,57 @@ def test_remote_directory_iterator_checkpoint_loader(
     ]
     assert ckpt_loader.exists("checkpoints/ckpt.json")
     assert not src_loader.exists("checkpoints/ckpt.json")
+
+
+def test_upload_directory_compressed_reuses_chunk_names(
+    loader: DataLoader, tmp_path: Path
+) -> None:
+    # The same files uploaded again, from anywhere, overwrite the same chunks.
+    for source in ("first", "second"):
+        for i in range(5):
+            _touch(tmp_path / source / "sub" / f"file_{i}.txt")
+        loader.upload_directory(
+            str(tmp_path / source), "uploaded", compress=True, chunk_size=2
+        )
+
+    assert len(_remote_basenames(loader, "uploaded")) == 3
+
+
+def test_list_objects_filters_by_name_prefix(loader: DataLoader) -> None:
+    for key in ("pdfs/AB1.pdf", "pdfs/AC2.pdf", "pdfs/AB3.pdf", "pdfsAB/x.pdf"):
+        loader.upload_bytes(b"x", key)
+
+    assert loader.list_objects("pdfs", name_prefix="AB").keys == [
+        "pdfs/AB1.pdf",
+        "pdfs/AB3.pdf",
+    ]
+    assert loader.list_objects("pdfs/", name_prefix="AD").keys == []
+
+
+def test_remote_directory_iterator_by_name_prefix(
+    loader: DataLoader, tmp_path: Path
+) -> None:
+    names = ["AA1.pdf", "AA2.pdf", "AB1.pdf", "BA1.pdf"]
+    for name in names:
+        loader.upload_bytes(b"x", f"pdfs/{name}")
+
+    downloaded = []
+    for shard in ("AA", "AB", "BA"):
+        remote_iter = RemoteDirectoryIterator(
+            loader,
+            "pdfs",
+            f"checkpoints/{shard}.json",
+            str(tmp_path / f"{shard}.json"),
+            local_dir=str(tmp_path / "download"),
+            use_multiprocessing=False,
+            name_prefix=shard,
+        )
+        downloaded += remote_iter.download_batch(max_keys=1)
+        downloaded += remote_iter.download_batch(max_keys=10)
+        assert remote_iter.finished
+        remote_iter.close()
+
+    assert sorted(os.path.basename(p) for p in downloaded) == names
 
 
 def test_list_objects_treats_prefix_as_directory(loader: DataLoader) -> None:

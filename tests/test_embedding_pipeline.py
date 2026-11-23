@@ -3,6 +3,9 @@ from pathlib import Path
 
 import pytest
 
+import numpy as np
+
+from govscape import pdf_processing_pipeline
 from govscape.config import DataModel
 from govscape.pdf_processing_pipeline import PDFProcessingPipeline
 from govscape.processing import (
@@ -167,3 +170,33 @@ def test_process_pdfs_text_only(sample_pipeline):
         stem = Path(pdf_file).stem
         assert (txt_base / stem).exists()
         assert (img_base / stem).exists()
+
+
+def test_process_pdfs_builds_embedding_models_once(sample_pipeline, monkeypatch):
+    pipeline, pdf_files = sample_pipeline
+    built = []
+
+    def counting_stage(stage_cls):
+        def build(**kwargs):
+            built.append(stage_cls.__name__)
+            return stage_cls(**kwargs)
+
+        return build
+
+    for stage_cls in (TextEmbeddingStage, PageImageEmbeddingStage):
+        monkeypatch.setattr(
+            pdf_processing_pipeline, stage_cls.__name__, counting_stage(stage_cls)
+        )
+
+    for _ in range(2):
+        pipeline.process_pdfs(
+            pdf_files,
+            do_text_embedding=True,
+            do_img_embedding=True,
+            do_metadata_collection=False,
+        )
+
+    assert sorted(built) == ["PageImageEmbeddingStage", "TextEmbeddingStage"]
+    embeddings = list(Path(pipeline.data_model.embedding_directory).rglob("*.npy"))
+    assert embeddings
+    assert np.load(embeddings[0]).shape == (128,)
