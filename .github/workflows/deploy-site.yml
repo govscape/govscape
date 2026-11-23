@@ -1,0 +1,74 @@
+name: Deploy Site
+
+# Deploys the frontend to the OpenTofu-managed stack (infra/). The repository
+# variables come from `tofu output` (see infra/README.md):
+#   AWS_SITE_DEPLOY_ROLE_ARN, SITE_BUCKET, SITE_DISTRIBUTION_ID
+# The current govscape.net site is still deployed by deploy-frontend.yml.
+#
+# Run by hand from main (the deploy role only trusts main):
+#   gh workflow run deploy-site.yml --ref main
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: interface/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd interface
+          npm ci
+
+      - name: Build frontend
+        run: |
+          cd interface
+          npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_SITE_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-2
+
+      - name: Sync to S3
+        env:
+          SITE_BUCKET: ${{ vars.SITE_BUCKET }}
+        run: |
+          # Upload hashed assets first, and the entry points last, so a visitor
+          # never loads an index.html that references missing assets.
+          aws s3 sync interface/build/ "s3://$SITE_BUCKET" \
+            --exclude "index.html" \
+            --exclude "_app/version.json"
+          aws s3 cp interface/build/index.html "s3://$SITE_BUCKET/index.html"
+          aws s3 cp interface/build/_app/version.json "s3://$SITE_BUCKET/_app/version.json"
+
+      - name: Invalidate entry points
+        env:
+          SITE_DISTRIBUTION_ID: ${{ vars.SITE_DISTRIBUTION_ID }}
+        run: |
+          # Client-side routes are rewritten to /index.html before the cache
+          # lookup, so invalidating it covers every route.
+          aws cloudfront create-invalidation --distribution-id "$SITE_DISTRIBUTION_ID" \
+            --paths "/index.html" "/_app/version.json"

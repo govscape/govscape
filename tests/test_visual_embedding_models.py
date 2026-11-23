@@ -26,7 +26,7 @@ def _fake_clip() -> CLIP_VisualEmbeddingModel:
     model = object.__new__(CLIP_VisualEmbeddingModel)
     model.processor = FakeProcessor()
     model.model = FakeModel()
-    model.device = torch.device("cpu")
+    model._device = torch.device("cpu")
     return model
 
 
