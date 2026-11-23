@@ -50,7 +50,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_SITE_DEPLOY_ROLE_ARN }}
-          aws-region: us-east-2
+          aws-region: us-west-2
 
       - name: Sync to S3
         env:
