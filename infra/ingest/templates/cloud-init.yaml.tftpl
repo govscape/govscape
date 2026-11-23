@@ -30,7 +30,10 @@ write_files:
         docker run --rm --gpus all $log_opts "$image" \
           poetry run python -c "import torch; assert torch.cuda.is_available(), 'no usable GPU'; print('GPU:', torch.cuda.get_device_name(0))" \
           || return 1
+        # Docker's default 64 MB /dev/shm is too small for torch tensors sent
+        # between worker processes.
         docker run --rm --name govscape-ingest --gpus all $log_opts \
+          --shm-size=4g \
           -v /var/lib/govscape-ingest:/home/govscape/data \
           -e HF_HOME=/home/govscape/data/hf-cache \
           -e AWS_REGION=${region} \
