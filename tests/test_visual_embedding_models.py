@@ -9,13 +9,14 @@ from PIL import Image
 from govscape.visual_embedding_models import CLIP_VisualEmbeddingModel
 
 
-class FakeProcessor:
-    def __call__(self, images, return_tensors):
-        pixels = torch.tensor(np.asarray(images), dtype=torch.float32)
-        return {"pixel_values": pixels.permute(2, 0, 1).unsqueeze(0)}
+class FakeImageProcessor:
+    def __call__(self, images, return_tensors, device):
+        return {"pixel_values": torch.stack([image.float() for image in images])}
 
 
 class FakeModel:
+    dtype = torch.float32
+
     def get_image_features(self, pixel_values):
         means = pixel_values.mean(dim=(2, 3))
         features = torch.cat(
@@ -26,7 +27,7 @@ class FakeModel:
 
 def _fake_clip() -> CLIP_VisualEmbeddingModel:
     model = object.__new__(CLIP_VisualEmbeddingModel)
-    model.processor = FakeProcessor()
+    model.processor = SimpleNamespace(image_processor=FakeImageProcessor())
     model.model = FakeModel()
     model._device = torch.device("cpu")
     return model

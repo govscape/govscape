@@ -3,8 +3,8 @@
 Extracts page images from a local PDF directory once (cached), then for each
 model reports:
 
-* end-to-end images/sec through ``encode_images`` (CPU preprocessing + GPU), the
-  path used by the embedding pipeline,
+* end-to-end images/sec through ``encode_images`` (JPEG decoding, preprocessing
+  and the forward pass), the path used by the embedding pipeline,
 * GPU-only images/sec on already-preprocessed pixels,
 * median latency of ``encode_text`` for short search queries (the serving path),
 * peak GPU memory.
@@ -108,15 +108,18 @@ def _sync() -> None:
 def time_gpu_only(
     model, image_paths: list[str], batch_size: int, repeats: int
 ) -> float:
-    pixels, _ = model._load_and_process_image(image_paths, model.processor)
+    _, images = model._decode_images(image_paths)
+    pixels = model.processor.image_processor(
+        images=images, return_tensors="pt", device=model.device
+    )["pixel_values"].to(model.device, model.model.dtype)
     timings = []
     for _ in range(repeats):
         _sync()
         start = time.perf_counter()
         for i in range(0, pixels.size(0), batch_size):
-            batch = pixels[i : i + batch_size].to(model.device)
+            batch = pixels[i : i + batch_size]
             with torch.no_grad():
-                out = model.model.get_image_features(pixel_values=batch)
+                out = model.model.get_image_features(pixel_values=batch).pooler_output
                 out = out / out.norm(dim=-1, keepdim=True)
             out.cpu()
         _sync()
