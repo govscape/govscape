@@ -6,7 +6,10 @@ import numpy as np
 import torch
 from PIL import Image
 
-from govscape.visual_embedding_models import CLIP_VisualEmbeddingModel
+from govscape.visual_embedding_models import (
+    CLIP_VisualEmbeddingModel,
+    SigLIP_VisualEmbeddingModel,
+)
 
 
 class FakeImageProcessor:
@@ -59,3 +62,36 @@ def test_encode_images_all_failed(tmp_path: Path) -> None:
 
     assert embeddings.shape == (1, 512)
     assert not embeddings.any()
+
+
+class RecordingTokenizer:
+    def __init__(self):
+        self.texts: list[str] = []
+
+    def __call__(self, text, add_special_tokens):
+        self.texts.append(text)
+        return {"input_ids": [1, 2, 3]}
+
+    def pad(self, encoded, padding, max_length, return_tensors):
+        return {"input_ids": torch.tensor(encoded["input_ids"])}
+
+
+class FakeTextModel:
+    def get_text_features(self, input_ids):
+        return SimpleNamespace(pooler_output=torch.ones(input_ids.shape[0], 4))
+
+
+def test_siglip2_lowercases_query_text():
+    for model_name, expected in [
+        ("google/siglip2-base-patch16-224", "budget table"),
+        ("google/siglip-base-patch16-224", "Budget Table"),
+    ]:
+        model = object.__new__(SigLIP_VisualEmbeddingModel)
+        tokenizer = RecordingTokenizer()
+        model.processor = SimpleNamespace(tokenizer=tokenizer)
+        model.model = FakeTextModel()
+        model._device = torch.device("cpu")
+        model.max_text_len = 64
+        model.lowercase_text = "siglip2" in model_name
+        model.encode_text("Budget Table")
+        assert tokenizer.texts == [expected]

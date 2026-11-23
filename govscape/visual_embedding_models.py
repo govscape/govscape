@@ -99,11 +99,12 @@ class CLIP_VisualEmbeddingModel(LazyDeviceModel, VisualEmbeddingModel):
         batch_attention_mask = torch.ones_like(batch_input_ids)
 
         # Since transformers 5 the get_*_features methods return model outputs;
-        # pooler_output holds the projected embeddings.
+        # pooler_output holds the projected embeddings. Embeddings are normalized
+        # in float32: in half precision their norms come out ~0.9997.
         with torch.no_grad():
             batch_embeddings = self.model.get_text_features(
                 input_ids=batch_input_ids, attention_mask=batch_attention_mask
-            ).pooler_output
+            ).pooler_output.float()
         batch_embeddings = batch_embeddings / batch_embeddings.norm(
             dim=-1, keepdim=True
         )
@@ -124,7 +125,9 @@ class CLIP_VisualEmbeddingModel(LazyDeviceModel, VisualEmbeddingModel):
         )
 
         with torch.no_grad():
-            image_embedding = self.model.get_image_features(**inputs).pooler_output
+            image_embedding = self.model.get_image_features(
+                **inputs
+            ).pooler_output.float()
 
         image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
 
@@ -154,7 +157,7 @@ class CLIP_VisualEmbeddingModel(LazyDeviceModel, VisualEmbeddingModel):
             with torch.no_grad():
                 features = self.model.get_image_features(
                     pixel_values=pixels.to(self.device, self.model.dtype)
-                ).pooler_output
+                ).pooler_output.float()
                 features = features / features.norm(dim=-1, keepdim=True)
             embeddings[[start + row for row in rows]] = features.float().cpu().numpy()
         if failed:
@@ -213,11 +216,16 @@ class SigLIP_VisualEmbeddingModel(CLIP_VisualEmbeddingModel):
         self.model = AutoModel.from_pretrained(model_name)
         self.model.eval()
         self.max_text_len = self.model.config.text_config.max_position_embeddings
+        # SigLIP 2 was trained on lowercased text, but its checkpoints load a
+        # Gemma tokenizer that keeps case (SigLIP's own tokenizer lowercases).
+        self.lowercase_text = "siglip2" in model_name.lower()
 
     def encode_text(self, text):
         # SigLIP was trained on text padded to a fixed length, so each chunk is
         # padded to max_text_len rather than masked. Long text is split into
         # chunks whose embeddings are averaged, as for CLIP.
+        if self.lowercase_text:
+            text = text.lower()
         tokenizer = self.processor.tokenizer
         token_ids = tokenizer(text, add_special_tokens=True)["input_ids"]
         chunks = [
@@ -234,7 +242,7 @@ class SigLIP_VisualEmbeddingModel(CLIP_VisualEmbeddingModel):
         with torch.no_grad():
             batch_embeddings = self.model.get_text_features(
                 input_ids=batch
-            ).pooler_output
+            ).pooler_output.float()
         batch_embeddings = batch_embeddings / batch_embeddings.norm(
             dim=-1, keepdim=True
         )
