@@ -249,10 +249,9 @@ def main():
         endpoint_url=args.endpoint_url,
     )
     _ocr_kwargs: dict = {}
-    if args.do_ocr:
-        if args.ocr_type in ("easyocr", "olmocr"):
-            _ocr_kwargs["languages"] = args.ocr_languages.split(",")
-            _ocr_kwargs["gpu"] = args.ocr_gpu
+    if args.do_ocr and args.ocr_type in ("easyocr", "olmocr"):
+        _ocr_kwargs["languages"] = args.ocr_languages.split(",")
+        _ocr_kwargs["gpu"] = args.ocr_gpu
 
     processor = gs.PDFProcessingPipeline(
         local_dm.data_dir,

@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -17,9 +18,10 @@ class FakeProcessor:
 class FakeModel:
     def get_image_features(self, pixel_values):
         means = pixel_values.mean(dim=(2, 3))
-        return torch.cat(
+        features = torch.cat(
             [means + 1, torch.ones(means.shape[0], 512 - means.shape[1])], dim=1
         )
+        return SimpleNamespace(pooler_output=features)
 
 
 def _fake_clip() -> CLIP_VisualEmbeddingModel:

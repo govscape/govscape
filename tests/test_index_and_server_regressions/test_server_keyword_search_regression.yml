@@ -32,7 +32,7 @@ results:
     crawl_url: https://biolincc.nhlbi.nih.gov/media/NHLBI_Biospecimen_MTA_Non_Fillable.pdf?link_time=2025-03-13_15:40:39.989228
     sub_domain: nih.gov
   crawl_url: https://biolincc.nhlbi.nih.gov/media/NHLBI_Biospecimen_MTA_Non_Fillable.pdf
-  distance: -9.066
+  distance: -9.0659
   has_more_crawls: false
   jpeg: 222227UE3MX2MTWXM2UJ6LV23WG55MYO_0.jpeg
   page: '0'

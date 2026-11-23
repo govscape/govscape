@@ -33,7 +33,7 @@ pytest = "^9.2"
 pytest-mypy = "^1.1"
 reportlab = "^5.1"
 s5cmd = "^0.3.3"
-scipy = "^1.18"
+scipy = "^1.17"
 sentence-transformers = "^6.3"
 # On Linux, install the CUDA (cu130) torch/torchvision builds from the PyTorch
 # index so GPU hosts (e.g. the aarch64 DGX Spark) get GPU support out of the box;
@@ -66,14 +66,14 @@ ocrmypdf = { version = "^17.14", optional = true }
 olmocr = { version = "^0.4.27", optional = true }
 opencv-python = { version = ">=4.11", optional = true }
 pytesseract = { version = "^0.3.10", optional = true }
-setuptools = ">=82"
 sentencepiece = "^0.2.3"
 # sentencepiece's generated model code (used to load SigLIP's tokenizer) needs
 # protobuf.runtime_version, which arrived in 5.26.
 protobuf = ">=5.26"
 lmdb = "^3.0.0"
 requests = "^2.34.2"
-kernels = ">=0.19"
+# The range transformers accepts for hub kernels (e.g. FlashAttention for Qwen3).
+kernels = ">=0.18.2,<0.19"
 
 [tool.poetry.extras]
 easyocr = ["opencv-python", "easyocr"]

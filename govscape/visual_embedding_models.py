@@ -63,7 +63,7 @@ class CLIP_VisualEmbeddingModel(LazyDeviceModel, VisualEmbeddingModel):
 
     def __init__(self):
         self.processor = CLIPProcessor.from_pretrained(
-            "openai/clip-vit-base-patch32", use_fast=True
+            "openai/clip-vit-base-patch32", backend="torchvision"
         )
         # Loaded on the CPU; LazyDeviceModel moves it on first use.
         self.model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
@@ -92,10 +92,12 @@ class CLIP_VisualEmbeddingModel(LazyDeviceModel, VisualEmbeddingModel):
         batch_input_ids = torch.cat(chunk_tensors, dim=0)
         batch_attention_mask = torch.ones_like(batch_input_ids)
 
+        # Since transformers 5 the get_*_features methods return model outputs;
+        # pooler_output holds the projected embeddings.
         with torch.no_grad():
             batch_embeddings = self.model.get_text_features(
                 input_ids=batch_input_ids, attention_mask=batch_attention_mask
-            )
+            ).pooler_output
         batch_embeddings = batch_embeddings / batch_embeddings.norm(
             dim=-1, keepdim=True
         )
@@ -114,7 +116,7 @@ class CLIP_VisualEmbeddingModel(LazyDeviceModel, VisualEmbeddingModel):
         inputs = self.processor(images=image, return_tensors="pt").to(self.device)
 
         with torch.no_grad():
-            image_embedding = self.model.get_image_features(**inputs)
+            image_embedding = self.model.get_image_features(**inputs).pooler_output
 
         image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
 
@@ -205,7 +207,7 @@ class CLIP_VisualEmbeddingModel(LazyDeviceModel, VisualEmbeddingModel):
             with torch.no_grad():
                 batch_embeddings = self.model.get_image_features(
                     pixel_values=pixel_batch
-                )
+                ).pooler_output
                 batch_embeddings = batch_embeddings / batch_embeddings.norm(
                     dim=-1, keepdim=True
                 )
@@ -232,7 +234,9 @@ class SigLIP_VisualEmbeddingModel(CLIP_VisualEmbeddingModel):
 
     def __init__(self, model_name: str = DEFAULT_MODEL_NAME):
         self.model_name = model_name
-        self.processor = AutoProcessor.from_pretrained(model_name, use_fast=True)
+        self.processor = AutoProcessor.from_pretrained(
+            model_name, backend="torchvision"
+        )
         self.model = AutoModel.from_pretrained(model_name)
         self.model.eval()
         self.max_text_len = self.model.config.text_config.max_position_embeddings
@@ -255,7 +259,9 @@ class SigLIP_VisualEmbeddingModel(CLIP_VisualEmbeddingModel):
         )["input_ids"].to(self.device)
 
         with torch.no_grad():
-            batch_embeddings = self.model.get_text_features(input_ids=batch)
+            batch_embeddings = self.model.get_text_features(
+                input_ids=batch
+            ).pooler_output
         batch_embeddings = batch_embeddings / batch_embeddings.norm(
             dim=-1, keepdim=True
         )
