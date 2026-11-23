@@ -24,6 +24,12 @@ variable "instance_type" {
   default     = "g6.2xlarge"
 }
 
+variable "availability_zones" {
+  description = "Zone names to place workers in, e.g. those with spot capacity for instance_type (`aws ec2 get-spot-placement-scores`); null uses every zone that offers it"
+  type        = list(string)
+  default     = null
+}
+
 variable "use_spot" {
   description = "Run workers as persistent spot instances that stop on interruption and resume later"
   type        = bool

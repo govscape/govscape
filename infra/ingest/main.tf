@@ -67,8 +67,12 @@ data "aws_subnets" "worker" {
   }
 
   filter {
-    name   = "availability-zone"
-    values = data.aws_ec2_instance_type_offerings.worker.locations
+    name = "availability-zone"
+    values = (
+      var.availability_zones == null
+      ? data.aws_ec2_instance_type_offerings.worker.locations
+      : tolist(setintersection(var.availability_zones, data.aws_ec2_instance_type_offerings.worker.locations))
+    )
   }
 
   filter {
@@ -130,8 +134,10 @@ resource "aws_instance" "worker" {
   iam_instance_profile   = data.aws_iam_instance_profile.worker.name
 
   # A worker powers itself off when it's done; stopped (not terminated) keeps
-  # it inspectable and costs only its root volume until `tofu destroy`.
-  instance_initiated_shutdown_behavior = "stop"
+  # it inspectable and costs only its root volume until `tofu destroy`. AWS
+  # won't set this on spot instances, but persistent spot instances that stop
+  # on interruption already stop on shutdown.
+  instance_initiated_shutdown_behavior = var.use_spot ? null : "stop"
 
   dynamic "instance_market_options" {
     for_each = var.use_spot ? [1] : []
