@@ -27,17 +27,11 @@ from pathlib import Path
 import numpy as np
 
 from govscape.config import DataModel
-from govscape.processing.ocr import (
-    EasyOCRImpl,
-    OcrMyPDFImpl,
-    OLMOcrImpl,
-    PaddleOCRImpl,
-)
+from govscape.processing.ocr import EasyOCRImpl, OcrMyPDFImpl, OLMOcrImpl
 from govscape.processing.pdf_extraction_stage import PDFExtractionStage
 
 ENGINE_CLASSES = {
     "easyocr": EasyOCRImpl,
-    "paddleocr": PaddleOCRImpl,
     "olmocr": OLMOcrImpl,
     "ocrmypdf": OcrMyPDFImpl,
 }
@@ -201,10 +195,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
 
-    # PaddleOCR expects BGR (OpenCV native); the others expect RGB.
-    to_rgb = args.engine != "paddleocr"
     images = prepare_images(
-        args.pdf_dir, args.work_dir, args.num_pdfs, args.max_pages, to_rgb
+        args.pdf_dir, args.work_dir, args.num_pdfs, args.max_pages, to_rgb=True
     )
 
     if args.engine == "easyocr":
@@ -217,8 +209,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             (f"ocrmypdf workers={w}", {"max_workers": int(w)})
             for w in args.ocrmypdf_workers.split(",")
         ]
-    elif args.engine == "paddleocr":
-        configs = [("paddleocr", {"use_gpu": args.gpu})]
     else:
         configs = [(args.engine, {})]
 

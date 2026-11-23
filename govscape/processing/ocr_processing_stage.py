@@ -28,12 +28,11 @@ def _load_cv2() -> Any:
 
 def _ocr_engine_class(ocr_type: str) -> type[BaseOCR]:
     # Imported here rather than at module scope so that resolving one engine
-    # doesn't pull in every backend's dependencies (torch, paddle, ...).
-    from .ocr import EasyOCRImpl, OcrMyPDFImpl, OLMOcrImpl, PaddleOCRImpl
+    # doesn't pull in every backend's dependencies (torch, tesseract, ...).
+    from .ocr import EasyOCRImpl, OcrMyPDFImpl, OLMOcrImpl
 
     ocr_engines: dict[str, type[BaseOCR]] = {
         "easyocr": EasyOCRImpl,
-        "paddleocr": PaddleOCRImpl,
         "olmocr": OLMOcrImpl,
         "ocrmypdf": OcrMyPDFImpl,
     }
@@ -162,9 +161,8 @@ class OCRProcessingStage(ProcessingStage):
                     if self._is_blank(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)):
                         skipped_blank += 1
                         continue
-                    if self.ocr_type != "paddleocr":
-                        with contextlib.suppress(Exception):
-                            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                    with contextlib.suppress(Exception):
+                        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                     all_images.append(image)
                     all_metadata.append((digest, page_num))
                 except Exception as e:

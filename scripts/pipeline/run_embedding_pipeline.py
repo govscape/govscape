@@ -172,7 +172,7 @@ def main():
     parser.add_argument(
         "--ocr_type",
         type=str,
-        help="OCR engine type (easyocr, paddleocr, olmocr, ocrmypdf)",
+        help="OCR engine type (easyocr, olmocr, ocrmypdf)",
         default="easyocr",
     )
     parser.add_argument(
@@ -253,9 +253,6 @@ def main():
         if args.ocr_type in ("easyocr", "olmocr"):
             _ocr_kwargs["languages"] = args.ocr_languages.split(",")
             _ocr_kwargs["gpu"] = args.ocr_gpu
-        elif args.ocr_type == "paddleocr":
-            _ocr_kwargs["language"] = args.ocr_languages.split(",")[0]
-            _ocr_kwargs["use_gpu"] = args.ocr_gpu
 
     processor = gs.PDFProcessingPipeline(
         local_dm.data_dir,

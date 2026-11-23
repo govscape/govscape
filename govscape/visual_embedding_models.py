@@ -171,7 +171,7 @@ class CLIP_VisualEmbeddingModel(LazyDeviceModel, VisualEmbeddingModel):
                 [(p, self.processor) for p in path_batches],
             )
             # Let workers exit on their own: Pool.__exit__ terminates them, and some
-            # native libs' SIGTERM handlers (e.g. Paddle's) can deadlock.
+            # native libs' SIGTERM handlers can deadlock.
             pool.close()
             pool.join()
 

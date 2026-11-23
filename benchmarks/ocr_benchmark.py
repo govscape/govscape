@@ -5,7 +5,7 @@ PDFExtractionStage, then times each OCR engine.
 
 Example:
     poetry run python -m govscape.benchmarks.ocr_benchmark \
-        --num-pdfs 10 --engines easyocr paddleocr
+        --num-pdfs 10 --engines easyocr ocrmypdf
 """
 
 from __future__ import annotations
@@ -33,11 +33,10 @@ from govscape.processing.pdf_extraction_stage import PDFExtractionStage
 DEFAULT_BUCKET = PDF_ARCHIVE_BUCKET
 DEFAULT_PREFIX = PDF_ARCHIVE_PDF_DIR
 DEFAULT_NUM_PDFS = 10
-DEFAULT_ENGINES = ["easyocr", "paddleocr", "olmocr", "ocrmypdf"]
+DEFAULT_ENGINES = ["easyocr", "olmocr", "ocrmypdf"]
 
 ENGINE_DEFAULT_KWARGS: dict[str, dict] = {
     "easyocr": {"languages": ["en"], "gpu": False},
-    "paddleocr": {"language": "en", "use_gpu": False},
     "olmocr": {"model_name": "default"},
     "ocrmypdf": {"language": "eng", "output_type": "txt"},
 }
@@ -46,7 +45,6 @@ ENGINE_DEFAULT_KWARGS: dict[str, dict] = {
 def _apply_gpu(kwargs: dict[str, dict], gpu: bool) -> dict[str, dict]:
     updated = {k: dict(v) for k, v in kwargs.items()}
     updated["easyocr"]["gpu"] = gpu
-    updated["paddleocr"]["use_gpu"] = gpu
     return updated
 
 
@@ -218,7 +216,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--gpu",
         action="store_true",
-        help="Enable GPU acceleration for EasyOCR and PaddleOCR.",
+        help="Enable GPU acceleration for EasyOCR.",
     )
     return parser.parse_args(argv)
 

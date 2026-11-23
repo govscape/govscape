@@ -173,8 +173,8 @@ class DataLoader(ABC):
                 with Pool(processes=workers) as pool:
                     pool.map(self._create_tar_chunk, tasks)
                     # Let workers exit on their own: Pool.__exit__ terminates
-                    # them, and some native libs' SIGTERM handlers (e.g.
-                    # Paddle's) can deadlock.
+                    # them, and some native libs' SIGTERM handlers can
+                    # deadlock.
                     pool.close()
                     pool.join()
             self.upload_directory(tmp_dir, remote_prefix, compress=False)
@@ -608,7 +608,7 @@ class RemoteDirectoryIterator:
         """Shut down the cached multiprocessing pool, if any."""
         if self._mp_pool is not None:
             # Let workers exit on their own: terminate() sends SIGTERM, which
-            # some native libs' handlers (e.g. Paddle's) can deadlock on.
+            # some native libs' handlers can deadlock on.
             self._mp_pool.close()
             self._mp_pool.join()
             self._mp_pool = None

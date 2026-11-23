@@ -14,7 +14,6 @@ from govscape.processing.ocr import (
     EasyOCRImpl,
     OcrMyPDFImpl,
     OLMOcrImpl,
-    PaddleOCRImpl,
 )
 
 
@@ -95,7 +94,6 @@ class _InlineProcessPoolExecutor:
 
 OCR_IMPLS = [
     (EasyOCRImpl, {"languages": ["en"], "gpu": False}, "easyocr"),
-    (PaddleOCRImpl, {"language": "en", "use_gpu": False}, "paddleocr"),
     (OLMOcrImpl, {"model_name": "default"}, "olmocr"),
     (OcrMyPDFImpl, {"language": "eng"}, None),
 ]
@@ -161,7 +159,6 @@ def test_ocr_processing_stage_writes_txt(
     # Map impl_class to ocr_type string expected by OCRProcessingStage
     impl_to_type = {
         EasyOCRImpl: "easyocr",
-        PaddleOCRImpl: "paddleocr",
         OLMOcrImpl: "olmocr",
         OcrMyPDFImpl: "ocrmypdf",
     }

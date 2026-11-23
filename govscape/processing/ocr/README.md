@@ -21,18 +21,12 @@ All OCR implementations inherit from `BaseOCR` and must implement:
    - Default language: English
    - Good balance of speed and accuracy
 
-2. **PaddleOCR** (`paddleocr_impl.py`)
-   - Fast and accurate multilingual OCR
-   - Supports document structure analysis
-   - Efficient on both CPU and GPU
-   - Default language: English
-
-3. **OLMOcr** (`olmocr_impl.py`)
+2. **OLMOcr** (`olmocr_impl.py`)
    - Open-source language model-based OCR
    - Customizable model selection
    - Good for specialized documents
 
-4. **OcrMyPDF** (`ocrmypdf_impl.py`)
+3. **OcrMyPDF** (`ocrmypdf_impl.py`)
    - Built on Tesseract OCR engine
    - Integrates with ocrmypdf library
    - Simpler setup, widely supported languages
@@ -55,7 +49,7 @@ poetry install --extras ocr        # all engines
 poetry install --extras easyocr    # a single engine
 ```
 
-Available extras: `easyocr`, `paddleocr`, `olmocr`, `ocrmypdf`, and `ocr` (all).
+Available extras: `easyocr`, `olmocr`, `ocrmypdf`, and `ocr` (all).
 
 The `ocrmypdf` backend additionally requires the Tesseract system binary, which
 is not a Python package:
@@ -70,7 +64,7 @@ is not a Python package:
 ### OCRProcessingStage Parameters
 
 - `data_model` (DataModel): Required. Defines the directory structure
-- `ocr_type` (str): Type of OCR engine ('easyocr', 'paddleocr', 'olmocr', 'ocrmypdf')
+- `ocr_type` (str): Type of OCR engine ('easyocr', 'olmocr', 'ocrmypdf')
 - `**ocr_kwargs`: Engine-specific parameters
 
 ### EasyOCR Options
@@ -80,16 +74,6 @@ OCRProcessingStage(
     ocr_type="easyocr",
     languages=["en", "fr"],  # Support multiple languages
     gpu=True,  # Use GPU if available
-)
-```
-
-### PaddleOCR Options
-```python
-OCRProcessingStage(
-    data_model=data_model,
-    ocr_type="paddleocr",
-    language="en",  # Single language
-    use_gpu=True,  # Use GPU if available
 )
 ```
 
@@ -174,6 +158,5 @@ poetry run pytest tests/test_ocr.py::test_easyocr -v
 ## References
 
 - [EasyOCR Documentation](https://github.com/JaidedAI/EasyOCR)
-- [PaddleOCR Documentation](https://github.com/PaddlePaddle/PaddleOCR)
 - [OcrMyPDF Documentation](https://ocrmypdf.readthedocs.io/)
 - [Tesseract OCR](https://github.com/tesseract-ocr/tesseract)
