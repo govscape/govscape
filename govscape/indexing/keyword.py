@@ -5,6 +5,7 @@ import threading
 from abc import ABC, abstractmethod
 
 import pyarrow as pa
+import tantivy
 from whoosh.fields import ID, NUMERIC, TEXT, Schema
 from whoosh.filedb.filestore import FileStorage
 from whoosh.index import create_in
@@ -408,6 +409,98 @@ class SQLiteKeywordIndex(AbstractKeywordIndex):
         if self._total_entries == -1:
             self.load_index()
         return self._total_entries
+
+
+class TantivyKeywordIndex(AbstractKeywordIndex):
+    """BM25 keyword index on Tantivy, a Lucene-style search library in Rust.
+
+    Each page is a document: its text is indexed (with positions, for phrase
+    queries) but not stored; the PDF's digest and the page number are stored to
+    identify results, and the digest is also indexed untokenized so searches can
+    be restricted to a set of PDFs.
+    """
+
+    # Indexing memory, shared by the writer's threads; segments are flushed to
+    # disk whenever it fills.
+    WRITER_HEAP_BYTES = 1 << 30
+
+    def __init__(self, index_keyword_directory):
+        self.index_keyword_directory = index_keyword_directory
+        self.index_path = os.path.join(index_keyword_directory, "tantivy")
+        self._index = None
+        # The index is opened lazily, once per process: the server is loaded
+        # before gunicorn forks its workers, and Tantivy's native handles
+        # shouldn't be shared across fork().
+        self._index_pid = None
+
+    @staticmethod
+    def _schema():
+        builder = tantivy.SchemaBuilder()
+        builder.add_text_field("text", stored=False, index_option="position")
+        builder.add_text_field("pdf_name", stored=True, tokenizer_name="raw")
+        builder.add_unsigned_field("page", stored=True)
+        return builder.build()
+
+    def _open(self):
+        if self._index is None or self._index_pid != os.getpid():
+            os.makedirs(self.index_path, exist_ok=True)
+            self._index = tantivy.Index(self._schema(), path=self.index_path)
+            self._index_pid = os.getpid()
+        return self._index
+
+    def build_index(self):
+        self._open()
+
+    def add_batch(self, texts, digests, pages):
+        index = self._open()
+        writer = index.writer(heap_size=self.WRITER_HEAP_BYTES)
+        for text, digest, page in zip(texts, digests, pages, strict=True):
+            writer.add_document(
+                tantivy.Document(text=[text], pdf_name=[str(digest)], page=[int(page)])
+            )
+        writer.commit()
+        writer.wait_merging_threads()
+        index.reload()
+
+    def load_index(self):
+        self._open().reload()
+
+    def save_index(self):
+        return  # add_batch commits.
+
+    def _search_impl(self, query, k, allowed_names=None):
+        index = self._open()
+        # Every term must match, as in the SQLite and Whoosh indexes. Lenient
+        # parsing turns what the query language can't parse (stray punctuation,
+        # unbalanced quotes) into match-nothing parts, not errors.
+        parsed, _errors = index.parse_query_lenient(
+            query, ["text"], conjunction_by_default=True
+        )
+        if allowed_names is not None:
+            names = [str(name) for name in allowed_names]
+            if not names:
+                return [], [], []
+            allowed = tantivy.Query.term_set_query(index.schema, "pdf_name", names)
+            parsed = tantivy.Query.boolean_query(
+                [(tantivy.Occur.Must, parsed), (tantivy.Occur.Must, allowed)]
+            )
+        searcher = index.searcher()
+        scores, digests, pages = [], [], []
+        for score, address in searcher.search(parsed, k).hits:
+            doc = searcher.doc(address)
+            scores.append(score)
+            digests.append(doc["pdf_name"][0])
+            pages.append(str(doc["page"][0]))
+        return scores, digests, pages
+
+    def search(self, query, k):
+        return self._search_impl(query, k)
+
+    def search_filtered(self, query, k, allowed_names):
+        return self._search_impl(query, k, allowed_names=allowed_names)
+
+    def total_entries(self):
+        return self._open().searcher().num_docs
 
 
 class WhooshKeywordIndex(AbstractKeywordIndex):

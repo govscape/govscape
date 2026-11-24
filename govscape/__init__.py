@@ -15,6 +15,7 @@ _EXPORTS = {
     "LuceneKeywordIndex": "indexing",
     "SQLiteKeywordIndex": "indexing",
     "SQLiteMetadataIndex": "indexing",
+    "TantivyKeywordIndex": "indexing",
     "WhooshKeywordIndex": "indexing",
     "PDFProcessingPipeline": "pdf_processing_pipeline",
     "Server": "server",
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
         LuceneKeywordIndex,
         SQLiteKeywordIndex,
         SQLiteMetadataIndex,
+        TantivyKeywordIndex,
         WhooshKeywordIndex,
     )
     from .pdf_processing_pipeline import PDFProcessingPipeline
@@ -81,6 +83,7 @@ __all__ = [
     "Server",
     "ServerConfig",
     "SigLIP_VisualEmbeddingModel",
+    "TantivyKeywordIndex",
     "WhooshKeywordIndex",
     "base_argument_parser",
     "build_data_loader",

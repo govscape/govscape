@@ -6,6 +6,7 @@ from govscape.indexing import (
     LanceDBKeywordIndex,
     LuceneKeywordIndex,
     SQLiteKeywordIndex,
+    TantivyKeywordIndex,
     WhooshKeywordIndex,
 )
 
@@ -52,8 +53,14 @@ def sample_documents():
 
 @pytest.mark.parametrize(
     "index_cls",
-    [LanceDBKeywordIndex, SQLiteKeywordIndex, WhooshKeywordIndex, LuceneKeywordIndex],
-    ids=["lancedb", "sqlite", "whoosh", "lucene"],
+    [
+        LanceDBKeywordIndex,
+        SQLiteKeywordIndex,
+        WhooshKeywordIndex,
+        LuceneKeywordIndex,
+        TantivyKeywordIndex,
+    ],
+    ids=["lancedb", "sqlite", "whoosh", "lucene", "tantivy"],
 )
 def test_keyword_indexes_round_trip(tmp_path, index_cls, sample_documents):
     index_dir = tmp_path / "keyword_index"
@@ -115,3 +122,44 @@ def test_sqlite_keyword_index_search_filtered_is_thread_safe(
         _, filtered_pdfs, _ = future.result()
 
     assert filtered_pdfs == [digests[1]]
+
+
+def test_tantivy_keyword_index_tolerates_messy_queries(tmp_path, sample_documents):
+    texts, digests, pages = sample_documents
+    index = TantivyKeywordIndex((tmp_path / "keyword_index").as_posix())
+    index.build_index()
+    index.add_batch(texts, digests, pages)
+
+    for query in ['climate-change "adaptation', "wind: (policy", "*", "", "AND OR"]:
+        index.search(query, k=5)  # Must not raise.
+    _, found, _ = index.search("climate-change", k=5)
+    assert digests[1] in found
+    assert index.search_filtered("resilience", k=5, allowed_names=set()) == ([], [], [])
+
+
+def test_tantivy_keyword_index_appends_batches(tmp_path, sample_documents):
+    texts, digests, pages = sample_documents
+    directory = (tmp_path / "keyword_index").as_posix()
+    index = TantivyKeywordIndex(directory)
+    index.build_index()
+    index.add_batch(texts[:5], digests[:5], pages[:5])
+
+    reopened = TantivyKeywordIndex(directory)
+    reopened.load_index()
+    reopened.add_batch(texts[5:], digests[5:], pages[5:])
+
+    assert TantivyKeywordIndex(directory).total_entries() == len(texts)
+    _, found, found_pages = reopened.search("wastewater", k=5)
+    assert found == [digests[6]] and found_pages == [str(pages[6])]
+
+
+def test_tantivy_keyword_index_concurrent_searches(tmp_path, sample_documents):
+    texts, digests, pages = sample_documents
+    index = TantivyKeywordIndex((tmp_path / "keyword_index").as_posix())
+    index.build_index()
+    index.add_batch(texts, digests, pages)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(lambda _: index.search("heat", k=5)[1], range(32)))
+    assert all(sorted(r) == sorted(results[0]) for r in results)
+    assert set(results[0]) == {"public_health_heat.pdf", "urban_forestry.pdf"}

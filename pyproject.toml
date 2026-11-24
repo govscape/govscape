@@ -74,6 +74,7 @@ lmdb = "^3.0.0"
 requests = "^2.34.2"
 # The range transformers accepts for hub kernels (e.g. FlashAttention for Qwen3).
 kernels = ">=0.18.2,<0.19"
+tantivy = ">=0.24,<1"
 
 [tool.poetry.extras]
 easyocr = ["opencv-python", "easyocr"]

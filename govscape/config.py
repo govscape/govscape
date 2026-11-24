@@ -126,9 +126,16 @@ class ServerConfig:
             raise ValueError("vector_index_type must be either 'Memory' or 'Disk'")
         self.vector_index_type = vector_index_type
 
-        if keyword_index_type not in ["LanceDB", "SQLite", "Whoosh", "Lucene"]:
+        if keyword_index_type not in [
+            "LanceDB",
+            "SQLite",
+            "Whoosh",
+            "Lucene",
+            "Tantivy",
+        ]:
             raise ValueError(
-                "keyword_index_type must be 'LanceDB', 'SQLite', 'Whoosh', or 'Lucene'"
+                "keyword_index_type must be 'LanceDB', 'SQLite', 'Whoosh', 'Lucene', "
+                "or 'Tantivy'"
             )
         self.keyword_index_type = keyword_index_type
 

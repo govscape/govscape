@@ -19,6 +19,7 @@ from .keyword import (
     LanceDBKeywordIndex,
     LuceneKeywordIndex,
     SQLiteKeywordIndex,
+    TantivyKeywordIndex,
     WhooshKeywordIndex,
 )
 from .metadata import (
@@ -54,6 +55,7 @@ __all__ = [
     "SQLiteForwardIndex",
     "SQLiteKeywordIndex",
     "SQLiteMetadataIndex",
+    "TantivyKeywordIndex",
     "WhooshKeywordIndex",
     "build_forward_index",
 ]

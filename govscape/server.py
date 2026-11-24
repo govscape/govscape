@@ -20,6 +20,7 @@ from .indexing import (
     LuceneKeywordIndex,
     SQLiteKeywordIndex,
     SQLiteMetadataIndex,
+    TantivyKeywordIndex,
     WhooshKeywordIndex,
 )
 from .query import Query, Response
@@ -94,6 +95,10 @@ class Server:
             )
         elif self.keyword_index_type == "Lucene":
             self.keyword_index = LuceneKeywordIndex(
+                self.data_model.index_keyword_directory
+            )
+        elif self.keyword_index_type == "Tantivy":
+            self.keyword_index = TantivyKeywordIndex(
                 self.data_model.index_keyword_directory
             )
         else:
