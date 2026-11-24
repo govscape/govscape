@@ -83,7 +83,7 @@ def _get_arg_parser():
     parser.add_argument(
         "-ki",
         "--keyword_index_type",
-        default="LanceDB",
+        default="Tantivy",
         help="The type of keyword index to use",
     )
     parser.add_argument(

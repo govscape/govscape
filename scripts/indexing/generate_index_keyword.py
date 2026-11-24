@@ -23,7 +23,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--keyword_index_type",
         type=str,
-        default="LanceDB",
+        default="Tantivy",
         help="Type of keyword index to use: LanceDB, SQLite, Whoosh, Lucene or Tantivy",
     )
     args = parser.parse_args()

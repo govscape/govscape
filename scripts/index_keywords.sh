@@ -5,7 +5,7 @@ set -e
 rm -rf data/prod
 
 data_dir="test-serving"
-index_type="SQLite" # or "Whoosh", "Tantivy"
+index_type="Tantivy" # or "SQLite", "Whoosh", "LanceDB", "Lucene"
 
 # Run the embeddings pipeline
 poetry run python scripts/indexing/generate_index_keyword.py --num_pages_to_process 60000000 --batch_size 1000000 \

@@ -1,4 +1,5 @@
 import contextlib
+import logging
 import os
 import sqlite3
 import threading
@@ -463,6 +464,12 @@ class TantivyKeywordIndex(AbstractKeywordIndex):
         index.reload()
 
     def load_index(self):
+        if not (
+            os.path.isdir(self.index_path) and tantivy.Index.exists(self.index_path)
+        ):
+            # Fine when building a new index; when serving, keyword searches
+            # will find nothing.
+            logging.warning(f"No Tantivy index in {self.index_path}; starting empty")
         self._open().reload()
 
     def save_index(self):

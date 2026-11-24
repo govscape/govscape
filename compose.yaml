@@ -17,7 +17,7 @@ services:
       - ${LOCAL_WORKSPACE_FOLDER:-.}/data/s3_mock/test-serving:/data
     environment:
       # The APP_ARGS variable can be overridden by using an .env file. See https://docs.docker.com/compose/how-tos/environment-variables/set-environment-variables/ for more details.
-      - APP_ARGS=--keyword_index_type Lucene --text_model 'Dummy' --visual_model 'Dummy' --backend local --remote_data_directory '/data' --local_data_directory '/data' --host 0.0.0.0
+      - APP_ARGS=--keyword_index_type Tantivy --text_model 'Dummy' --visual_model 'Dummy' --backend local --remote_data_directory '/data' --local_data_directory '/data' --host 0.0.0.0
       - GUNICORN_BIND=0.0.0.0:8080
     command: ["poetry", "run", "gunicorn", "-c", "gunicorn.conf.py", "scripts.serving.start_api_server:create_app()"]
     ipc: "host"

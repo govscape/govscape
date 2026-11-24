@@ -17,7 +17,7 @@ holds everything derived from the PDFs:
 * {test,dev,prod}-serving/embeddings_img_pg/{digest}/{digest}_{pg_no}.np
 * {test,dev,prod}-serving/index/faiss_index.pkl
 * {test,dev,prod}-serving/index/forward_index.lmdb/ (LMDB, default) or forward_index.db (SQLite)
-* {test,dev,prod}-serving/index_keyword/{whoosh idx files}
+* {test,dev,prod}-serving/index_keyword/tantivy/ (Tantivy, default), fts_txt.db (SQLite) or {whoosh idx files}
 * {test,dev,prod}-serving/index_img_pg/faiss_index.pkl
 * {test,dev,prod}-serving/index_img_pg/forward_index.lmdb/ (LMDB, default) or forward_index.db (SQLite)
 * {test,dev,prod}-serving/index_metadata/metadata.db

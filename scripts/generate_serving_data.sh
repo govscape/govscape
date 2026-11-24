@@ -36,7 +36,7 @@ done
 
 rm -rf data/prod
 poetry run python scripts/indexing/generate_index_keyword.py --remote_data_dir "$data_dir" \
-    --profile "$profile" --num_pages_to_process $max_files --keyword_index_type SQLite
+    --profile "$profile" --num_pages_to_process $max_files --keyword_index_type Tantivy
 
 rm -rf data/prod
 poetry run python scripts/indexing/generate_index_metadata.py --remote_data_dir "$data_dir" \

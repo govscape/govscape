@@ -206,7 +206,7 @@ poetry run python scripts/indexing/generate_index_embedding.py --num_pages_to_pr
 
 poetry run python scripts/indexing/generate_index_embedding.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --embedding_type "img_pg" --remote_data_dir 'test-serving'
 
-poetry run python scripts/indexing/generate_index_keyword.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --keyword_index_type 'SQLite'
+poetry run python scripts/indexing/generate_index_keyword.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --keyword_index_type 'Tantivy'
 
 poetry run python scripts/indexing/generate_index_metadata.py --num_pages_to_process 10 --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_dir 'test-serving' --cdx_parquet_key 'cdx/complete_cdx_sample.parquet'
 ```
@@ -214,7 +214,7 @@ poetry run python scripts/indexing/generate_index_metadata.py --num_pages_to_pro
 At this point, all of the indices required to run the API server have been created. To start the API server locally, run:
 
 ```
-poetry run python -m scripts.serving.run_gunicorn --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_directory 'test-serving' --text_model 'Dummy' --visual_model 'Dummy' --keyword_index_type 'SQLite' --vector_index_type 'Memory'
+poetry run python -m scripts.serving.run_gunicorn --backend 'local' --local_base_dir 'data/s3_mock' --remote_data_directory 'test-serving' --text_model 'Dummy' --visual_model 'Dummy' --keyword_index_type 'Tantivy' --vector_index_type 'Memory'
 ```
 
 To start the web server locally, in a separate terminal run:

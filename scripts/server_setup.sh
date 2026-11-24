@@ -8,5 +8,5 @@ local_data_dir="data/prod"
 
 poetry run python -m scripts.serving.run_gunicorn --backend s3 \
     --remote_data_directory "$remote_data_dir" --local_data_directory "$local_data_dir" \
-    --text_model BGE --visual_model CLIP --keyword_index_type SQLite \
+    --text_model BGE --visual_model CLIP --keyword_index_type Tantivy \
     --vector_index_type Memory --forward_index_type LMDB
