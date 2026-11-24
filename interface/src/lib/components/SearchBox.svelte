@@ -1,5 +1,5 @@
 <script>
-  import { searchStore, searchActions } from '$lib/stores/search';
+  import { formatHybridWeights, searchStore, searchActions } from '$lib/stores/search';
   import { tick } from 'svelte';
   import { get } from 'svelte/store';
   import { goto } from '$app/navigation';
@@ -54,11 +54,12 @@
   }
 
   function buildSearchParams() {
-    const { filters, currentSearchMode: modeFromStore, query: storeQuery } = get(searchStore);
+    const { filters, currentSearchMode: modeFromStore, query: storeQuery, hybridWeights } = get(searchStore);
     const params = new URLSearchParams();
 
     if (storeQuery && storeQuery.trim()) params.set('q', storeQuery.trim());
     if (modeFromStore) params.set('mode', modeFromStore);
+    if (modeFromStore === 'hybrid_weights') params.set('weights', formatHybridWeights(hybridWeights));
 
     if (filters) {
       if (filters.crawledAfter) params.set('after', filters.crawledAfter);

@@ -3,7 +3,7 @@ site_domains = ["next.govscape.net"]
 
 # Pin to an immutable tag from the publish-app-image workflow (sha-<short sha>);
 # applying a new tag replaces the API instance.
-app_image = "ghcr.io/govscape/govscape:sha-efdb849"
+app_image = "ghcr.io/govscape/govscape:sha-24831ba"
 
 # The 10,000-PDF ingestion pilot, embedded with Qwen3 (text) and SigLIP 2
 # (images); queries must be embedded with the same models.
