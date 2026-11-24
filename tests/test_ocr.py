@@ -334,3 +334,54 @@ def test_ocr_renders_large_format_pages_at_a_lower_dpi(temp_data_dir):
     # pdfium rounds each side up to whole pixels.
     assert 0.99 * MAX_OCR_PIXELS < width * height < 1.01 * MAX_OCR_PIXELS
     assert abs(width / height - 43 / 35) < 0.01
+
+
+def _timeout_then(results):
+    """A fake pytesseract.image_to_string: each call returns the next of results,
+    or raises Tesseract's timeout error for None."""
+    calls = []
+
+    def image_to_string(image, lang, timeout):
+        calls.append((image.size, timeout))
+        result = results[len(calls) - 1]
+        if result is None:
+            raise RuntimeError("Tesseract process timeout")
+        return result
+
+    return image_to_string, calls
+
+
+def test_tesseract_retries_a_slow_page_at_half_resolution(monkeypatch):
+    pytest.importorskip("pytesseract")
+    fake, calls = _timeout_then([None, "text"])
+    monkeypatch.setattr(
+        "govscape.processing.ocr.ocrmypdf_impl.pytesseract.image_to_string", fake
+    )
+    ocr = OcrMyPDFImpl(max_workers=1)
+    assert ocr.extract_text([np.zeros((100, 80), np.uint8)]) == ["text"]
+    assert calls == [((80, 100), OcrMyPDFImpl.TIMEOUT_S), ((40, 50), 30)]
+
+
+def test_tesseract_gives_up_on_a_page_that_times_out_twice(monkeypatch):
+    pytest.importorskip("pytesseract")
+    fake, calls = _timeout_then([None, None])
+    monkeypatch.setattr(
+        "govscape.processing.ocr.ocrmypdf_impl.pytesseract.image_to_string", fake
+    )
+    ocr = OcrMyPDFImpl(max_workers=1)
+    assert ocr.extract_text([np.zeros((100, 80), np.uint8)]) == [None]
+    assert len(calls) == 2
+
+
+def test_tesseract_is_stopped_at_its_time_limit(monkeypatch):
+    pytest.importorskip("pytesseract")
+    import shutil as _shutil
+
+    if _shutil.which("tesseract") is None:
+        pytest.skip("tesseract binary not installed")
+    monkeypatch.setattr(OcrMyPDFImpl, "TIMEOUT_S", 0.01)
+    monkeypatch.setattr(OcrMyPDFImpl, "RETRY_TIMEOUT_S", 0.01)
+    page = np.array(
+        Image.fromarray(_create_test_image("SLOW PAGE " * 20, (2400, 3000)))
+    )
+    assert OcrMyPDFImpl(max_workers=1).extract_text([page]) == [None]

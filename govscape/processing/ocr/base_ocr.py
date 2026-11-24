@@ -1,6 +1,7 @@
 """Abstract base class for OCR implementations."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -12,7 +13,7 @@ class BaseOCR(ABC):
     """
 
     @abstractmethod
-    def extract_text(self, images: list[np.ndarray]) -> list[str]:
+    def extract_text(self, images: list[np.ndarray]) -> Sequence[str | None]:
         """Extract text from a batch of page images.
 
         Args:
@@ -21,7 +22,7 @@ class BaseOCR(ABC):
 
         Returns:
             A list of extracted text strings, one per input image and in the
-            same order.
+            same order; None for a page that couldn't be OCR'd.
         """
 
     @abstractmethod
