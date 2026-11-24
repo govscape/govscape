@@ -55,7 +55,7 @@ variable "vllm_image" {
 }
 
 variable "vllm_gpu_memory_utilization" {
-  description = "Fraction of GPU memory the vLLM server may use; the pipeline's image models need the rest"
+  description = "On single-GPU instances, the fraction of GPU memory the vLLM server may use; the pipeline's image models need the rest. On multi-GPU instances vLLM gets every GPU but the first to itself."
   type        = number
   default     = 0.5
 }
