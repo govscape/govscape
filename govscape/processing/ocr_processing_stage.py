@@ -11,28 +11,25 @@ import numpy as np
 from PIL import Image
 
 from ..config import DataModel
+from . import ocr
 from .ocr.base_ocr import BaseOCR
 from .processing_stage import ProcessingStage
 
+_OCR_ENGINES = {
+    "easyocr": "EasyOCRImpl",
+    "olmocr": "OLMOcrImpl",
+    "ocrmypdf": "OcrMyPDFImpl",
+}
+
 
 def _ocr_engine_class(ocr_type: str) -> type[BaseOCR]:
-    # Imported here rather than at module scope so that resolving one engine
-    # doesn't pull in every backend's dependencies (torch, tesseract, ...).
-    from .ocr import EasyOCRImpl, OcrMyPDFImpl, OLMOcrImpl
-
-    ocr_engines: dict[str, type[BaseOCR]] = {
-        "easyocr": EasyOCRImpl,
-        "olmocr": OLMOcrImpl,
-        "ocrmypdf": OcrMyPDFImpl,
-    }
-
-    if ocr_type not in ocr_engines:
+    if ocr_type not in _OCR_ENGINES:
         raise ValueError(
-            f"Unsupported OCR type: {ocr_type}. "
-            f"Must be one of: {list(ocr_engines.keys())}",
+            f"Unsupported OCR type: {ocr_type}. Must be one of: {list(_OCR_ENGINES)}",
         )
-
-    return ocr_engines[ocr_type]
+    # Resolved by name so that only the chosen engine's module, and its
+    # dependencies, are imported.
+    return getattr(ocr, _OCR_ENGINES[ocr_type])
 
 
 def _build_ocr_engine(ocr_type: str, **kwargs) -> BaseOCR:

@@ -201,8 +201,10 @@ def main():
         _ocr_kwargs["gpu"] = args.ocr_gpu
     if args.do_ocr and args.ocr_type == "ocrmypdf":
         # One worker process: the engine already OCRs a batch's pages on one thread
-        # per CPU, and more processes would only oversubscribe them.
+        # per CPU, and more processes would only oversubscribe them. Several pages
+        # per thread keep the threads busy while each batch's slowest pages finish.
         _ocr_kwargs["max_workers"] = 1
+        _ocr_kwargs["batch_size"] = 8 * (os.cpu_count() or 1)
 
     processor = gs.PDFProcessingPipeline(
         local_dm.data_dir,

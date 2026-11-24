@@ -15,6 +15,19 @@ def test_pdf_extraction_workers_do_not_load_torch():
     assert result.stdout.strip() == "False"
 
 
+def test_tesseract_ocr_workers_do_not_load_torch():
+    code = (
+        "import sys;"
+        "from govscape.processing.ocr_processing_stage import _ocr_engine_class;"
+        "_ocr_engine_class('ocrmypdf');"
+        "print('torch' in sys.modules)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "False"
+
+
 def test_package_exports_still_resolve():
     import govscape
     from govscape.processing import PageImageEmbeddingStage, PDFExtractionStage

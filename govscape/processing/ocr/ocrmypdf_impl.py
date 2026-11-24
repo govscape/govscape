@@ -39,8 +39,10 @@ class OcrMyPDFImpl(BaseOCR):
             output_type: Output type ('txt' or 'searchable_pdf'). Defaults to 'txt'.
             max_workers: Number of pages to OCR concurrently. Each Tesseract call is
                 single-threaded, so running a batch of pages in parallel gives a
-                near-linear speedup (~6x) on a multi-core host. Defaults to
-                ``min(8, os.cpu_count())``; set to 1 to disable concurrency.
+                near-linear speedup on a multi-core host. Defaults to one per
+                CPU; set to 1 to disable concurrency. Run Tesseract with
+                ``OMP_THREAD_LIMIT=1`` (as OCRProcessingStage's workers do), or
+                each call's own threads oversubscribe the CPUs.
 
                 Note: ``OCRProcessingStage`` consumes ``max_workers`` for its own
                 process pool, so this cannot be set through the stage — the two
@@ -49,7 +51,7 @@ class OcrMyPDFImpl(BaseOCR):
         """
         self.language = language
         self.output_type = output_type
-        self.max_workers = max_workers or min(8, os.cpu_count() or 1)
+        self.max_workers = max_workers or os.cpu_count() or 1
         self.logger = logging.getLogger(__name__)
 
     def validate(self) -> None:
