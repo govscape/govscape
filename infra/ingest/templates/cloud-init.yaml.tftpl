@@ -20,34 +20,19 @@ write_files:
       log_opts="--log-driver awslogs --log-opt awslogs-region=${region} --log-opt awslogs-group=${log_group} --log-opt awslogs-stream=server-${server_id}"
       vllm_log_opts="--log-driver awslogs --log-opt awslogs-region=${region} --log-opt awslogs-group=${log_group} --log-opt awslogs-stream=server-${server_id}-vllm"
 
-      # On a multi-GPU instance, vLLM serves from every GPU but the first, one
-      # data-parallel replica per GPU with most of its memory, and the
-      # pipeline's image models get the first GPU to themselves. With one GPU,
-      # vLLM takes vllm_gpu_memory_utilization of it and the image models use
-      # the rest.
-      gpu_count=$(nvidia-smi -L | wc -l)
-      if [ "$gpu_count" -gt 1 ]; then
-        pipeline_gpus=device=0
-        vllm_gpus="\"device=$(seq -s, 1 $((gpu_count - 1)))\""
-        vllm_gpu_args="--data-parallel-size $((gpu_count - 1)) --gpu-memory-utilization 0.9"
-      else
-        pipeline_gpus=all
-        vllm_gpus=all
-        vllm_gpu_args="--gpu-memory-utilization ${vllm_gpu_memory_utilization}"
-      fi
-
       # Serves Qwen3 text embeddings to the pipeline container over the
-      # govscape network.
+      # govscape network. It starts first and takes its share of GPU memory;
+      # the pipeline's image models use the rest.
       start_vllm() {
         docker rm -f govscape-vllm >/dev/null 2>&1
         [ -z "$vllm_image" ] && return 0
         docker pull "$vllm_image" || return 1
-        docker run -d --name govscape-vllm --network govscape --gpus "$vllm_gpus" $vllm_log_opts \
+        docker run -d --name govscape-vllm --network govscape --gpus all $vllm_log_opts \
           -p 127.0.0.1:8000:8000 \
           -v /var/lib/govscape-ingest/hf-cache:/root/.cache/huggingface \
           --entrypoint vllm "$vllm_image" \
           serve Qwen/Qwen3-Embedding-0.6B --runner pooling --max-model-len 2048 \
-          $vllm_gpu_args ${vllm_extra_args} || return 1
+          --gpu-memory-utilization ${vllm_gpu_memory_utilization} ${vllm_extra_args} || return 1
         for _ in $(seq 1 120); do
           curl -sf http://127.0.0.1:8000/health >/dev/null && return 0
           docker inspect -f '{{.State.Running}}' govscape-vllm 2>/dev/null | grep -q true || return 1
@@ -73,7 +58,7 @@ write_files:
         start_vllm || return 1
         # Docker's default 64 MB /dev/shm is too small for torch tensors sent
         # between worker processes.
-        docker run --rm --name govscape-ingest --gpus "$pipeline_gpus" $log_opts \
+        docker run --rm --name govscape-ingest --gpus all $log_opts \
           --shm-size=4g --network govscape \
           -v /var/lib/govscape-ingest:/home/govscape/data \
           -e HF_HOME=/home/govscape/data/hf-cache \
