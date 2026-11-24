@@ -152,7 +152,7 @@
       <div class="result-card" on:click={() => handlePDFSelect(result.pdf, result.page, result.crawlDate, result.crawlUrl, result.subDomain, result.crawlInstances, result.hasMoreCrawls, result.prettyName)}>
         <div class="image-container">
           <img
-            use:pageImage={result.image}
+            use:pageImage={result.imageSource}
             alt={`PDF Page ${result.page}`}
           />
         </div>

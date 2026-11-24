@@ -33,8 +33,10 @@ All OCR implementations inherit from `BaseOCR` and must implement:
 
 #### OCRProcessingStage
 Integrates OCR into the processing pipeline:
-- Reads images from `{image_directory}/{digest}/{digest}_{pg_no}.jpeg`
-- Applies OCR extraction
+- Reads the renders that `PDFExtractionStage` (with `render_ocr_pages`) writes to
+  `{ocr_image_directory}/{digest}/{digest}_{pg_no}.png` for pages without a usable
+  text layer, at 300 dpi (lower for large-format pages)
+- Applies OCR extraction, then deletes the renders
 - Saves text to `{txt_directory}/{digest}/{digest}_{pg_no}.txt`
 - Follows the protocol defined in `DATA_MODEL.md`
 

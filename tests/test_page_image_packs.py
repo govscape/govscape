@@ -46,24 +46,13 @@ def test_pages_are_packed_in_order_and_located_by_offsets(tmp_path):
     )
 
 
-def test_pack_name_depends_on_contents(tmp_path):
-    first, second = DataModel(str(tmp_path / "a")), DataModel(str(tmp_path / "b"))
+def test_packs_are_named_after_their_bytes(tmp_path):
+    first, second, third = (DataModel(str(tmp_path / d)) for d in "abc")
     _write_pdf(first, "AAAA", [b"x"])
     _write_pdf(second, "AAAA", [b"x"])
+    _write_pdf(third, "AAAA", [b"y"])  # Same files, different bytes.
     assert pack_page_images(first) == pack_page_images(second)
-    _write_pdf(second, "CCCC", [b"y"])
-    assert pack_page_images(first) != pack_page_images(second)
-
-
-def test_pdfs_without_all_their_page_images_are_left_out(tmp_path):
-    data_model = DataModel(str(tmp_path))
-    _write_pdf(data_model, "AAAA", [b"a0"])
-    _write_pdf(data_model, "BBBB", [b"b0", b"b1"])
-    os.remove(data_model.img_page_path("BBBB", 1))
-
-    pack_page_images(data_model)
-    assert _page_images(data_model, "AAAA") is not None
-    assert _page_images(data_model, "BBBB") is None
+    assert pack_page_images(first) != pack_page_images(third)
 
 
 def test_nothing_to_pack(tmp_path):

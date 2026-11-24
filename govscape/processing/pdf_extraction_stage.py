@@ -39,15 +39,32 @@ def needs_ocr(page_text: str, page_image: Image.Image) -> bool:
     return bool((gray < INK_LEVEL).mean() >= MIN_INK_FRACTION)
 
 
-def _remove_partial_pages(data_model: DataModel, pdf_name: str) -> None:
-    # Keep the (now empty) txt and img directories that every parsed PDF has.
+def extracted_pdfs(data_model: DataModel) -> list[tuple[str, int]]:
+    """(digest, page count) of each PDF fully extracted into data_model, in
+    digest order."""
+    if not os.path.isdir(data_model.metadata_directory):
+        return []
+    pdfs = []
+    for digest in sorted(os.listdir(data_model.metadata_directory)):
+        with open(data_model.metadata_file_path(digest)) as f:
+            pdfs.append((digest, json.load(f)["num_pages"]))
+    return pdfs
+
+
+def _pdf_name(pdf_file: str) -> str:
+    return os.path.splitext(os.path.basename(pdf_file))[0]
+
+
+def _remove_pdf(data_model: DataModel, pdf_name: str) -> None:
+    """Remove everything extracted from a PDF that couldn't be fully extracted,
+    so that it isn't one of the extracted_pdfs."""
     for directory in (
         data_model.txt_pdf_directory(pdf_name),
         data_model.img_pdf_directory(pdf_name),
+        data_model.metadata_pdf_directory(pdf_name),
+        data_model.ocr_img_pdf_directory(pdf_name),
     ):
-        shutil.rmtree(directory)
-        os.makedirs(directory)
-    shutil.rmtree(data_model.ocr_img_pdf_directory(pdf_name), ignore_errors=True)
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 def _ocr_scale(page) -> float:
@@ -82,12 +99,17 @@ def _write_metadata(data_model: DataModel, pdf_name: str, pdf, num_pages: int):
         )
 
 
-def _convert_pages(data_model, pdf_file, first_page, end_page, render_ocr_pages):
-    """Extract pages [first_page, end_page) of pdf_file (the whole PDF if
-    end_page is None), and the PDF's metadata with its first page. Returns
-    whether they could all be parsed; on failure the caller removes the PDF's
-    partial pages."""
-    pdf_name = os.path.splitext(os.path.basename(pdf_file))[0]
+def _convert_pages(
+    data_model: DataModel,
+    pdf_file: str,
+    first_page: int,
+    end_page: int,
+    render_ocr_pages: bool,
+) -> bool:
+    """Extract pages [first_page, end_page) of pdf_file; the task that starts at
+    page 0 also writes the PDF's metadata.json. Returns whether they could all be
+    parsed; on failure the caller removes the PDF."""
+    pdf_name = _pdf_name(pdf_file)
     os.makedirs(data_model.txt_pdf_directory(pdf_name), exist_ok=True)
     os.makedirs(data_model.img_pdf_directory(pdf_name), exist_ok=True)
     try:
@@ -100,7 +122,7 @@ def _convert_pages(data_model, pdf_file, first_page, end_page, render_ocr_pages)
 
     # Write each page as soon as it is rendered: holding every rendered page of a
     # long PDF (or of a large-format one) in memory can use gigabytes.
-    for page_num in range(first_page, num_pages if end_page is None else end_page):
+    for page_num in range(first_page, end_page):
         try:
             page = pdf[page_num]
             page_text = page.get_textpage().get_text_bounded()
@@ -129,9 +151,10 @@ def _convert_pages(data_model, pdf_file, first_page, end_page, render_ocr_pages)
 
 
 def _convert_single_pdf(data_model, pdf_file, render_ocr_pages=False):
-    if _convert_pages(data_model, pdf_file, 0, None, render_ocr_pages):
+    num_pages = _page_count(pdf_file) or 0
+    if _convert_pages(data_model, pdf_file, 0, num_pages, render_ocr_pages):
         return True
-    _remove_partial_pages(data_model, os.path.splitext(os.path.basename(pdf_file))[0])
+    _remove_pdf(data_model, _pdf_name(pdf_file))
     return False
 
 
@@ -164,13 +187,13 @@ class PDFExtractionStage(ProcessingStage):
             )
 
     def run(self):
-        tasks = []  # (pdf_file, first_page, end_page), longest PDFs first
+        tasks: list[tuple[str, int, int]] = []  # Longest PDFs first.
         for pdf_file, num_pages in sorted(
             ((f, _page_count(f)) for f in self.pdf_files),
             key=lambda pdf: -(pdf[1] or 0),
         ):
             if num_pages is None:  # Unreadable; its task reports the failure.
-                tasks.append((pdf_file, 0, None))
+                tasks.append((pdf_file, 0, 0))
                 continue
             for first_page in range(0, max(num_pages, 1), PAGES_PER_TASK):
                 end_page = min(first_page + PAGES_PER_TASK, num_pages)
@@ -197,7 +220,5 @@ class PDFExtractionStage(ProcessingStage):
             if not ok
         }
         for pdf_file in failed:
-            # Leave no partial pages from a PDF that failed part way through.
-            pdf_name = os.path.splitext(os.path.basename(pdf_file))[0]
-            _remove_partial_pages(self.data_model, pdf_name)
+            _remove_pdf(self.data_model, _pdf_name(pdf_file))
         return len(self.pdf_files) - len(failed)

@@ -29,9 +29,11 @@ def page_image_range(packed: dict | None, page_num: int) -> dict | None:
     """Where page page_num's image is in its pack, as {"pack", "start", "end"}
     (an inclusive byte range), or None if the PDF's pages aren't packed (see
     govscape/page_image_packs.py)."""
-    if not packed or page_num + 1 >= len(packed["offsets"]):
+    if not packed:
         return None
     offsets = packed["offsets"]
+    if page_num >= len(offsets) - 1:
+        return None
     return {
         "pack": packed["pack"],
         "start": offsets[page_num],
@@ -349,14 +351,20 @@ class Server:
                 has_more_crawls = len(all_records) > self.max_crawl_instances
                 limited_records = all_records[: self.max_crawl_instances]
                 newest = all_records[0]
-                jpeg_file = self.data_model.img_page_path(name, int(page_num))
+                image = page_image_range(page_images.get(name), int(page_num))
+                # Pages without an image range predate packs: one JPEG per page.
+                jpeg_file = (
+                    None
+                    if image
+                    else self.data_model.img_page_path(name, int(page_num))
+                )
                 search_results.append(
                     {
                         "pdf": name,
                         "page": page_num,
                         "distance": float(distance),
                         "jpeg": jpeg_file,
-                        "image": page_image_range(page_images.get(name), int(page_num)),
+                        "image": image,
                         "crawl_url": newest.get("crawl_url", ""),
                         "crawl_date": newest.get("crawl_date", ""),
                         "sub_domain": newest.get("sub_domain", ""),
@@ -376,8 +384,8 @@ class Server:
     def pdf_pages(self, pdf_id):
         """
         Get all page images and metadata for a PDF by pdf_id.
-        Returns dict with 'images' (one JPEG path per page), 'page_images' (one
-        page_image_range per page, if the pages are packed), 'crawl_url',
+        Returns dict with 'page_image_ranges' (one page_image_range per page) if
+        the pages are packed, else 'images' (one JPEG path per page), 'crawl_url',
         'crawl_date', 'sub_domain' (newest crawl), and 'crawl_instances' (all
         crawls, newest first).
         """
@@ -387,7 +395,7 @@ class Server:
         if pdf_id in self.blacklist:
             return {
                 "images": [],
-                "page_images": [],
+                "page_image_ranges": [],
                 "crawl_url": "",
                 "crawl_date": "",
                 "sub_domain": "",
@@ -410,13 +418,17 @@ class Server:
         sub_domain = newest.get("sub_domain", "")
         page_count = int(newest.get("page_count", 0))
 
-        images = [self.data_model.img_page_path(pdf_id, i) for i in range(page_count)]
         packed = self.metadata_index.page_images([pdf_id]).get(pdf_id)
-        page_images = (
-            [page_image_range(packed, i) for i in range(len(packed["offsets"]) - 1)]
-            if packed
-            else []
-        )
+        if packed:
+            images = []
+            page_image_ranges = [
+                page_image_range(packed, i) for i in range(len(packed["offsets"]) - 1)
+            ]
+        else:  # From before packs: one JPEG per page.
+            images = [
+                self.data_model.img_page_path(pdf_id, i) for i in range(page_count)
+            ]
+            page_image_ranges = []
 
         crawl_instances = [
             {
@@ -429,7 +441,7 @@ class Server:
 
         return {
             "images": images,
-            "page_images": page_images,
+            "page_image_ranges": page_image_ranges,
             "crawl_url": crawl_url,
             "crawl_date": crawl_date,
             "sub_domain": sub_domain,

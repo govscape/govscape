@@ -118,7 +118,7 @@ export const searchActions = {
 
       const results = (responseData.results || []).map(result => ({
         ...result,
-        image: pageImageSource(result.image, result.jpeg)
+        imageSource: pageImageSource(result.image, result.jpeg)
       }));
 
       searchStore.update(store => ({

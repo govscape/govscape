@@ -240,7 +240,7 @@ def test_pdf_pages_blacklisted_returns_empty_200(server_fixture_with_blacklist):
 
     assert result == {
         "images": [],
-        "page_images": [],
+        "page_image_ranges": [],
         "crawl_url": "",
         "crawl_date": "",
         "sub_domain": "",
@@ -272,12 +272,16 @@ def test_search_results_give_packed_page_images_by_byte_range(server_fixture):
             }
         else:
             assert result["image"] is None
-        assert result["jpeg"]
+        assert bool(result["jpeg"]) != bool(result["image"])
 
 
 def test_pdf_pages_give_each_packed_page_by_byte_range(server_fixture):
-    assert server_fixture.pdf_pages("doc_1.pdf")["page_images"] == [
+    packed = server_fixture.pdf_pages("doc_1.pdf")
+    assert packed["page_image_ranges"] == [
         {"pack": "pack_abc.jpegs", "start": 100, "end": 149},
         {"pack": "pack_abc.jpegs", "start": 150, "end": 229},
     ]
-    assert server_fixture.pdf_pages("doc_2.pdf")["page_images"] == []
+    assert packed["images"] == []
+    unpacked = server_fixture.pdf_pages("doc_2.pdf")
+    assert unpacked["page_image_ranges"] == []
+    assert len(unpacked["images"]) == 2

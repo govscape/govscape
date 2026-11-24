@@ -1,24 +1,25 @@
 import queue
 import threading
 from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass
 
 _DONE = object()
 
 
-class stream:
-    """Marks a pipeline stage that maps its whole input stream to an output
-    stream, e.g. to regroup items, rather than each input item to one output."""
+@dataclass
+class StreamStage:
+    """A pipeline stage that maps its whole input stream to an output stream,
+    e.g. to regroup items, rather than each input item to one output."""
 
-    def __init__(self, fn: Callable[[Iterator], Iterable]):
-        self.fn = fn
+    fn: Callable[[Iterator], Iterable]
 
 
 def run_pipelined(
-    items: Iterable, stages: list[Callable | stream], depth: int = 1
+    items: Iterable, stages: list[Callable | StreamStage], depth: int = 1
 ) -> None:
     """Pass each item through stages in order, each stage in its own thread, so
     stage i works on item k while stage i + 1 works on item k - 1. Each stage's
-    return value is the next stage's input; a stream stage instead yields its
+    return value is the next stage's input; a StreamStage instead yields its
     outputs as it consumes its inputs. Items are produced by iterating `items` in
     its own thread too, and at most `depth` results wait between neighbouring
     stages. The first exception stops every stage and is re-raised.
@@ -64,7 +65,7 @@ def run_pipelined(
     def work(i: int) -> None:
         stage = stages[i]
         try:
-            if isinstance(stage, stream):
+            if isinstance(stage, StreamStage):
                 results = iter(stage.fn(inputs(i)))
             else:
                 results = (stage(item) for item in inputs(i))

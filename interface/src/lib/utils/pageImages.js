@@ -1,21 +1,21 @@
 import { getImageBaseUrl } from './fetch';
 
 // Page images are stored many to an object ("packs", see DATA_MODEL.md) and
-// fetched by byte range; the API describes each page as {pack, start, end}.
+// fetched by byte range; the API gives each page's range as {pack, start, end}.
 // Serving directories from before packs have one JPEG per page, given as a path.
-// A page's source is either {url, start, end} or a plain image URL.
+// A page's image source is either {url, start, end} or a plain image URL.
 
-export function pageImageSource(image, jpegPath) {
+export function pageImageSource(range, jpegPath) {
   const base = getImageBaseUrl();
-  if (image) return { url: `${base}/${image.pack}`, start: image.start, end: image.end };
+  if (range) return { url: `${base}/${range.pack}`, start: range.start, end: range.end };
   if (jpegPath) return `${base}/${jpegPath.split('/').slice(-2).join('/')}`;
   return null;
 }
 
 // The sources of every page of a document, from the API's /pages response.
 export function documentPageSources(pagesResponse) {
-  if (pagesResponse.pageImages?.length) {
-    return pagesResponse.pageImages.map(image => pageImageSource(image));
+  if (pagesResponse.pageImageRanges?.length) {
+    return pagesResponse.pageImageRanges.map(range => pageImageSource(range));
   }
   return (pagesResponse.images || []).map(path => pageImageSource(null, path));
 }
@@ -104,7 +104,7 @@ export function pageImage(img, source) {
           url => {
             if (current === next) img.src = url;
           },
-          () => img.dispatchEvent(new Event('error'))
+          error => console.warn(`Couldn't load page image: ${error.message}`)
         );
       },
       { rootMargin: '200px' }

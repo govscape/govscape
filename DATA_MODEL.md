@@ -26,13 +26,13 @@ holds everything derived from the PDFs:
 * {test,dev,prod}-serving/checkpoints/{job_name}_checkpoint.json
 * {test,dev,prod}-serving/blacklist.txt
 
-While the embedding pipeline runs, each batch's local data directory also holds two scratch directories that are never uploaded: `PDFs/{digest}.pdf`, the downloaded PDFs, deleted once extracted, and (with OCR) `ocr_img/{digest}/{digest}_{pg_no}.png`, high-resolution renders of the pages that need OCR, deleted once OCR'd.
+While the embedding pipeline runs, its local working directory holds two kinds of batch directory, both laid out like a serving directory. Each `download_{n}/` holds a batch of PDFs as they're extracted, with the downloaded PDFs in `PDFs/{digest}.pdf` (deleted once extracted). The extracted PDFs then move into `pages_{n}/` directories, regrouped by page count, which also hold (with OCR) `ocr_img/{digest}/{digest}_{pg_no}.png`, high-resolution renders of the pages that need OCR (deleted once OCR'd), and the per-page JPEGs that are concatenated into the batch's pack. Only the pack is uploaded, not the per-page JPEGs or the scratch directories.
 
 The embedding pipeline splits the PDFs into shards by the leading characters of their digests (two by default, so 1,024 shards) and deals the shards out across servers. Each shard has its own checkpoint, `embedding_pipeline_shard_{prefix}_checkpoint.json`, so a run can resume with a different number of servers.
 
 ## Page image packs
 
-Each batch of the embedding pipeline uploads its pages' JPEG images concatenated into one object, `img/pack_{sha1}.jpegs`, named after its contents so that re-running a batch overwrites it. Within a pack, PDFs are in digest order and each PDF's pages are contiguous, in page order. Each PDF's `metadata.json` records where its pages are:
+Each batch of the embedding pipeline uploads its pages' JPEG images concatenated into one object, `img/pack_{sha1}.jpegs`, named after the SHA-1 of its bytes, so a pack's name always identifies the bytes its offsets point into. A run that resumes from a checkpoint may form different batches and leave earlier, unreferenced packs behind. Within a pack, PDFs are in digest order and each PDF's pages are contiguous, in page order. Each PDF's `metadata.json` records where its pages are:
 
 ```json
 "page_images": {"pack": "pack_<sha1>.jpegs", "offsets": [0, 51234, 98877]}

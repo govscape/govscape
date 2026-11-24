@@ -11,7 +11,8 @@ import govscape as gs
 from govscape.config import PDF_ARCHIVE_PDF_DIR, DataModel, digest_shards
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
 from govscape.page_image_packs import pack_page_images
-from govscape.pipelining import run_pipelined, stream
+from govscape.pipelining import StreamStage, run_pipelined
+from govscape.processing.pdf_extraction_stage import extracted_pdfs
 from govscape.utils import base_argument_parser, str2bool
 
 logging.basicConfig(
@@ -25,7 +26,6 @@ logging.basicConfig(
 class Download:
     """A batch of downloaded PDFs, extracted in its own directory."""
 
-    number: int
     pdf_iter: RemoteDirectoryIterator
     # The shard's position after these PDFs, saved once they're all uploaded.
     checkpoint: dict
@@ -35,29 +35,20 @@ class Download:
 
 @dataclass
 class PageBatch:
-    """Whole extracted PDFs, about --pages_per_batch pages of them, embedded and
-    uploaded together in their own directory."""
+    """Whole extracted PDFs, at least --pages_per_batch pages of them (except the
+    last batch), OCR'd, embedded and uploaded together in their own directory."""
 
     number: int
     data_model: DataModel
     num_pdfs: int = 0
     num_pages: int = 0
-    # Saved once this batch is uploaded: the checkpoints of the downloads whose
-    # last PDFs are in it (their earlier PDFs are in earlier batches).
+    # Saved once this batch is uploaded: the checkpoints of the downloads all of
+    # whose PDFs are in this batch or earlier ones. A batch may hold only
+    # checkpoints (num_pdfs == 0), e.g. when a download's last PDF fills the
+    # previous batch.
     checkpoints: list[tuple[RemoteDirectoryIterator, dict]] = field(
         default_factory=list
     )
-
-
-def extracted_pdfs(data_model: DataModel) -> list[tuple[str, int]]:
-    """(digest, page count) of each PDF extracted into data_model."""
-    if not os.path.isdir(data_model.metadata_directory):
-        return []
-    pdfs = []
-    for digest in sorted(os.listdir(data_model.metadata_directory)):
-        with open(data_model.metadata_file_path(digest)) as f:
-            pdfs.append((digest, json.load(f)["num_pages"]))
-    return pdfs
 
 
 def move_pdf(source: DataModel, destination: DataModel, digest: str) -> None:
@@ -196,9 +187,10 @@ def main():
         "--pages_per_batch",
         type=int,
         default=15000,
-        help="Pages to embed and upload together. PDFs are downloaded and extracted "
-        "--batch_size at a time, then regrouped by page count, since PDFs range from "
-        "1 to over 10,000 pages; a PDF is never split across batches.",
+        help="Pages to OCR, embed and upload together. PDFs are downloaded and "
+        "extracted --batch_size at a time, then regrouped by page count, since PDFs "
+        "range from 1 to over 10,000 pages. A PDF is never split across these "
+        "batches (though long PDFs are extracted in parallel page ranges).",
     )
     # No cap unless --num_pages_to_process or --max_pdfs is given.
     parser.set_defaults(num_pages_to_process=None)
@@ -313,7 +305,6 @@ def main():
                     f"Download {number}: {len(pdf_files)} PDFs from shard {shard}"
                 )
                 yield Download(
-                    number,
                     pdf_iter,
                     pdf_iter.checkpoint_state(),
                     pdf_files,
@@ -335,9 +326,9 @@ def main():
         number = 0
 
         def new_batch() -> PageBatch:
-            return PageBatch(
-                number, DataModel(os.path.join(work_dir, f"pages_{number}"))
-            )
+            data_model = DataModel(os.path.join(work_dir, f"pages_{number}"))
+            os.makedirs(data_model.data_dir)
+            return PageBatch(number, data_model)
 
         batch = new_batch()
         for download in downloads:
@@ -349,15 +340,13 @@ def main():
                     yield batch
                     number += 1
                     batch = new_batch()
-            # PDFs that failed to extract are dropped with the download.
             shutil.rmtree(download.data_model.data_dir)
             batch.checkpoints.append((download.pdf_iter, download.checkpoint))
         if batch.num_pdfs or batch.checkpoints:
             yield batch
 
     def ocr(batch: PageBatch) -> PageBatch:
-        if batch.num_pdfs:
-            pipeline_times["ocr_time"] += processor.ocr(batch.data_model)
+        pipeline_times["ocr_time"] += processor.ocr(batch.data_model)
         return batch
 
     def embed(batch: PageBatch) -> PageBatch:
@@ -385,7 +374,7 @@ def main():
         # whose results are on the remote.
         for pdf_iter, checkpoint in batch.checkpoints:
             pdf_iter.save_checkpoint(checkpoint)
-        shutil.rmtree(batch.data_model.data_dir, ignore_errors=True)
+        shutil.rmtree(batch.data_model.data_dir)
         pipeline_times["pdfs_processed"] += batch.num_pdfs
         logging.info(
             f"Batch {batch.number} uploaded ({batch.num_pdfs} PDFs, "
@@ -400,8 +389,7 @@ def main():
     # work goes with the page count: while the GPU embeds page batch k, k+1 is
     # OCR'd (with --do_ocr), the next PDFs are extracted and downloaded, and k-1
     # is uploaded.
-    page_stages = [ocr, embed, upload] if args.do_ocr else [embed, upload]
-    run_pipelined(downloads(), [extract, stream(page_batches), *page_stages])
+    run_pipelined(downloads(), [extract, StreamStage(page_batches), ocr, embed, upload])
 
     # After all batches are processed, clean up the directories
     if os.path.exists(local_dm.data_dir):

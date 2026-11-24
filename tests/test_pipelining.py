@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from govscape.pipelining import run_pipelined, stream
+from govscape.pipelining import StreamStage, run_pipelined
 
 
 def test_items_pass_through_stages_in_order():
@@ -75,7 +75,7 @@ def test_a_stream_stage_can_regroup_items():
             yield pair
 
     seen = []
-    run_pipelined(range(5), [lambda x: x * 10, stream(pairs), seen.append])
+    run_pipelined(range(5), [lambda x: x * 10, StreamStage(pairs), seen.append])
     assert seen == [[0, 10], [20, 30], [40]]
 
 
@@ -86,4 +86,4 @@ def test_an_error_in_a_stream_stage_is_raised():
         yield None
 
     with pytest.raises(ValueError, match="bad 0"):
-        run_pipelined(range(3), [stream(broken), lambda x: x])
+        run_pipelined(range(3), [StreamStage(broken), lambda x: x])

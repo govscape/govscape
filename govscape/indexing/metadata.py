@@ -87,6 +87,13 @@ class AbstractMetadataIndex(AbstractIndex, ABC):
         """Return distinct digests that satisfy all predicates."""
 
     @staticmethod
+    def _page_images_from_rows(rows) -> dict[str, dict]:
+        return {
+            digest: {"pack": pack, "offsets": json.loads(offsets)}
+            for digest, pack, offsets in rows
+        }
+
+    @staticmethod
     def _normalize_crawl_date(date_str: str) -> str:
         """Truncate crawl_date to YYYYMMDD, stripping any trailing time component."""
         return date_str.replace("-", "")[:8]
@@ -306,12 +313,11 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
                 )
                 .fetchall()
             )
-        except sqlite3.OperationalError:  # built before packs: no page_images table
-            return {}
-        return {
-            digest: {"pack": pack, "offsets": json.loads(offsets)}
-            for digest, pack, offsets in rows
-        }
+        except sqlite3.OperationalError as error:
+            if "no such table" in str(error):  # Built before packs.
+                return {}
+            raise
+        return self._page_images_from_rows(rows)
 
     def load_index(self):
         if self._total_entries == -1:
@@ -609,12 +615,9 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
                 )
                 .fetchall()
             )
-        except duckdb.CatalogException:  # built before packs: no page_images table
+        except duckdb.CatalogException:  # Built before packs: no page_images table.
             return {}
-        return {
-            digest: {"pack": pack, "offsets": json.loads(offsets)}
-            for digest, pack, offsets in rows
-        }
+        return self._page_images_from_rows(rows)
 
     def load_index(self):
         self._connect()

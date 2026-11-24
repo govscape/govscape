@@ -3,7 +3,7 @@
 Uploading each page's JPEG as its own object would take ~1.1 billion requests
 for the archive. Instead each batch's page images are concatenated into one
 pack, img/pack_{sha1}.jpegs, and each PDF's metadata.json records where its
-pages are:
+pages are (the pack is named after the SHA-1 of its bytes):
 
     "page_images": {"pack": "pack_<sha1>.jpegs", "offsets": [0, 51234, ...]}
 
@@ -13,49 +13,39 @@ offsets[i + 1] - 1 of the pack. A PDF's pages are contiguous, in page order.
 
 import hashlib
 import json
-import logging
 import os
 
 from .config import DataModel
+from .processing.pdf_extraction_stage import extracted_pdfs
 
 PACK_SUFFIX = ".jpegs"
 
 
 def pack_page_images(data_model: DataModel) -> str | None:
-    """Concatenate data_model's page images into one pack in its image directory,
-    record each PDF's offsets in its metadata.json, and return the pack's name,
-    or None if there are no page images."""
-    pdfs = []  # (digest, page image paths in page order)
-    if not os.path.isdir(data_model.metadata_directory):
-        return None
-    for digest in sorted(os.listdir(data_model.metadata_directory)):
-        metadata_path = data_model.metadata_file_path(digest)
-        if not os.path.exists(metadata_path):
-            continue
-        with open(metadata_path) as f:
-            num_pages = json.load(f)["num_pages"]
-        pages = [data_model.img_page_path(digest, i) for i in range(num_pages)]
-        missing = [p for p in pages if not os.path.exists(p)]
-        if missing:
-            # Extraction leaves no partial pages, so this is a PDF it couldn't
-            # parse; it has no images to show.
-            logging.warning(f"{digest}: {len(missing)} page images missing; skipped")
-            continue
-        pdfs.append((digest, pages))
+    """Concatenate the page images of data_model's extracted PDFs into one pack in
+    its image directory, record each PDF's offsets in its metadata.json, and
+    return the pack's name, or None if there are no PDFs."""
+    pdfs = extracted_pdfs(data_model)
     if not pdfs:
         return None
-
-    # Named after its contents, so re-running a batch overwrites the same pack.
-    names = "\n".join(os.path.basename(p) for _, pages in pdfs for p in pages)
-    pack_name = f"pack_{hashlib.sha1(names.encode()).hexdigest()}{PACK_SUFFIX}"
-    with open(data_model.img_pack_path(pack_name), "wb") as pack:
-        for digest, pages in pdfs:
-            offsets = [pack.tell()]
-            for page in pages:
-                with open(page, "rb") as image:
-                    pack.write(image.read())
-                offsets.append(pack.tell())
-            _record_page_images(data_model, digest, pack_name, offsets)
+    offsets = {}
+    # Named after its bytes, so a pack's name always identifies the bytes that
+    # offsets recorded with that name point into.
+    sha1 = hashlib.sha1()
+    unnamed_pack = data_model.img_pack_path("pack.partial")
+    with open(unnamed_pack, "wb") as pack:
+        for digest, num_pages in pdfs:
+            offsets[digest] = [pack.tell()]
+            for page_num in range(num_pages):
+                with open(data_model.img_page_path(digest, page_num), "rb") as f:
+                    image = f.read()
+                sha1.update(image)
+                pack.write(image)
+                offsets[digest].append(pack.tell())
+    pack_name = f"pack_{sha1.hexdigest()}{PACK_SUFFIX}"
+    os.rename(unnamed_pack, data_model.img_pack_path(pack_name))
+    for digest, pdf_offsets in offsets.items():
+        _record_page_images(data_model, digest, pack_name, pdf_offsets)
     return pack_name
 
 
