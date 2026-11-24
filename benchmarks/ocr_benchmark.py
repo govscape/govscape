@@ -17,6 +17,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from botocore.config import Config
 
@@ -28,7 +29,7 @@ from govscape.config import (
 )
 from govscape.data_loader import S3DataLoader
 from govscape.processing.ocr_processing_stage import OCRProcessingStage
-from govscape.processing.pdf_extraction_stage import OCR_DPI, PDFExtractionStage
+from govscape.processing.pdf_extraction_stage import PDFExtractionStage
 
 DEFAULT_BUCKET = PDF_ARCHIVE_BUCKET
 DEFAULT_PREFIX = PDF_ARCHIVE_PDF_DIR
@@ -95,29 +96,29 @@ def extract_images(data_model: DataModel, pdf_files: list[str]) -> int:
         data_model=data_model,
         pdf_files=pdf_files,
         cpu_count=os.cpu_count() or 1,
-        ocr_dpi=OCR_DPI,
+        render_ocr_pages=True,
     )
     stage.validate()
     stage.run()
-    # OCRProcessingStage deletes the renders it reads, so keep a copy for each
-    # engine to start from.
-    if os.path.isdir(data_model.ocr_image_directory):
-        shutil.copytree(
-            data_model.ocr_image_directory, _pristine_ocr_images(data_model)
-        )
-
-    total = 0
-    if os.path.isdir(data_model.ocr_image_directory):
-        for digest_dir in os.scandir(data_model.ocr_image_directory):
-            if digest_dir.is_dir():
-                total += sum(
-                    1 for f in os.listdir(digest_dir.path) if f.endswith(".png")
-                )
-    return total
+    # OCRProcessingStage deletes the renders it reads, so keep a copy that each
+    # engine's run starts from (see _restore_ocr_images).
+    renders = data_model.ocr_image_directory
+    if not os.path.isdir(renders):
+        return 0
+    shutil.copytree(renders, _pristine_ocr_images(data_model))
+    return sum(len(os.listdir(d.path)) for d in os.scandir(renders) if d.is_dir())
 
 
 def _pristine_ocr_images(data_model: DataModel) -> str:
     return data_model.ocr_image_directory + "_pristine"
+
+
+def _restore_ocr_images(data_model: DataModel) -> None:
+    shutil.rmtree(data_model.ocr_image_directory, ignore_errors=True)
+    if os.path.isdir(_pristine_ocr_images(data_model)):
+        shutil.copytree(
+            _pristine_ocr_images(data_model), data_model.ocr_image_directory
+        )
 
 
 def select_engines(requested: Sequence[str]) -> list[str]:
@@ -141,20 +142,14 @@ def benchmark_engine(
     total_pages: int,
     engine_kwargs: dict[str, dict] | None = None,
 ) -> BenchmarkResult:
-    engine_kwargs = (engine_kwargs or ENGINE_DEFAULT_KWARGS).get(engine, {})
+    kwargs: dict[str, Any] = (engine_kwargs or ENGINE_DEFAULT_KWARGS).get(engine, {})
     try:
-        stage = OCRProcessingStage(
-            data_model=data_model, ocr_type=engine, **engine_kwargs
-        )
+        stage = OCRProcessingStage(data_model=data_model, ocr_type=engine, **kwargs)
         stage.validate()
 
         if os.path.isdir(data_model.txt_directory):
             shutil.rmtree(data_model.txt_directory)
-        shutil.rmtree(data_model.ocr_image_directory, ignore_errors=True)
-        if os.path.isdir(_pristine_ocr_images(data_model)):
-            shutil.copytree(
-                _pristine_ocr_images(data_model), data_model.ocr_image_directory
-            )
+        _restore_ocr_images(data_model)
 
         start = time.perf_counter()
         stage.run()

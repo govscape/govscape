@@ -178,8 +178,8 @@ def test_ocr_processing_stage_writes_txt(
     stage = OCRProcessingStage(
         data_model=data_model,
         ocr_type=impl_to_type[impl_class],
-        batch_size=1,
-        max_workers=2,
+        pages_per_batch=1,
+        num_processes=2,
         **init_args,
     )
 
@@ -265,7 +265,7 @@ def test_extraction_renders_only_pages_that_need_ocr_at_ocr_dpi(temp_data_dir):
     pdf_path = os.path.join(tmpdir, f"{digest}.pdf")
     blank.save(pdf_path, format="PDF", save_all=True, append_images=[scanned])
 
-    _convert_single_pdf(data_model, pdf_path, ocr_dpi=OCR_DPI)
+    _convert_single_pdf(data_model, pdf_path, render_ocr_pages=True)
 
     assert os.path.exists(data_model.img_page_path(digest, 0))
     assert os.path.exists(data_model.img_page_path(digest, 1))
@@ -279,7 +279,7 @@ def test_extraction_renders_only_pages_that_need_ocr_at_ocr_dpi(temp_data_dir):
         assert page_image.size == (612, 792)
 
 
-def test_extraction_without_ocr_dpi_renders_nothing_for_ocr(temp_data_dir):
+def test_extraction_without_render_ocr_pages_renders_nothing_for_ocr(temp_data_dir):
     tmpdir, data_model = temp_data_dir
     scanned = _scanned_page()
     digest = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
@@ -290,3 +290,28 @@ def test_extraction_without_ocr_dpi_renders_nothing_for_ocr(temp_data_dir):
 
     assert os.path.exists(data_model.img_page_path(digest, 0))
     assert not os.path.exists(data_model.ocr_image_directory)
+
+
+def test_an_unreadable_render_fails_only_its_own_page(temp_data_dir):
+    _, data_model = temp_data_dir
+    digest = "abc123def456abc123def456abc123def45"
+    _write_ocr_render(data_model, digest, 0, _create_test_image("GOOD PAGE"))
+    with open(data_model.ocr_img_page_path(digest, 1), "wb") as f:
+        f.write(b"not a png")
+
+    stage = OCRProcessingStage(data_model=data_model, ocr_type="ocrmypdf")
+    with (
+        patch(
+            "govscape.processing.ocr_processing_stage._build_ocr_engine",
+            return_value=_StaticTextOCR(),
+        ),
+        patch(
+            "govscape.processing.ocr_processing_stage.ProcessPoolExecutor",
+            _InlineProcessPoolExecutor,
+        ),
+    ):
+        stage.run()
+
+    with open(data_model.txt_page_path(digest, 0), encoding="utf-8") as f:
+        assert f.read() == _StaticTextOCR.TEXT
+    assert not os.path.exists(data_model.txt_page_path(digest, 1))

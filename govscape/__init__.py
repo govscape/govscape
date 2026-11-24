@@ -1,5 +1,6 @@
-import importlib
 from typing import TYPE_CHECKING
+
+from ._lazy import lazy_getattr
 
 # Submodules are imported on first use, so that a process which only needs a light
 # part of the package (e.g. a PDF extraction worker) doesn't load torch, the models
@@ -32,6 +33,34 @@ _EXPORTS = {
     "SigLIP_VisualEmbeddingModel": "visual_embedding_models",
 }
 
+if TYPE_CHECKING:
+    from .config import DataModel, ServerConfig
+    from .data_loader import RemoteDirectoryIterator, build_data_loader
+    from .indexing import (
+        FAISSIndex,
+        LanceDBKeywordIndex,
+        LuceneKeywordIndex,
+        SQLiteKeywordIndex,
+        SQLiteMetadataIndex,
+        WhooshKeywordIndex,
+    )
+    from .pdf_processing_pipeline import PDFProcessingPipeline
+    from .server import Server
+    from .text_embedding_models import (
+        BGE_TextEmbeddingModel,
+        BGESmall_TextEmbeddingModel,
+        Dummy_TextEmbeddingModel,
+        Qwen3_TextEmbeddingModel,
+        Qwen3VLLM_TextEmbeddingModel,
+        ST_TextEmbeddingModel,
+    )
+    from .utils import base_argument_parser, extract_subdomain, read_txt_file, str2bool
+    from .visual_embedding_models import (
+        CLIP_VisualEmbeddingModel,
+        Dummy_VisualEmbeddingModel,
+        SigLIP_VisualEmbeddingModel,
+    )
+
 __all__ = [
     "BGESmall_TextEmbeddingModel",
     "BGE_TextEmbeddingModel",
@@ -60,39 +89,4 @@ __all__ = [
     "str2bool",
 ]
 
-
-def __getattr__(name: str):
-    if name not in _EXPORTS:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    value = getattr(importlib.import_module(f".{_EXPORTS[name]}", __name__), name)
-    globals()[name] = value
-    return value
-
-
-if TYPE_CHECKING:
-    from .config import DataModel, ServerConfig
-    from .data_loader import RemoteDirectoryIterator, build_data_loader
-    from .indexing import (
-        FAISSIndex,
-        LanceDBKeywordIndex,
-        LuceneKeywordIndex,
-        SQLiteKeywordIndex,
-        SQLiteMetadataIndex,
-        WhooshKeywordIndex,
-    )
-    from .pdf_processing_pipeline import PDFProcessingPipeline
-    from .server import Server
-    from .text_embedding_models import (
-        BGE_TextEmbeddingModel,
-        BGESmall_TextEmbeddingModel,
-        Dummy_TextEmbeddingModel,
-        Qwen3_TextEmbeddingModel,
-        Qwen3VLLM_TextEmbeddingModel,
-        ST_TextEmbeddingModel,
-    )
-    from .utils import base_argument_parser, extract_subdomain, read_txt_file, str2bool
-    from .visual_embedding_models import (
-        CLIP_VisualEmbeddingModel,
-        Dummy_VisualEmbeddingModel,
-        SigLIP_VisualEmbeddingModel,
-    )
+__getattr__ = lazy_getattr(__name__, _EXPORTS)

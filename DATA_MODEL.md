@@ -26,6 +26,8 @@ holds everything derived from the PDFs:
 * {test,dev,prod}-serving/checkpoints/{job_name}_checkpoint.json
 * {test,dev,prod}-serving/blacklist.txt
 
+While the embedding pipeline runs with OCR, each worker also keeps high-resolution renders of the pages that need OCR in its local data directory, as `ocr_img/{digest}/{digest}_{pg_no}.png`. They are deleted once OCR'd and never uploaded.
+
 The embedding pipeline splits the PDFs into shards by the leading characters of their digests (two by default, so 1,024 shards) and deals the shards out across servers. Each shard has its own checkpoint, `embedding_pipeline_shard_{prefix}_checkpoint.json`, so a run can resume with a different number of servers.
 
 The blacklist.txt file is optional. When present, it contains PDF digests (one per line) to hide from all search results and `/pages/<pdf_id>` lookups, used for privacy and copyright takedown requests. Blank lines and lines starting with `#` are ignored, so operational annotations like `# DMCA ticket-1234` are allowed.

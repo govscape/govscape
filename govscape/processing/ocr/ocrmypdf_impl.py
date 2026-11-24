@@ -19,11 +19,10 @@ except ImportError:
 
 
 class OcrMyPDFImpl(BaseOCR):
-    """OCR implementation using OcrMyPDF.
+    """OCR implementation using Tesseract, through pytesseract.
 
-    OcrMyPDF adds an OCR text layer to scanned PDFs.
-    Note: This implementation extracts text from a page image by converting
-    to PDF, running OCR, and extracting text back.
+    Selected as ``ocr_type="ocrmypdf"``, the package it is installed with (the
+    ``ocrmypdf`` extra); it doesn't run OcrMyPDF itself.
     """
 
     def __init__(
@@ -37,18 +36,12 @@ class OcrMyPDFImpl(BaseOCR):
         Args:
             language: Tesseract language code (e.g., 'eng', 'fra'). Defaults to 'eng'.
             output_type: Output type ('txt' or 'searchable_pdf'). Defaults to 'txt'.
-            max_workers: Number of pages to OCR concurrently. Each Tesseract call is
-                single-threaded, so running a batch of pages in parallel gives a
-                near-linear speedup on a multi-core host. Defaults to one per
-                CPU; set to 1 to disable concurrency. Run Tesseract with
-                ``OMP_THREAD_LIMIT=1`` (as OCRProcessingStage's workers do), or
-                each call's own threads oversubscribe the CPUs.
-
-                Note: ``OCRProcessingStage`` consumes ``max_workers`` for its own
-                process pool, so this cannot be set through the stage — the two
-                layers multiply (stage workers x these threads). Set it only when
-                driving the engine directly.
+            max_workers: Number of pages to OCR concurrently. Defaults to one per
+                CPU; set to 1 to disable concurrency.
         """
+        # Tesseract parallelises with OpenMP threads unless OMP_THREAD_LIMIT=1;
+        # this engine parallelises across pages instead, which scales better.
+        os.environ.setdefault("OMP_THREAD_LIMIT", "1")
         self.language = language
         self.output_type = output_type
         self.max_workers = max_workers or os.cpu_count() or 1
@@ -83,8 +76,8 @@ class OcrMyPDFImpl(BaseOCR):
         if pytesseract is None:
             self.validate()
 
-        # Tesseract is single-threaded per call and runs in a subprocess (so the
-        # GIL is not a bottleneck); OCR the batch's pages concurrently. map()
+        # Each Tesseract call runs in a subprocess (so the GIL is not a
+        # bottleneck); OCR the batch's pages concurrently. map()
         # preserves input order, keeping results aligned with pages.
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             return list(executor.map(self._extract_single, images))

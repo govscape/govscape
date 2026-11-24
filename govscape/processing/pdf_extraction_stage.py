@@ -6,31 +6,46 @@ from multiprocessing import get_context
 import numpy as np
 
 import pypdfium2
+from PIL import Image
 
 from ..config import DataModel
 from .processing_stage import ProcessingStage
 
 # pdfium renders at 72 dpi (one pixel per PDF point) at scale 1.
 PDF_POINTS_PER_INCH = 72
-# Pages are OCR'd only if their PDF text layer is missing or nearly empty (e.g. a
-# bare page number) and they aren't blank. A page is blank if fewer than
-# MIN_INK_FRACTION of its pixels are darker than INK_LEVEL; on a sample of the
-# archive's pages without a text layer, this matched only truly blank pages (~9%).
-MAX_TEXT_LAYER_CHARS = 20
 # Tesseract is most accurate on text rendered at about 300 dpi.
 OCR_DPI = 300
+# A page needs OCR if its PDF text layer is missing or nearly empty (e.g. a bare
+# page number)...
+MAX_TEXT_LAYER_CHARS = 20
+# ...and it isn't blank: at least MIN_INK_FRACTION of its pixels are darker than
+# INK_LEVEL. On a sample of the archive's pages without a text layer, this
+# excluded only truly blank pages (~9% of them).
 INK_LEVEL = 160
 MIN_INK_FRACTION = 0.002
 
 
-def needs_ocr(page_text: str, page_image) -> bool:
+def needs_ocr(page_text: str, page_image: Image.Image) -> bool:
     if len(page_text.strip()) > MAX_TEXT_LAYER_CHARS:
         return False
     gray = np.asarray(page_image.convert("L"))
     return bool((gray < INK_LEVEL).mean() >= MIN_INK_FRACTION)
 
 
-def _convert_single_pdf(data_model, pdf_file, ocr_dpi=None):
+def _remove_partial_pages(data_model: DataModel, pdf_name: str) -> None:
+    # Keep the (now empty) txt and img directories that every parsed PDF has.
+    for directory in (
+        data_model.txt_pdf_directory(pdf_name),
+        data_model.img_pdf_directory(pdf_name),
+    ):
+        shutil.rmtree(directory)
+        os.makedirs(directory)
+    shutil.rmtree(
+        os.path.join(data_model.ocr_image_directory, pdf_name), ignore_errors=True
+    )
+
+
+def _convert_single_pdf(data_model, pdf_file, render_ocr_pages=False):
     pdf_name = os.path.splitext(os.path.basename(pdf_file))[0]
     os.makedirs(data_model.txt_pdf_directory(pdf_name), exist_ok=True)
     os.makedirs(data_model.img_pdf_directory(pdf_name), exist_ok=True)
@@ -62,24 +77,15 @@ def _convert_single_pdf(data_model, pdf_file, ocr_dpi=None):
             page_text = page.get_textpage().get_text_bounded()
             image = page.render(scale=1.0).to_pil()
             ocr_image = None
-            if ocr_dpi and needs_ocr(page_text, image):
-                ocr_image = page.render(
-                    scale=ocr_dpi / PDF_POINTS_PER_INCH, grayscale=True
-                )
-                ocr_image = ocr_image.to_pil()
+            if render_ocr_pages and needs_ocr(page_text, image):
+                ocr_scale = OCR_DPI / PDF_POINTS_PER_INCH
+                ocr_image = page.render(scale=ocr_scale, grayscale=True).to_pil()
         except Exception:
             # Leave no partial pages from a PDF that failed part way through.
-            for directory in (
-                data_model.txt_pdf_directory(pdf_name),
-                data_model.img_pdf_directory(pdf_name),
-            ):
-                shutil.rmtree(directory)
-                os.makedirs(directory)
-            shutil.rmtree(
-                os.path.join(data_model.ocr_image_directory, pdf_name),
-                ignore_errors=True,
-            )
+            _remove_partial_pages(data_model, pdf_name)
             return False
+        # Errors while writing (e.g. a full disk) aren't the PDF's fault, so they
+        # propagate and fail the batch instead.
         if page_text:
             with open(
                 data_model.txt_page_path(pdf_name, page_num), "w", encoding="utf-8"
@@ -96,19 +102,23 @@ def _convert_single_pdf(data_model, pdf_file, ocr_dpi=None):
 
 
 class PDFExtractionStage(ProcessingStage):
+    """Extracts each PDF's metadata, and each page's text and 72 dpi image.
+
+    With render_ocr_pages, the pages that need OCR are also rendered at OCR_DPI into
+    data_model.ocr_image_directory, for OCRProcessingStage.
+    """
+
     def __init__(
         self,
         data_model: DataModel,
         pdf_files: list[str],
         cpu_count: int,
-        ocr_dpi: int | None = None,
+        render_ocr_pages: bool = False,
     ):
-        """With ocr_dpi set, the pages that need OCR are also rendered at that
-        resolution into data_model.ocr_image_directory for OCRProcessingStage."""
         self.data_model = data_model
         self.pdf_files = pdf_files
         self.cpu_count = cpu_count
-        self.ocr_dpi = ocr_dpi
+        self.render_ocr_pages = render_ocr_pages
 
     def validate(self) -> None:
         missing = [f for f in self.pdf_files if not os.path.isfile(f)]
@@ -122,7 +132,7 @@ class PDFExtractionStage(ProcessingStage):
         with ctx.Pool(processes=self.cpu_count) as pool:
             results = pool.starmap(
                 _convert_single_pdf,
-                [(self.data_model, f, self.ocr_dpi) for f in self.pdf_files],
+                [(self.data_model, f, self.render_ocr_pages) for f in self.pdf_files],
             )
             # Let workers exit on their own: Pool.__exit__ terminates them, and some
             # native libs' SIGTERM handlers can deadlock.

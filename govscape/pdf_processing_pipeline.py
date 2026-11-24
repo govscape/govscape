@@ -11,7 +11,6 @@ from .processing import (
     TextEmbeddingStage,
 )
 from .processing.page_image_embedding_stage import build_visual_model
-from .processing.pdf_extraction_stage import OCR_DPI
 from .processing.text_embedding_stage import build_text_model
 
 
@@ -45,25 +44,27 @@ class PDFProcessingPipeline:
     ) -> tuple[float, float]:
         """Extract page text, images and metadata from pdf_files into data_model,
         then OCR the pages that need it. Returns (extraction, OCR) seconds."""
+        if do_ocr and not self.ocr_type:
+            logging.warning("do_ocr=True but no ocr_type set; skipping OCR stage")
+        ocr_type = self.ocr_type if do_ocr else None
+
         time1 = time.time()
         logging.info("Converting pdfs to txts and page images")
         pdf_extraction_stage = PDFExtractionStage(
             data_model=data_model,
             pdf_files=pdf_files,
             cpu_count=self.cpu_count,
-            ocr_dpi=OCR_DPI if do_ocr and self.ocr_type else None,
+            render_ocr_pages=bool(ocr_type),
         )
         pdf_extraction_stage.validate()
         parsed = pdf_extraction_stage.run()
         logging.info(f"PDFs successfully parsed: {parsed} / {len(pdf_files)}")
 
         time2 = time.time()
-        if do_ocr and not self.ocr_type:
-            logging.warning("do_ocr=True but no ocr_type set; skipping OCR stage")
-        if do_ocr and self.ocr_type:
-            logging.info(f"Running OCR extraction using {self.ocr_type}")
+        if ocr_type:
+            logging.info(f"Running OCR extraction using {ocr_type}")
             ocr_stage = OCRProcessingStage(
-                data_model=data_model, ocr_type=self.ocr_type, **self.ocr_kwargs
+                data_model=data_model, ocr_type=ocr_type, **self.ocr_kwargs
             )
             ocr_stage.validate()
             ocr_stage.run()

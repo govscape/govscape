@@ -1,7 +1,8 @@
 """OCR implementations for text extraction from PDF pages."""
 
-import importlib
 from typing import TYPE_CHECKING
+
+from ..._lazy import lazy_getattr
 
 # Imported on first use: each engine pulls in its own heavy dependencies (torch,
 # transformers, easyocr), and an OCR worker should load only the one it runs.
@@ -12,6 +13,12 @@ _EXPORTS = {
     "OcrMyPDFImpl": "ocrmypdf_impl",
 }
 
+if TYPE_CHECKING:
+    from .base_ocr import BaseOCR
+    from .easyocr_impl import EasyOCRImpl
+    from .ocrmypdf_impl import OcrMyPDFImpl
+    from .olmocr_impl import OLMOcrImpl
+
 __all__ = [
     "BaseOCR",
     "EasyOCRImpl",
@@ -19,17 +26,4 @@ __all__ = [
     "OcrMyPDFImpl",
 ]
 
-
-def __getattr__(name: str):
-    if name not in _EXPORTS:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    value = getattr(importlib.import_module(f".{_EXPORTS[name]}", __name__), name)
-    globals()[name] = value
-    return value
-
-
-if TYPE_CHECKING:
-    from .base_ocr import BaseOCR
-    from .easyocr_impl import EasyOCRImpl
-    from .ocrmypdf_impl import OcrMyPDFImpl
-    from .olmocr_impl import OLMOcrImpl
+__getattr__ = lazy_getattr(__name__, _EXPORTS)
