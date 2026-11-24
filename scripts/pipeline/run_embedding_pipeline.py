@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import govscape as gs
 from govscape.config import PDF_ARCHIVE_PDF_DIR, DataModel, digest_shards
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
+from govscape.page_image_packs import pack_page_images
 from govscape.pipelining import run_pipelined
 from govscape.utils import base_argument_parser, str2bool
 
@@ -39,9 +40,13 @@ def upload_batch(
         data_loader.upload_directory(
             local_dm.txt_directory, remote_dm.txt_directory, compress=True
         )
-        data_loader.upload_directory(
-            local_dm.image_directory, remote_dm.image_directory, compress=False
-        )
+        # The pages' images go up as one pack, and before the metadata, which
+        # records where in the pack each PDF's pages are.
+        pack_name = pack_page_images(local_dm)
+        if pack_name:
+            data_loader.upload_file(
+                local_dm.img_pack_path(pack_name), remote_dm.img_pack_path(pack_name)
+            )
         data_loader.upload_directory(
             local_dm.metadata_directory, remote_dm.metadata_directory, compress=True
         )

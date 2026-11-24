@@ -25,6 +25,20 @@ from .indexing import (
 from .query import Query, Response
 
 
+def page_image_range(packed: dict | None, page_num: int) -> dict | None:
+    """Where page page_num's image is in its pack, as {"pack", "start", "end"}
+    (an inclusive byte range), or None if the PDF's pages aren't packed (see
+    govscape/page_image_packs.py)."""
+    if not packed or page_num + 1 >= len(packed["offsets"]):
+        return None
+    offsets = packed["offsets"]
+    return {
+        "pack": packed["pack"],
+        "start": offsets[page_num],
+        "end": offsets[page_num + 1] - 1,
+    }
+
+
 # basic pipeline developed:
 # 1. accept a query until EOF detected
 # 2. run an embedding model on the query
@@ -324,6 +338,7 @@ class Server:
         )
 
     def _build_search_results(self, rows, pdf_metadata):
+        page_images = self.metadata_index.page_images(list(pdf_metadata))
         search_results: list[dict] = []
         for distance, name, page_num in rows:
             metadata = pdf_metadata.get(name, None)
@@ -341,6 +356,7 @@ class Server:
                         "page": page_num,
                         "distance": float(distance),
                         "jpeg": jpeg_file,
+                        "image": page_image_range(page_images.get(name), int(page_num)),
                         "crawl_url": newest.get("crawl_url", ""),
                         "crawl_date": newest.get("crawl_date", ""),
                         "sub_domain": newest.get("sub_domain", ""),
@@ -360,8 +376,10 @@ class Server:
     def pdf_pages(self, pdf_id):
         """
         Get all page images and metadata for a PDF by pdf_id.
-        Returns dict with 'images', 'crawl_url', 'crawl_date', 'sub_domain'
-        (newest crawl), and 'crawl_instances' (all crawls, newest first).
+        Returns dict with 'images' (one JPEG path per page), 'page_images' (one
+        page_image_range per page, if the pages are packed), 'crawl_url',
+        'crawl_date', 'sub_domain' (newest crawl), and 'crawl_instances' (all
+        crawls, newest first).
         """
         if not pdf_id:
             return {"error": "Missing 'pdf_id' parameter"}, 400
@@ -369,6 +387,7 @@ class Server:
         if pdf_id in self.blacklist:
             return {
                 "images": [],
+                "page_images": [],
                 "crawl_url": "",
                 "crawl_date": "",
                 "sub_domain": "",
@@ -392,6 +411,12 @@ class Server:
         page_count = int(newest.get("page_count", 0))
 
         images = [self.data_model.img_page_path(pdf_id, i) for i in range(page_count)]
+        packed = self.metadata_index.page_images([pdf_id]).get(pdf_id)
+        page_images = (
+            [page_image_range(packed, i) for i in range(len(packed["offsets"]) - 1)]
+            if packed
+            else []
+        )
 
         crawl_instances = [
             {
@@ -404,6 +429,7 @@ class Server:
 
         return {
             "images": images,
+            "page_images": page_images,
             "crawl_url": crawl_url,
             "crawl_date": crawl_date,
             "sub_domain": sub_domain,

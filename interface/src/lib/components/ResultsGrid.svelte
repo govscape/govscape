@@ -7,6 +7,7 @@
   import { userTracker } from '$lib/utils/userTracking.js';
   import ChevronLeftIcon from './icons/ChevronLeftIcon.svelte';
   import ChevronRightIcon from './icons/ChevronRightIcon.svelte';
+  import { pageImage } from '$lib/utils/pageImages';
 
   const dispatch = createEventDispatcher();
 
@@ -151,9 +152,8 @@
       <div class="result-card" on:click={() => handlePDFSelect(result.pdf, result.page, result.crawlDate, result.crawlUrl, result.subDomain, result.crawlInstances, result.hasMoreCrawls, result.prettyName)}>
         <div class="image-container">
           <img
-            src={result.jpeg}
+            use:pageImage={result.image}
             alt={`PDF Page ${result.page}`}
-            loading="lazy"
           />
         </div>
         <div class="result-info">

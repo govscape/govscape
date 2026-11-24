@@ -163,3 +163,44 @@ def test_concurrent_queries(index):
 
     assert expected[0] == pytest.approx(0.5)
     assert all(result == expected for result in results)
+
+
+@pytest.mark.parametrize(
+    "index_cls", [SQLiteMetadataIndex, DuckDBMetadataIndex], ids=["sqlite", "duckdb"]
+)
+def test_page_images_round_trip(index_cls, tmp_path):
+    directory = (tmp_path / "metadata_index").as_posix()
+    idx = index_cls(directory)
+    idx.build_index()
+    idx.add_batch(_RECORDS)
+    idx.add_page_images(
+        {
+            "air_quality.pdf": {"pack": "pack_a.jpegs", "offsets": [0, 10, 25]},
+            "solar_grid.pdf": {"pack": "pack_a.jpegs", "offsets": [25, 40]},
+        }
+    )
+    # A re-run batch replaces a PDF's entry rather than adding another.
+    idx.add_page_images({"solar_grid.pdf": {"pack": "pack_b.jpegs", "offsets": [0, 9]}})
+    idx.save_index()
+
+    reloaded = index_cls(directory)
+    reloaded.load_index()
+    assert reloaded.page_images(["air_quality.pdf", "solar_grid.pdf", "nope.pdf"]) == {
+        "air_quality.pdf": {"pack": "pack_a.jpegs", "offsets": [0, 10, 25]},
+        "solar_grid.pdf": {"pack": "pack_b.jpegs", "offsets": [0, 9]},
+    }
+    assert reloaded.page_images([]) == {}
+
+
+def test_index_built_before_packs_has_no_page_images(tmp_path):
+    import sqlite3
+
+    directory = tmp_path / "metadata_index"
+    directory.mkdir()
+    conn = sqlite3.connect(directory / "metadata.db")
+    conn.execute("CREATE TABLE metadata (digest TEXT)")
+    conn.commit()
+    conn.close()
+
+    index = SQLiteMetadataIndex(directory.as_posix())
+    assert index.page_images(["air_quality.pdf"]) == {}

@@ -83,6 +83,9 @@ class DataModel:
             self.embedding_img_pg_directory, digest, f"{digest}_{pg_no}.npy"
         )
 
+    def img_pack_path(self, pack_name: str) -> str:
+        return os.path.join(self.image_directory, pack_name)
+
     def ocr_img_page_path(self, digest: str, pg_no: int) -> str:
         return os.path.join(self.ocr_image_directory, digest, f"{digest}_{pg_no}.png")
 

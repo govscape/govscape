@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { apiFetch, getImageBaseUrl, getPdfUrl } from '$lib/utils/fetch';
+  import { apiFetch, getPdfUrl } from '$lib/utils/fetch';
+  import { documentPageSources, pageImage, prefetchPages } from '$lib/utils/pageImages';
 
   export let data;
   let id = data.id;
@@ -19,6 +20,9 @@
   let crawlInstances = [];
   let hasMoreCrawls = false;
 
+  // Fetch the pages around the one shown in a single request.
+  $: if (images.length) prefetchPages(images, currentPageIndex);
+
   async function fetchImages() {
     if (!id) return;
     loading = true;
@@ -27,12 +31,8 @@
 
     try {
       const data = await apiFetch(`/pages/${id}`, { method: 'GET' });
-      const imageBase = getImageBaseUrl();
 
-      images = (data.images || []).map(img => {
-        const parts = img.split('/');
-        return `${imageBase}/${parts.slice(-2).join('/')}`;
-      });
+      images = documentPageSources(data);
       totalPages = images.length;
       if (!pdfSubDomain) pdfSubDomain = data.subDomain || '';
       if (!pdfCrawlDate) pdfCrawlDate = data.crawlDate || '';
@@ -154,7 +154,7 @@
       <div class="preview-layout-grid">
         <div class="preview-main-content">
           <div class="preview-main-image-container">
-            <img src={images[currentPageIndex]} alt={`Page ${currentPageIndex + 1}`} class="preview-main-image" />
+            <img use:pageImage={images[currentPageIndex]} alt={`Page ${currentPageIndex + 1}`} class="preview-main-image" />
           </div>
           <div class="page-navigation">
             <button class="carousel-nav prev" on:click={prevPage} disabled={currentPageIndex === 0} aria-label="Previous page">
@@ -216,7 +216,7 @@
             <h6 class="preview-thumbnail-panel-title">All Pages</h6>
             <div class="preview-thumbnail-grid">
               {#each images as img, i}
-                <img src={img} alt={`Page ${i + 1}`} class="preview-thumbnail-item" class:active={i === currentPageIndex} on:click={() => selectThumbnail(i)} />
+                <img use:pageImage={img} alt={`Page ${i + 1}`} class="preview-thumbnail-item" class:active={i === currentPageIndex} on:click={() => selectThumbnail(i)} />
               {/each}
             </div>
           </div>

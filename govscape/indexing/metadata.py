@@ -1,6 +1,7 @@
 # AI modified
 """Metadata index implementations used by serving and filtering planners."""
 
+import json
 import os
 import sqlite3
 import threading
@@ -34,6 +35,20 @@ class AbstractMetadataIndex(AbstractIndex, ABC):
         """
         Add a batch of metadata dictionaries to the index which each
         contain url, crawl_date, digest, and sub_domain.
+        """
+
+    @abstractmethod
+    def add_page_images(self, page_images: dict[str, dict]):
+        """
+        Record where PDFs' page images are stored, as {digest: {"pack": ...,
+        "offsets": [...]}} (see govscape/page_image_packs.py).
+        """
+
+    @abstractmethod
+    def page_images(self, digests) -> dict[str, dict]:
+        """
+        Return {"pack": ..., "offsets": [...]} for each of 'digests' whose page
+        images are packed. Indexes built before packs existed have none.
         """
 
     @abstractmethod
@@ -198,6 +213,15 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             );
             """
         )
+        self.cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS page_images (
+                digest TEXT PRIMARY KEY,
+                pack TEXT,
+                offsets TEXT
+            );
+            """
+        )
         self.conn.commit()
 
     def add_batch(self, metadata_dicts):
@@ -253,6 +277,41 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
         self._total_entries = -1
         self._total_documents = -1
         self.conn.commit()
+
+    def add_page_images(self, page_images: dict[str, dict]):
+        if self.conn is None:
+            self.conn = sqlite3.connect(self.db_path)
+            self.cursor = self.conn.cursor()
+        self.cursor.executemany(
+            "INSERT OR REPLACE INTO page_images (digest, pack, offsets) "
+            "VALUES (?, ?, ?)",
+            [
+                (digest, images["pack"], json.dumps(images["offsets"]))
+                for digest, images in page_images.items()
+            ],
+        )
+        self.conn.commit()
+
+    def page_images(self, digests) -> dict[str, dict]:
+        if not digests:
+            return {}
+        placeholders = ",".join(["?"] * len(digests))
+        try:
+            rows = (
+                self._read_connection()
+                .execute(
+                    "SELECT digest, pack, offsets FROM page_images "
+                    f"WHERE digest IN ({placeholders})",
+                    list(digests),
+                )
+                .fetchall()
+            )
+        except sqlite3.OperationalError:  # built before packs: no page_images table
+            return {}
+        return {
+            digest: {"pack": pack, "offsets": json.loads(offsets)}
+            for digest, pack, offsets in rows
+        }
 
     def load_index(self):
         if self._total_entries == -1:
@@ -460,6 +519,15 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
             );
             """
         )
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS page_images (
+                digest TEXT PRIMARY KEY,
+                pack TEXT,
+                offsets TEXT
+            );
+            """
+        )
 
     def add_batch(self, metadata_dicts):
         self._connect()
@@ -515,6 +583,38 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
 
         self._total_entries = -1
         self._total_documents = -1
+
+    def add_page_images(self, page_images: dict[str, dict]):
+        self._connect()
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO page_images (digest, pack, offsets) "
+            "VALUES (?, ?, ?)",
+            [
+                [digest, images["pack"], json.dumps(images["offsets"])]
+                for digest, images in page_images.items()
+            ],
+        )
+
+    def page_images(self, digests) -> dict[str, dict]:
+        if not digests:
+            return {}
+        placeholders = ", ".join(["?"] * len(digests))
+        try:
+            rows = (
+                self._read_connection()
+                .execute(
+                    "SELECT digest, pack, offsets FROM page_images "
+                    f"WHERE digest IN ({placeholders})",
+                    list(digests),
+                )
+                .fetchall()
+            )
+        except duckdb.CatalogException:  # built before packs: no page_images table
+            return {}
+        return {
+            digest: {"pack": pack, "offsets": json.loads(offsets)}
+            for digest, pack, offsets in rows
+        }
 
     def load_index(self):
         self._connect()

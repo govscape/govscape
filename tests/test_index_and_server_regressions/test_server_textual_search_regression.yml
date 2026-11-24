@@ -34,6 +34,7 @@ results:
   crawl_url: https://biolincc.nhlbi.nih.gov/media/NHLBI_Biospecimen_MTA_Non_Fillable.pdf
   distance: 0.0
   has_more_crawls: false
+  image: null
   jpeg: 222227UE3MX2MTWXM2UJ6LV23WG55MYO_0.jpeg
   page: '0'
   pdf: 222227UE3MX2MTWXM2UJ6LV23WG55MYO
@@ -46,6 +47,7 @@ results:
   crawl_url: https://www.illinois.gov/icsc/Documents/agenda_08192004.pdf
   distance: 0.9094
   has_more_crawls: false
+  image: null
   jpeg: 2222EKCUJ33PPIMXZBCB33YAYWAEXBOR_1.jpeg
   page: '1'
   pdf: 2222EKCUJ33PPIMXZBCB33YAYWAEXBOR
@@ -58,6 +60,7 @@ results:
   crawl_url: http://www.dtic.mil/dtic/tr/fulltext/u2/a469788.pdf
   distance: 0.9603
   has_more_crawls: false
+  image: null
   jpeg: 2223G4SVLV2NKBV3HCID7YBDOD6FETBX_130.jpeg
   page: '130'
   pdf: 2223G4SVLV2NKBV3HCID7YBDOD6FETBX
@@ -70,6 +73,7 @@ results:
   crawl_url: http://pdf.usaid.gov/pdf_docs/PNABM697.pdf
   distance: 0.9645
   has_more_crawls: false
+  image: null
   jpeg: 22232XYELOQ6DX4CLMPE7ERTK5C6JNUU_75.jpeg
   page: '75'
   pdf: 22232XYELOQ6DX4CLMPE7ERTK5C6JNUU
@@ -82,6 +86,7 @@ results:
   crawl_url: http://www.wshfc.org/FarmRanch/resources.pdf
   distance: 0.975
   has_more_crawls: false
+  image: null
   jpeg: 2223ELM5D4K35LHQVCV4VRH36E5D6JVO_46.jpeg
   page: '46'
   pdf: 2223ELM5D4K35LHQVCV4VRH36E5D6JVO

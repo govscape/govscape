@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
-import { apiFetch, getImageBaseUrl } from '../utils/fetch';
+import { apiFetch } from '../utils/fetch';
+import { pageImageSource } from '../utils/pageImages';
 import { userTracker } from '../utils/userTracking.js';
 
 export const searchStore = writable({
@@ -115,12 +116,9 @@ export const searchActions = {
         body: JSON.stringify(body)
       });
 
-      const imageBase = getImageBaseUrl();
       const results = (responseData.results || []).map(result => ({
         ...result,
-        jpeg: result.jpeg && typeof result.jpeg === 'string'
-              ? `${imageBase}/${result.jpeg.split('/').slice(-2).join('/')}`
-              : null
+        image: pageImageSource(result.image, result.jpeg)
       }));
 
       searchStore.update(store => ({

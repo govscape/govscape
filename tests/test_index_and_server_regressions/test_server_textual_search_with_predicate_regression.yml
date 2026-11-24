@@ -34,6 +34,7 @@ results:
   crawl_url: https://biolincc.nhlbi.nih.gov/media/NHLBI_Biospecimen_MTA_Non_Fillable.pdf
   distance: 0.0
   has_more_crawls: false
+  image: null
   jpeg: 222227UE3MX2MTWXM2UJ6LV23WG55MYO_0.jpeg
   page: '0'
   pdf: 222227UE3MX2MTWXM2UJ6LV23WG55MYO
@@ -49,6 +50,7 @@ results:
   crawl_url: https://pmc.ncbi.nlm.nih.gov/articles/PMC10703636/pdf/main.pdf
   distance: 1.2247
   has_more_crawls: false
+  image: null
   jpeg: 2223BNRYYNSSFAN7IUILPDXN6AC33RFT_10.jpeg
   page: '10'
   pdf: 2223BNRYYNSSFAN7IUILPDXN6AC33RFT
@@ -61,6 +63,7 @@ results:
   crawl_url: https://pmc.ncbi.nlm.nih.gov/articles/instance/4992211/bin/12909_2016_736_MOESM2_ESM.pdf
   distance: 1.2289
   has_more_crawls: false
+  image: null
   jpeg: 2222FCI7N3NPLBLLMS3CKHJWBXNXTGZO_2.jpeg
   page: '2'
   pdf: 2222FCI7N3NPLBLLMS3CKHJWBXNXTGZO
@@ -79,6 +82,7 @@ results:
   crawl_url: https://pmc.ncbi.nlm.nih.gov/articles/PMC392008/pdf/pnas00622-0189.pdf
   distance: 1.2334
   has_more_crawls: false
+  image: null
   jpeg: 2222SCPSQZ6AN5OCGRY6VOE7ESY3DK4O_0.jpeg
   page: '0'
   pdf: 2222SCPSQZ6AN5OCGRY6VOE7ESY3DK4O
@@ -91,6 +95,7 @@ results:
   crawl_url: https://pmc.ncbi.nlm.nih.gov/articles/PMC6309867/pdf/nihms-1002353.pdf
   distance: 1.2567
   has_more_crawls: false
+  image: null
   jpeg: 22224ZB5KUVBQOLUK52IBQOHTDHS374X_2.jpeg
   page: '2'
   pdf: 22224ZB5KUVBQOLUK52IBQOHTDHS374X
