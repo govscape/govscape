@@ -23,6 +23,7 @@ the build at this scale. PQ encoding and the list files are done on the CPU.
 import json
 import logging
 import os
+from typing import cast
 
 import numpy as np
 
@@ -34,6 +35,10 @@ META_FILE = "meta.json"
 VECTORS_FILE = "vectors.f16"
 ROW_DIGESTS_FILE = "row_digests.u32"
 ROW_PAGES_FILE = "row_pages.u32"
+# A build's checkpoint, removed when the build finishes.
+STATE_FILE = "build_state.json"
+TRAINED_FILE = "build_trained.index"
+DIGEST_LIST_FILE = "build_digests.txt"
 
 # FAISS recommends at least this many training points per coarse centroid.
 MIN_TRAIN_POINTS_PER_LIST = 39
@@ -51,6 +56,10 @@ class IVFPQIndexBuilder:
     should be a fair sample of all of them (digests are hashes, so any shard
     is). Encoded vectors are written in blocks of block_size, which finish()
     merges into one on-disk index.
+
+    Once checkpoint_due (every checkpoint_every vectors), the caller can
+    save_checkpoint() with its progress through its input; resume() then
+    restores the builder and that progress after a restart.
     """
 
     def __init__(
@@ -62,6 +71,7 @@ class IVFPQIndexBuilder:
         block_size: int = 20_000_000,
         nprobe: int = 128,
         use_gpu: bool | None = None,
+        checkpoint_every: int = 100_000_000,
     ):
         self.index_directory = index_directory
         self.nlist = nlist
@@ -70,23 +80,124 @@ class IVFPQIndexBuilder:
         self.block_size = block_size
         self.nprobe = nprobe
         self.use_gpu = _gpu_count() > 0 if use_gpu is None else use_gpu
+        self.checkpoint_every = checkpoint_every
         os.makedirs(index_directory, exist_ok=True)
 
         self.d: int | None = None
         self.ntotal = 0
+        self._next_checkpoint = checkpoint_every
+        # Each PDF's id, and the PDFs in id order.
         self.digest_ids: dict[str, int] = {}
+        self._digests: list[str] = []
+        self._digests_saved = 0
         self._pending: list[tuple[np.ndarray, list[str], list]] = []
         self._pending_count = 0
         self._trained: faiss.IndexIVFPQ | None = None
         # The trained index's quantizer, kept referenced for as long as the index.
-        self._quantizer: faiss.IndexFlatL2 | None = None
+        self._quantizer: faiss.Index | None = None
         self._assigner: faiss.Index | None = None
         self._block: faiss.Index | None = None
         self._block_paths: list[str] = []
-        self._files = {
-            name: open(os.path.join(index_directory, name), "wb")
-            for name in (VECTORS_FILE, ROW_DIGESTS_FILE, ROW_PAGES_FILE)
+        # The files rows are appended to, opened on the first write.
+        self._files: dict | None = None
+
+    @classmethod
+    def resume(
+        cls, index_directory: str, use_gpu: bool | None = None
+    ) -> tuple["IVFPQIndexBuilder", dict] | None:
+        """The builder last checkpointed in index_directory, with the progress
+        saved with it, or None if there's no checkpoint."""
+        path = os.path.join(index_directory, STATE_FILE)
+        if not os.path.exists(path):
+            return None
+        with open(path) as f:
+            state = json.load(f)
+        builder = cls(
+            index_directory,
+            nlist=state["nlist"],
+            m=state["m"],
+            train_size=state["train_size"],
+            block_size=state["block_size"],
+            nprobe=state["nprobe"],
+            use_gpu=use_gpu,
+            checkpoint_every=state["checkpoint_every"],
+        )
+        builder._restore(state)
+        return builder, state["progress"]
+
+    @property
+    def checkpoint_due(self) -> bool:
+        return self._trained is not None and self.ntotal >= self._next_checkpoint
+
+    def save_checkpoint(self, progress: dict) -> None:
+        """Make everything added so far survive a restart (see resume()), with
+        the caller's progress through its input."""
+        assert self._trained is not None and self._files is not None
+        self._flush_block()
+        for file in self._files.values():
+            file.flush()
+            os.fsync(file.fileno())
+        if not os.path.exists(self._path(TRAINED_FILE)):
+            faiss.write_index(self._trained, self._path(TRAINED_FILE))
+        with open(self._path(DIGEST_LIST_FILE), "a") as f:
+            f.writelines(d + "\n" for d in self._digests[self._digests_saved :])
+            f.flush()
+            os.fsync(f.fileno())
+        self._digests_saved = len(self._digests)
+        state = {
+            "d": self.d,
+            "nlist": self.nlist,
+            "m": self.m,
+            "train_size": self.train_size,
+            "block_size": self.block_size,
+            "nprobe": self.nprobe,
+            "checkpoint_every": self.checkpoint_every,
+            "ntotal": self.ntotal,
+            "n_digests": len(self._digests),
+            "blocks": [os.path.basename(p) for p in self._block_paths],
+            "file_bytes": {name: f.tell() for name, f in self._files.items()},
+            "progress": progress,
         }
+        # Written last and atomically: the checkpoint is whatever it describes.
+        with open(self._path(STATE_FILE) + ".tmp", "w") as f:
+            json.dump(state, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(self._path(STATE_FILE) + ".tmp", self._path(STATE_FILE))
+        self._next_checkpoint = self.ntotal + self.checkpoint_every
+        logging.info(f"Checkpointed {self.ntotal} vectors: {progress}")
+
+    def _restore(self, state: dict) -> None:
+        # Anything written after the checkpoint is discarded: the files are cut
+        # back to their checkpointed lengths and later blocks deleted.
+        self.d = state["d"]
+        self.ntotal = state["ntotal"]
+        self._next_checkpoint = self.ntotal + self.checkpoint_every
+        self._files = {}
+        for name, size in state["file_bytes"].items():
+            # Kept open for the rest of the build; finish() closes them.
+            file = open(self._path(name), "r+b")  # noqa: SIM115
+            file.truncate(size)
+            file.seek(size)
+            self._files[name] = file
+        self._block_paths = [self._path(name) for name in state["blocks"]]
+        for name in os.listdir(self.index_directory):
+            if name.startswith("block_") and name not in state["blocks"]:
+                os.remove(self._path(name))
+        with open(self._path(DIGEST_LIST_FILE)) as f:
+            self._digests = [line.rstrip("\n") for line in f][: state["n_digests"]]
+        with open(self._path(DIGEST_LIST_FILE), "w") as f:
+            f.writelines(d + "\n" for d in self._digests)
+        self._digests_saved = len(self._digests)
+        self.digest_ids = {digest: i for i, digest in enumerate(self._digests)}
+        # read_index returns the concrete type; this tells mypy so (wrapping it
+        # in downcast_index would leave the index owned by a discarded object).
+        self._use_trained(
+            cast(faiss.IndexIVFPQ, faiss.read_index(self._path(TRAINED_FILE)))
+        )
+
+    def _path(self, name: str) -> str:
+        return os.path.join(self.index_directory, name)
 
     def add(self, vectors: np.ndarray, digests: list[str], pages: list) -> None:
         vectors = np.ascontiguousarray(vectors, dtype=np.float32)
@@ -107,7 +218,7 @@ class IVFPQIndexBuilder:
             if not self._pending:
                 raise ValueError("No vectors were added")
             self._train_and_add_pending()
-        assert self._trained is not None
+        assert self._trained is not None and self._files is not None
         self._flush_block()
         for file in self._files.values():
             file.close()
@@ -132,6 +243,9 @@ class IVFPQIndexBuilder:
         }
         with open(os.path.join(self.index_directory, META_FILE), "w") as f:
             json.dump(meta, f, indent=2)
+        for name in (STATE_FILE, TRAINED_FILE, DIGEST_LIST_FILE):
+            if os.path.exists(self._path(name)):
+                os.remove(self._path(name))
         logging.info(f"IVF-PQ index written: {meta}")
 
     def _train_and_add_pending(self) -> None:
@@ -142,7 +256,9 @@ class IVFPQIndexBuilder:
         max_lists = max(1, len(sample) // MIN_TRAIN_POINTS_PER_LIST)
         if self.nlist > max_lists:
             self.nlist = 1 << (max_lists.bit_length() - 1)
-            logging.info(f"Only {len(sample)} training vectors: using {self.nlist} lists")
+            logging.info(
+                f"Only {len(sample)} training vectors: using {self.nlist} lists"
+            )
         train = sample[: self.train_size]
         logging.info(
             f"Training {self.nlist} lists on {len(train)} vectors "
@@ -160,14 +276,19 @@ class IVFPQIndexBuilder:
         # codebooks, on the residuals of a subsample.
         index.train(train[: min(len(train), 256 * 1024)])
         index.nprobe = self.nprobe
+        self._use_trained(index)
+        for vectors, digests, pages in self._pending:
+            self._encode(vectors, digests, pages)
+        self._pending = []
+
+    def _use_trained(self, index: faiss.IndexIVFPQ) -> None:
         self._trained = index
+        # Kept referenced for as long as the index; on the GPU when there is one.
+        quantizer = faiss.downcast_index(index.quantizer)
         self._quantizer = quantizer
         self._assigner = (
             faiss.index_cpu_to_all_gpus(quantizer) if self.use_gpu else quantizer
         )
-        for vectors, digests, pages in self._pending:
-            self._encode(vectors, digests, pages)
-        self._pending = []
 
     def _encode(self, vectors: np.ndarray, digests: list[str], pages: list) -> None:
         from faiss.contrib.ivf_tools import add_preassigned
@@ -182,16 +303,26 @@ class IVFPQIndexBuilder:
 
         # A batch holds a few PDFs' pages: look up each distinct digest once.
         unique, inverse = np.unique(np.asarray(digests), return_inverse=True)
-        ids = np.array(
-            [self.digest_ids.setdefault(str(d), len(self.digest_ids)) for d in unique],
-            dtype=np.uint32,
-        )
+        ids = np.array([self._digest_id(str(d)) for d in unique], dtype=np.uint32)
         digest_ids = ids[inverse.ravel()]
+        if self._files is None:
+            # Kept open for the whole build; finish() closes them.
+            self._files = {
+                name: open(self._path(name), "wb")  # noqa: SIM115
+                for name in (VECTORS_FILE, ROW_DIGESTS_FILE, ROW_PAGES_FILE)
+            }
         self._files[VECTORS_FILE].write(vectors.astype(np.float16).tobytes())
         self._files[ROW_DIGESTS_FILE].write(digest_ids.tobytes())
         self._files[ROW_PAGES_FILE].write(np.asarray(pages, dtype=np.uint32).tobytes())
         if self._block.ntotal >= self.block_size:
             self._flush_block()
+
+    def _digest_id(self, digest: str) -> int:
+        digest_id = self.digest_ids.get(digest)
+        if digest_id is None:
+            digest_id = self.digest_ids[digest] = len(self._digests)
+            self._digests.append(digest)
+        return digest_id
 
     def _flush_block(self) -> None:
         if self._block is None or self._block.ntotal == 0:
@@ -204,10 +335,12 @@ class IVFPQIndexBuilder:
         self._block = None
 
     def _write_digest_maps(self) -> None:
-        digests = np.array(list(self.digest_ids), dtype=np.bytes_)
+        digests = np.array(self._digests, dtype=np.bytes_)
         np.save(os.path.join(self.index_directory, "digests.npy"), digests)
         order = np.argsort(digests).astype(np.uint32)
-        np.save(os.path.join(self.index_directory, "digests_sorted.npy"), digests[order])
+        np.save(
+            os.path.join(self.index_directory, "digests_sorted.npy"), digests[order]
+        )
         np.save(os.path.join(self.index_directory, "digests_sorted_ids.npy"), order)
 
         row_digests = np.fromfile(

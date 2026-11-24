@@ -1,8 +1,9 @@
 import os
 import shutil
 
-import numpy as np
 import pytest
+
+import numpy as np
 
 from govscape.indexing.ivfpq import IVFPQDiskIndex, IVFPQIndexBuilder
 
@@ -30,7 +31,12 @@ def index(corpus, tmp_path_factory):
     directory = tmp_path_factory.mktemp("ivfpq").as_posix()
     # Small blocks, so the build writes several and merges them.
     builder = IVFPQIndexBuilder(
-        directory, nlist=64, m=8, train_size=5000, block_size=3000, nprobe=16,
+        directory,
+        nlist=64,
+        m=8,
+        train_size=5000,
+        block_size=3000,
+        nprobe=16,
         use_gpu=False,
     )
     for start in range(0, len(vectors), 1000):
@@ -66,7 +72,8 @@ def test_recall_against_exact_search(index, corpus):
         expected = {(digests[i], str(pages[i])) for i in exact}
         distances, found_digests, found_pages = index.search(query, k=10)
         assert list(distances) == sorted(distances)
-        recalls.append(len(expected & set(zip(found_digests, found_pages))) / 10)
+        found = set(zip(found_digests, found_pages, strict=True))
+        recalls.append(len(expected & found) / 10)
     assert np.mean(recalls) >= 0.9
 
 
@@ -94,3 +101,63 @@ def test_too_few_vectors_to_train_all_lists(tmp_path, corpus):
     index.load_index()
     assert index.meta["nlist"] == 32  # The largest power of two <= 2000 / 39.
     assert index.search(vectors[5], k=1)[1] == [digests[5]]
+
+
+def _build(directory, corpus, start_batch=0, builder=None, crash_after=None):
+    """Feed the corpus in 1,000-vector batches, checkpointing when due; stop
+    without finishing after crash_after batches."""
+    vectors, digests, pages = corpus
+    builder = builder or IVFPQIndexBuilder(
+        directory,
+        nlist=64,
+        m=8,
+        train_size=3000,
+        block_size=1500,
+        nprobe=16,
+        use_gpu=False,
+        checkpoint_every=2500,
+    )
+    batches = range(0, len(vectors), 1000)
+    for batch, start in enumerate(batches):
+        if batch < start_batch:
+            continue
+        if crash_after is not None and batch == crash_after:
+            return builder
+        end = start + 1000
+        builder.add(vectors[start:end], digests[start:end], pages[start:end])
+        if builder.checkpoint_due:
+            builder.save_checkpoint({"batches_done": batch + 1})
+    builder.finish()
+    return builder
+
+
+def test_resumed_build_matches_an_uninterrupted_one(corpus, tmp_path):
+    straight = (tmp_path / "straight").as_posix()
+    _build(straight, corpus)
+
+    resumed = (tmp_path / "resumed").as_posix()
+    # Crash after 8 batches: past the checkpoint at 6,000 vectors, so later
+    # blocks, rows and digests were written and must be discarded.
+    _build(resumed, corpus, crash_after=8)
+    assert IVFPQIndexBuilder.resume((tmp_path / "nothing").as_posix()) is None
+    builder, progress = IVFPQIndexBuilder.resume(resumed, use_gpu=False)
+    assert progress == {"batches_done": 6} and builder.ntotal == 6000
+    _build(resumed, corpus, start_batch=progress["batches_done"], builder=builder)
+
+    assert not [f for f in os.listdir(resumed) if f.startswith("build_")]
+    for name in ("vectors.f16", "row_digests.u32", "row_pages.u32", "digests.npy"):
+        with (
+            open(os.path.join(straight, name), "rb") as a,
+            open(os.path.join(resumed, name), "rb") as b,
+        ):
+            assert a.read() == b.read(), name
+    indexes = []
+    for directory in (straight, resumed):
+        index = IVFPQDiskIndex(directory)
+        index.load_index()
+        indexes.append(index)
+    vectors = corpus[0]
+    for query in vectors[::997]:
+        a, b = (index.search(query, k=10) for index in indexes)
+        assert a[1:] == b[1:]
+        np.testing.assert_allclose(a[0], b[0])

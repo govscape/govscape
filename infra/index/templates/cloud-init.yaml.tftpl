@@ -1,10 +1,13 @@
 #cloud-config
 # Builds the ${index} index of ${remote_data_dir} under systemd, then powers the
-# instance off. The index script checkpoints in the serving directory, so a
+# instance off. The index script checkpoints, in the serving directory or (for
+# the vector indexes) in its working directory on the root volume, so a
 # restarted builder resumes where it left off.
 
+%{ if !gpu ~}
 packages:
   - docker
+%{ endif ~}
 
 write_files:
   - path: /usr/local/sbin/govscape-index
@@ -21,12 +24,24 @@ write_files:
 
       build_once() {
         docker rm -f govscape-index >/dev/null 2>&1
+%{ if resumable ~}
+        # The script resumes from its checkpoint in its working directory
+        # (data/prod in the image), so that is kept between attempts.
+%{ else ~}
         # The script's working directory (data/prod in the image) starts empty;
         # it downloads what it needs, including the index built so far.
         rm -rf /var/lib/govscape-index/prod
+%{ endif ~}
         mkdir -p /var/lib/govscape-index
         docker pull "$image" || return 1
-        docker run --rm --name govscape-index $log_opts \
+%{ if gpu ~}
+        # Fail if FAISS in the image can't use the GPU, rather than build slowly
+        # on the CPU.
+        docker run --rm --gpus all $log_opts "$image" \
+          poetry run python -c "import faiss; assert faiss.get_num_gpus() > 0, 'FAISS sees no GPU'; print('FAISS GPUs:', faiss.get_num_gpus())" \
+          || return 1
+%{ endif ~}
+        docker run --rm --name govscape-index $log_opts${gpu ? " --gpus all" : ""} \
           -v /var/lib/govscape-index:/home/govscape/data \
           -e AWS_REGION=${region} \
           "$image" \

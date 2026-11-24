@@ -5,10 +5,13 @@ directory's index directory (index/ or index_img_pg/).
 The embeddings are read once, straight from the pipeline's chunks (tar.gz
 archives of per-page .npy files): chunks are downloaded in threads and parsed in
 processes, a window at a time, and their vectors go to the builder in order.
-The build uses the GPU when FAISS has one. It doesn't checkpoint: an interrupted
-build starts again from scratch.
+The build uses the GPU when FAISS has one. Every --checkpoint_every vectors it
+checkpoints in the local index directory, and a restarted build resumes from
+there (a spot builder keeps its root volume when it's interrupted); --restart
+ignores the checkpoint.
 """
 
+import hashlib
 import io
 import logging
 import os
@@ -68,6 +71,10 @@ def list_chunks(data_loader, remote_dir: str) -> list[str]:
         token = result.continuation_token
 
 
+def chunks_digest(chunks: list[str]) -> str:
+    return hashlib.sha1("\n".join(chunks).encode()).hexdigest()
+
+
 def main():
     parser = base_argument_parser(description="Build a disk-based IVF-PQ index")
     parser.add_argument("--embedding_type", choices=["txt", "img_pg"], required=True)
@@ -85,6 +92,10 @@ def main():
     parser.add_argument(
         "--max_chunks", type=int, default=None, help="Only index the first chunks"
     )
+    parser.add_argument("--checkpoint_every", type=int, default=100_000_000)
+    parser.add_argument(
+        "--restart", action="store_true", help="Ignore an existing checkpoint"
+    )
     args = parser.parse_args()
 
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -97,7 +108,6 @@ def main():
         remote_embeddings = remote_dm.embedding_img_pg_directory
         local_index = local_dm.index_img_pg_directory
         remote_index = remote_dm.index_img_pg_directory
-    shutil.rmtree(local_index, ignore_errors=True)
 
     data_loader = build_data_loader(
         args.backend,
@@ -109,14 +119,30 @@ def main():
     chunks = list_chunks(data_loader, remote_embeddings)[: args.max_chunks]
     logging.info(f"{len(chunks)} embedding chunks in {remote_embeddings}")
 
-    builder = IVFPQIndexBuilder(
-        local_index,
-        nlist=args.nlist,
-        m=args.m,
-        train_size=args.train_size,
-        block_size=args.block_size,
-        nprobe=args.nprobe,
-    )
+    resumed = None if args.restart else IVFPQIndexBuilder.resume(local_index)
+    if resumed is not None:
+        builder, progress = resumed
+        chunks_done = progress["chunks_done"]
+        # The chunks are listed afresh, so check those already indexed still
+        # come first (new chunks may have been added after them).
+        if chunks_digest(chunks[:chunks_done]) != progress["chunks_digest"]:
+            raise RuntimeError(
+                "The embedding chunks changed since the checkpoint; rerun with "
+                "--restart"
+            )
+        logging.info(f"Resuming after {chunks_done} chunks, {builder.ntotal} vectors")
+    else:
+        shutil.rmtree(local_index, ignore_errors=True)
+        builder = IVFPQIndexBuilder(
+            local_index,
+            nlist=args.nlist,
+            m=args.m,
+            train_size=args.train_size,
+            block_size=args.block_size,
+            nprobe=args.nprobe,
+            checkpoint_every=args.checkpoint_every,
+        )
+        chunks_done = 0
     start = time.time()
     with (
         tempfile.TemporaryDirectory() as download_dir,
@@ -129,15 +155,22 @@ def main():
             data_loader.download_file(key, path)
             return path
 
-        for first in range(0, len(chunks), CHUNKS_PER_WINDOW):
-            paths = list(downloads.map(download, chunks[first : first + CHUNKS_PER_WINDOW]))
+        for first in range(chunks_done, len(chunks), CHUNKS_PER_WINDOW):
+            paths = list(
+                downloads.map(download, chunks[first : first + CHUNKS_PER_WINDOW])
+            )
             for vectors, digests, pages in parsers.map(read_chunk, paths):
                 if len(vectors):
                     builder.add(vectors, digests, pages)
             for path in paths:
                 os.remove(path)
+            done = first + len(paths)
+            if builder.checkpoint_due:
+                builder.save_checkpoint(
+                    {"chunks_done": done, "chunks_digest": chunks_digest(chunks[:done])}
+                )
             logging.info(
-                f"{first + len(paths)}/{len(chunks)} chunks, {builder.ntotal} vectors "
+                f"{done}/{len(chunks)} chunks, {builder.ntotal} vectors "
                 f"encoded, {time.time() - start:.0f} s"
             )
     builder.finish()

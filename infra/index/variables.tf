@@ -25,16 +25,28 @@ variable "keyword_index_type" {
   default     = "Tantivy"
 }
 
-variable "forward_index_type" {
-  description = "Forward index stored with each vector index: LMDB or SQLite"
+variable "ivfpq_args" {
+  description = "Extra arguments for scripts/indexing/build_ivfpq_index.py, e.g. \"--nlist 65536\""
   type        = string
-  default     = "LMDB"
+  default     = ""
 }
 
 variable "instance_type" {
-  description = "Instance type for each builder, unless instance_types overrides it; the builds are CPU and memory bound, and the vector indexes are built in memory"
+  description = "Instance type for the keyword and metadata builders, unless instance_types overrides it"
   type        = string
   default     = "r7i.2xlarge"
+}
+
+variable "vector_instance_type" {
+  description = "Instance type for the vector (txt, img_pg) builders, unless instance_types overrides it; FAISS trains and assigns on its GPU, and PQ-encodes on its CPUs"
+  type        = string
+  default     = "g7.8xlarge"
+}
+
+variable "vector_root_volume_gb" {
+  description = "Root volume size for the vector builders, which build their whole index on it: about 2.2 KB per vector for text (1024-d) and 1.7 KB for page images (768-d), ~2.6 TB and ~2 TB for 1.17B pages"
+  type        = number
+  default     = 3500
 }
 
 variable "instance_types" {
@@ -62,7 +74,7 @@ variable "instance_profile" {
 }
 
 variable "root_volume_gb" {
-  description = "Root volume size; it holds the app image, the input being indexed and the indexes themselves"
+  description = "Root volume size for the keyword and metadata builders; it holds the app image, their input and their index"
   type        = number
   default     = 200
 }
