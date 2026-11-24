@@ -108,16 +108,7 @@ class IVFPQIndexBuilder:
             return None
         with open(path) as f:
             state = json.load(f)
-        builder = cls(
-            index_directory,
-            nlist=state["nlist"],
-            m=state["m"],
-            train_size=state["train_size"],
-            block_size=state["block_size"],
-            nprobe=state["nprobe"],
-            use_gpu=use_gpu,
-            checkpoint_every=state["checkpoint_every"],
-        )
+        builder = cls(index_directory, use_gpu=use_gpu, **state["config"])
         # Anything written after the checkpoint is discarded: the files are cut
         # back to their checkpointed lengths and later blocks deleted.
         builder.d = state["d"]
@@ -167,14 +158,17 @@ class IVFPQIndexBuilder:
             f.flush()
             os.fsync(f.fileno())
         self._digests_saved = len(self.digest_ids)
+        config = (
+            "nlist",
+            "m",
+            "train_size",
+            "block_size",
+            "nprobe",
+            "checkpoint_every",
+        )
         state = {
+            "config": {name: getattr(self, name) for name in config},
             "d": self.d,
-            "nlist": self.nlist,
-            "m": self.m,
-            "train_size": self.train_size,
-            "block_size": self.block_size,
-            "nprobe": self.nprobe,
-            "checkpoint_every": self.checkpoint_every,
             "ntotal": self.ntotal,
             "n_digests": len(self.digest_ids),
             "blocks": [os.path.basename(p) for p in self._block_paths],

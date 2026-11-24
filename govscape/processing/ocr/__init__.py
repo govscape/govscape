@@ -1,7 +1,5 @@
 """OCR implementations for text extraction from PDF pages."""
 
-from typing import TYPE_CHECKING
-
 from ..._lazy import lazy_getattr
 
 # Imported on first use: each engine pulls in its own heavy dependencies (torch,
@@ -13,17 +11,6 @@ _EXPORTS = {
     "OcrMyPDFImpl": "ocrmypdf_impl",
 }
 
-if TYPE_CHECKING:
-    from .base_ocr import BaseOCR
-    from .easyocr_impl import EasyOCRImpl
-    from .ocrmypdf_impl import OcrMyPDFImpl
-    from .olmocr_impl import OLMOcrImpl
-
-__all__ = [
-    "BaseOCR",
-    "EasyOCRImpl",
-    "OLMOcrImpl",
-    "OcrMyPDFImpl",
-]
+__all__ = list(_EXPORTS)
 
 __getattr__ = lazy_getattr(__name__, _EXPORTS)

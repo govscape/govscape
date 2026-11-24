@@ -1,5 +1,3 @@
-from typing import TYPE_CHECKING
-
 from ._lazy import lazy_getattr
 
 # Submodules are imported on first use, so that a process which only needs a light
@@ -34,62 +32,6 @@ _EXPORTS = {
     "SigLIP_VisualEmbeddingModel": "visual_embedding_models",
 }
 
-if TYPE_CHECKING:
-    from .config import DataModel, ServerConfig
-    from .data_loader import RemoteDirectoryIterator, build_data_loader
-    from .indexing import (
-        FAISSIndex,
-        LanceDBKeywordIndex,
-        LuceneKeywordIndex,
-        SQLiteKeywordIndex,
-        SQLiteMetadataIndex,
-        TantivyKeywordIndex,
-        WhooshKeywordIndex,
-    )
-    from .pdf_processing_pipeline import PDFProcessingPipeline
-    from .server import Server
-    from .text_embedding_models import (
-        BGE_TextEmbeddingModel,
-        BGESmall_TextEmbeddingModel,
-        Dummy_TextEmbeddingModel,
-        Qwen3_TextEmbeddingModel,
-        Qwen3VLLM_TextEmbeddingModel,
-        ST_TextEmbeddingModel,
-    )
-    from .utils import base_argument_parser, extract_subdomain, read_txt_file, str2bool
-    from .visual_embedding_models import (
-        CLIP_VisualEmbeddingModel,
-        Dummy_VisualEmbeddingModel,
-        SigLIP_VisualEmbeddingModel,
-    )
-
-__all__ = [
-    "BGESmall_TextEmbeddingModel",
-    "BGE_TextEmbeddingModel",
-    "CLIP_VisualEmbeddingModel",
-    "DataModel",
-    "Dummy_TextEmbeddingModel",
-    "Dummy_VisualEmbeddingModel",
-    "FAISSIndex",
-    "LanceDBKeywordIndex",
-    "LuceneKeywordIndex",
-    "PDFProcessingPipeline",
-    "Qwen3VLLM_TextEmbeddingModel",
-    "Qwen3_TextEmbeddingModel",
-    "RemoteDirectoryIterator",
-    "SQLiteKeywordIndex",
-    "SQLiteMetadataIndex",
-    "ST_TextEmbeddingModel",
-    "Server",
-    "ServerConfig",
-    "SigLIP_VisualEmbeddingModel",
-    "TantivyKeywordIndex",
-    "WhooshKeywordIndex",
-    "base_argument_parser",
-    "build_data_loader",
-    "extract_subdomain",
-    "read_txt_file",
-    "str2bool",
-]
+__all__ = list(_EXPORTS)
 
 __getattr__ = lazy_getattr(__name__, _EXPORTS)

@@ -11,12 +11,6 @@ prefixes) and checkpoints each shard in `<remote_data_dir>/checkpoints/`. When i
 has finished its shards, the worker **powers itself off**. It stays stopped,
 not terminated, so its root volume and logs remain until `tofu destroy`.
 
-| File | Contents |
-| --- | --- |
-| `main.tf` | State backend, provider, GPU AMI, default-VPC subnets, security group, log group, role attachments, workers |
-| `variables.tf` | Run settings: `num_servers`, `remote_data_dir`, `app_image`, `max_pdfs`, `vllm_image`, ... |
-| `templates/cloud-init.yaml.tftpl` | The `govscape-ingest` systemd service and its retry script |
-
 ## How a worker runs
 
 - **AMI:** the AWS Deep Learning Base GPU AMI (Amazon Linux 2023), which has the

@@ -45,11 +45,35 @@ class AbstractMetadataIndex(AbstractIndex, ABC):
         """
 
     @abstractmethod
+    def _read_connection(self):
+        """A connection for reads, for this thread and process."""
+
     def page_images(self, digests) -> dict[str, dict]:
         """
         Return {"pack": ..., "offsets": [...]} for each of 'digests' whose page
         images are packed. Indexes built before packs existed have none.
         """
+        if not digests:
+            return {}
+        placeholders = ", ".join(["?"] * len(digests))
+        try:
+            rows = (
+                self._read_connection()
+                .execute(
+                    "SELECT digest, pack, offsets FROM page_images "
+                    f"WHERE digest IN ({placeholders})",
+                    list(digests),
+                )
+                .fetchall()
+            )
+        except (sqlite3.OperationalError, duckdb.CatalogException) as error:
+            if "page_images" not in str(error):  # Not a missing table.
+                raise
+            return {}
+        return {
+            digest: {"pack": pack, "offsets": json.loads(offsets)}
+            for digest, pack, offsets in rows
+        }
 
     @abstractmethod
     def load_index(self):
@@ -85,13 +109,6 @@ class AbstractMetadataIndex(AbstractIndex, ABC):
         self, predicates: list[Predicate] | None = None
     ) -> set[str]:
         """Return distinct digests that satisfy all predicates."""
-
-    @staticmethod
-    def _page_images_from_rows(rows) -> dict[str, dict]:
-        return {
-            digest: {"pack": pack, "offsets": json.loads(offsets)}
-            for digest, pack, offsets in rows
-        }
 
     @staticmethod
     def _normalize_crawl_date(date_str: str) -> str:
@@ -298,26 +315,6 @@ class SQLiteMetadataIndex(AbstractMetadataIndex):
             ],
         )
         self.conn.commit()
-
-    def page_images(self, digests) -> dict[str, dict]:
-        if not digests:
-            return {}
-        placeholders = ",".join(["?"] * len(digests))
-        try:
-            rows = (
-                self._read_connection()
-                .execute(
-                    "SELECT digest, pack, offsets FROM page_images "
-                    f"WHERE digest IN ({placeholders})",
-                    list(digests),
-                )
-                .fetchall()
-            )
-        except sqlite3.OperationalError as error:
-            if "no such table" in str(error):  # Built before packs.
-                return {}
-            raise
-        return self._page_images_from_rows(rows)
 
     def load_index(self):
         if self._total_entries == -1:
@@ -600,24 +597,6 @@ class DuckDBMetadataIndex(AbstractMetadataIndex):
                 for digest, images in page_images.items()
             ],
         )
-
-    def page_images(self, digests) -> dict[str, dict]:
-        if not digests:
-            return {}
-        placeholders = ", ".join(["?"] * len(digests))
-        try:
-            rows = (
-                self._read_connection()
-                .execute(
-                    "SELECT digest, pack, offsets FROM page_images "
-                    f"WHERE digest IN ({placeholders})",
-                    list(digests),
-                )
-                .fetchall()
-            )
-        except duckdb.CatalogException:  # Built before packs: no page_images table.
-            return {}
-        return self._page_images_from_rows(rows)
 
     def load_index(self):
         self._connect()

@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import shutil
 from multiprocessing import get_context
@@ -205,4 +206,6 @@ class PDFExtractionStage(ProcessingStage):
         }
         for pdf_file in failed:
             _remove_pdf(self.data_model, _pdf_name(pdf_file))
-        return len(self.pdf_files) - len(failed)
+        parsed = len(self.pdf_files) - len(failed)
+        logging.info(f"PDFs successfully parsed: {parsed} / {len(self.pdf_files)}")
+        return parsed

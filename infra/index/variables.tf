@@ -38,9 +38,9 @@ variable "instance_type" {
 }
 
 variable "vector_instance_type" {
-  description = "Instance type for the vector (txt, img_pg) builders, unless instance_types overrides it; FAISS trains and assigns on its GPU, and PQ-encodes on its CPUs"
+  description = "Instance type for the vector (txt, img_pg) builders, unless instance_types overrides it; FAISS trains and assigns on its GPU, and PQ-encodes on its CPUs. The faiss-gpu wheel has kernels for compute capability 7.x-8.x only, so not Blackwell (g7)"
   type        = string
-  default     = "g7.8xlarge"
+  default     = "g6.8xlarge"
 }
 
 variable "vector_root_volume_gb" {

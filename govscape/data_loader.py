@@ -25,11 +25,6 @@ from botocore.exceptions import ClientError
 from govscape.config import SOURCE_COOP_ENDPOINT
 
 
-def _chunk_digest(chunk_files: list[str], local_dir: str) -> str:
-    rel_paths = "\n".join(os.path.relpath(f, local_dir) for f in chunk_files)
-    return hashlib.sha1(rel_paths.encode()).hexdigest()
-
-
 @dataclass
 class ListResult:
     keys: list[str]
@@ -159,7 +154,8 @@ class DataLoader(ABC):
             chunk_idx: int, tmp_dir: str
         ) -> tuple[list[str], str, str]:
             chunk_files = all_files[chunk_idx : chunk_idx + chunk_size]
-            chunk_name = f"chunk_{_chunk_digest(chunk_files, local_dir)}.tar.gz"
+            rel_paths = "\n".join(os.path.relpath(f, local_dir) for f in chunk_files)
+            chunk_name = f"chunk_{hashlib.sha1(rel_paths.encode()).hexdigest()}.tar.gz"
             tar_path = os.path.join(tmp_dir, chunk_name)
             return (chunk_files, local_dir, tar_path)
 

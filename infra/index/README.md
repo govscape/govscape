@@ -20,9 +20,10 @@ served with `--vector_index_type Disk`.
 ## How a builder runs
 
 - **AMI and instance:** the vector builders run on `vector_instance_type`
-  (g7.8xlarge by default) with the Deep Learning Base GPU AMI, and the container
-  gets the GPU: FAISS trains the index and assigns vectors to its lists there.
-  Before building, the builder checks that FAISS can see the GPU. The keyword
+  (g6.8xlarge, with an L4, by default) with the Deep Learning Base GPU AMI, and
+  FAISS trains the index and assigns vectors to its lists on the GPU. The
+  faiss-gpu wheel has no kernels for Blackwell GPUs (g7), so the builder first
+  checks that FAISS can run a search on its GPU. The keyword
   and metadata builders run on `instance_type` with Amazon Linux 2023, with
   Docker installed at boot.
 - **Credentials:** the existing `SourceCoopAccess` instance profile, which
@@ -56,8 +57,7 @@ tofu apply \
 ```
 
 Build only some indexes with e.g. `-var 'indexes=["keyword"]'`, give an index a
-different instance with e.g. `-var 'instance_types={ txt = "g7.4xlarge" }'`, and
+different instance with e.g. `-var 'instance_types={ txt = "g6.4xlarge" }'`, and
 pass the IVF-PQ build options with e.g. `-var 'ivfpq_args=--nlist 65536'`. For a
 small serving directory, shrink the vector builders' disks with e.g.
-`-var vector_root_volume_gb=200`. The
-builders stay stopped once done; `tofu destroy` removes them.
+`-var vector_root_volume_gb=200`. The builders stay stopped once done; `tofu destroy` removes them.

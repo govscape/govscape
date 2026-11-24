@@ -35,10 +35,10 @@ write_files:
         mkdir -p /var/lib/govscape-index
         docker pull "$image" || return 1
 %{ if gpu ~}
-        # Fail if FAISS in the image can't use the GPU, rather than build slowly
-        # on the CPU.
+        # Fail fast if FAISS in the image can't run on this GPU (no GPU, or no
+        # kernels for its architecture), rather than at the end of the download.
         docker run --rm --gpus all $log_opts "$image" \
-          poetry run python -c "import faiss; assert faiss.get_num_gpus() > 0, 'FAISS sees no GPU'; print('FAISS GPUs:', faiss.get_num_gpus())" \
+          poetry run python -c "import faiss, numpy as np; x = np.zeros((1, 8), 'float32'); i = faiss.index_cpu_to_all_gpus(faiss.IndexFlatL2(8)); i.add(x); i.search(x, 1); print('FAISS GPUs:', faiss.get_num_gpus())" \
           || return 1
 %{ endif ~}
         docker run --rm --name govscape-index $log_opts${gpu ? " --gpus all" : ""} \
