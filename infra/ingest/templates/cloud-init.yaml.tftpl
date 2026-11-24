@@ -32,7 +32,7 @@ write_files:
           -v /var/lib/govscape-ingest/hf-cache:/root/.cache/huggingface \
           --entrypoint vllm "$vllm_image" \
           serve Qwen/Qwen3-Embedding-0.6B --runner pooling --max-model-len 2048 \
-          --gpu-memory-utilization ${vllm_gpu_memory_utilization} || return 1
+          --gpu-memory-utilization ${vllm_gpu_memory_utilization} ${vllm_extra_args} || return 1
         for _ in $(seq 1 120); do
           curl -sf http://127.0.0.1:8000/health >/dev/null && return 0
           docker inspect -f '{{.State.Running}}' govscape-vllm 2>/dev/null | grep -q true || return 1

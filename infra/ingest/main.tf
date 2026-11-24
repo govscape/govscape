@@ -161,6 +161,7 @@ resource "aws_instance" "worker" {
     remote_data_dir             = var.remote_data_dir
     vllm_image                  = var.vllm_image == null ? "" : var.vllm_image
     vllm_gpu_memory_utilization = var.vllm_gpu_memory_utilization
+    vllm_extra_args             = var.vllm_extra_args
     pipeline_args = join(" ", compact([
       var.pipeline_args,
       var.max_pdfs == null ? "" : "--max_pdfs ${var.max_pdfs}",

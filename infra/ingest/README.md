@@ -61,7 +61,8 @@ this embedded about 3× as many pages per second as running Qwen3 inside the
 pipeline, with effectively identical embeddings.
 
 The vLLM server starts first and takes `vllm_gpu_memory_utilization` of the GPU's
-memory (default 0.5). The pipeline's image models use the rest.
+memory (default 0.5). The pipeline's image models use the rest. `vllm_extra_args`
+adds arguments to `vllm serve`, e.g. `-var 'vllm_extra_args=--max-num-batched-tokens 32768'`.
 
 ## Prerequisites
 

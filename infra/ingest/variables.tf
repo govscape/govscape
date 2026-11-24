@@ -60,6 +60,12 @@ variable "vllm_gpu_memory_utilization" {
   default     = 0.5
 }
 
+variable "vllm_extra_args" {
+  description = "Extra arguments for `vllm serve`, e.g. \"--max-num-batched-tokens 32768\""
+  type        = string
+  default     = ""
+}
+
 variable "instance_profile" {
   description = "Existing instance profile whose role source.coop allows to write to the govscape repositories"
   type        = string
