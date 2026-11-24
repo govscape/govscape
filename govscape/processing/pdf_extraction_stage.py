@@ -89,8 +89,9 @@ def _convert_single_pdf(data_model, pdf_file, ocr_dpi=None):
         if ocr_image is not None:
             ocr_path = data_model.ocr_img_page_path(pdf_name, page_num)
             os.makedirs(os.path.dirname(ocr_path), exist_ok=True)
-            # PNG: JPEG artifacts around glyphs cost OCR accuracy.
-            ocr_image.save(ocr_path, format="PNG")
+            # PNG: JPEG artifacts around glyphs cost OCR accuracy. The render is
+            # read once and deleted, so favour fast compression over small files.
+            ocr_image.save(ocr_path, format="PNG", compress_level=1)
     return True
 
 

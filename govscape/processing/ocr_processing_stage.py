@@ -3,7 +3,7 @@
 import logging
 import os
 import shutil
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing import get_context
 
 import numpy as np
@@ -146,6 +146,11 @@ def _init_ocr_worker(ocr_type: str, ocr_kwargs: dict) -> None:
     _WORKER_OCR_ENGINE = _build_ocr_engine(ocr_type, **ocr_kwargs)
 
 
+def _load_grayscale(path: str) -> np.ndarray:
+    with Image.open(path) as image:
+        return np.asarray(image.convert("L"))
+
+
 def _process_batch_in_process(image_paths: list[str]) -> tuple[list[str], int]:
     logger = logging.getLogger(__name__)
     ocr_engine = _WORKER_OCR_ENGINE
@@ -158,10 +163,10 @@ def _process_batch_in_process(image_paths: list[str]) -> tuple[list[str], int]:
         )
         return [""] * len(image_paths), len(image_paths)
     try:
-        images = []
-        for path in image_paths:
-            with Image.open(path) as image:
-                images.append(np.asarray(image.convert("RGB")))
+        # Decoding a 300 dpi render takes tens of ms, so load the batch in parallel
+        # rather than leave the engine waiting on one page at a time.
+        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+            images = list(executor.map(_load_grayscale, image_paths))
         return ocr_engine.extract_text(images), 0
     except Exception as e:
         logger.error(f"OCR failed for batch with {len(image_paths)} images: {e}")

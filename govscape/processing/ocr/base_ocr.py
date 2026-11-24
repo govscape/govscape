@@ -16,7 +16,8 @@ class BaseOCR(ABC):
         """Extract text from a batch of page images.
 
         Args:
-            images: A list of numpy arrays, each a page image (from PIL or cv2).
+            images: A list of numpy arrays, each a page image: 2-D grayscale (as
+                OCRProcessingStage passes them) or 3-D RGB.
 
         Returns:
             A list of extracted text strings, one per input image and in the
