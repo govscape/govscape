@@ -4,10 +4,12 @@ import math
 import os
 import shutil
 import time
+from dataclasses import dataclass
 
 import govscape as gs
 from govscape.config import PDF_ARCHIVE_PDF_DIR, DataModel, digest_shards
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
+from govscape.pipelining import run_pipelined
 from govscape.utils import base_argument_parser, str2bool
 
 logging.basicConfig(
@@ -17,98 +19,42 @@ logging.basicConfig(
 )
 
 
-# processing the pdfs: running through embedding pipeline and uploading to s3
-def process_pdfs(
-    pdf_files,
-    processor,
-    do_text_embedding,
-    do_img_embedding,
-    do_metadata_collection,
-    do_ocr,
-    pipeline_times,
-    data_loader,
-    local_dm,
-    remote_dm,
+@dataclass
+class Batch:
+    """One batch of PDFs on its way through the pipeline, in its own directory."""
+
+    number: int
+    shard: str
+    pdf_iter: RemoteDirectoryIterator
+    # The shard's position after this batch, saved once the batch is uploaded.
+    checkpoint: dict
+    pdf_files: list[str]
+    data_model: DataModel
+
+
+def upload_batch(
+    local_dm, remote_dm, data_loader, do_text_embedding, do_img_embedding, do_metadata
 ):
-    print("Do_Text_embedding: ", do_text_embedding)
-    print("Do_Img_embedding: ", do_img_embedding)
-    print("Do_Metadata_collection: ", do_metadata_collection)
-    print("Do_OCR: ", do_ocr)
-
-    # PROCESS PDFS HERE
-    pdf_to_txt_img_time, ocr_time, text_embed_time, img_embed_time = (
-        processor.process_pdfs(
-            pdf_files,
-            do_text_embedding,
-            do_img_embedding,
-            do_metadata_collection,
-            do_ocr,
-        )
-    )
-    pipeline_times["pdf_to_txt_img_time"] += pdf_to_txt_img_time
-    pipeline_times["ocr_time"] += ocr_time
-    pipeline_times["text_embed_time"] += text_embed_time
-    pipeline_times["img_embed_time"] += img_embed_time
-
-    time1 = time.time()
-    # UPLOADING EMBEDDINGS, TXTS, IMAGES TO S3 HERE
-    if do_text_embedding or do_img_embedding or do_metadata_collection:
+    if do_text_embedding or do_img_embedding or do_metadata:
         data_loader.upload_directory(
             local_dm.txt_directory, remote_dm.txt_directory, compress=True
         )
-        print("finished uploading txt")
-
         data_loader.upload_directory(
             local_dm.image_directory, remote_dm.image_directory, compress=False
         )
-        print("finished uploading img")
-
         data_loader.upload_directory(
             local_dm.metadata_directory, remote_dm.metadata_directory, compress=True
         )
-        print("finished uploading metadata")
-
     if do_text_embedding:
         data_loader.upload_directory(
-            local_dm.embedding_directory,
-            remote_dm.embedding_directory,
-            compress=True,
+            local_dm.embedding_directory, remote_dm.embedding_directory, compress=True
         )
-        print("finished uploading embeddings")
-
     if do_img_embedding:
         data_loader.upload_directory(
             local_dm.embedding_img_pg_directory,
             remote_dm.embedding_img_pg_directory,
             compress=True,
         )
-        print("finished uploading embed img pg")
-    time2 = time.time()
-
-    pipeline_times["upload"] += time2 - time1
-    pipeline_times["pdfs_processed"] += len(pdf_files)
-
-    print("finished uploading current batch")
-    print("pipeline times: ", pipeline_times)
-
-
-def cleanup(local_dm, local_pdf_dir):
-    if os.path.exists(local_dm.data_dir):
-        if os.path.exists(local_dm.txt_directory):
-            shutil.rmtree(local_dm.txt_directory)
-        if os.path.exists(local_dm.image_directory):
-            shutil.rmtree(local_dm.image_directory)
-        if os.path.exists(local_dm.embedding_directory):
-            shutil.rmtree(local_dm.embedding_directory)
-        if os.path.exists(local_dm.embedding_img_pg_directory):
-            shutil.rmtree(local_dm.embedding_img_pg_directory)
-        if os.path.exists(local_dm.metadata_directory):
-            shutil.rmtree(local_dm.metadata_directory)
-        os.makedirs(local_dm.data_dir, exist_ok=True)
-
-    if os.path.exists(local_pdf_dir):
-        shutil.rmtree(local_pdf_dir)
-        os.makedirs(local_pdf_dir, exist_ok=True)
 
 
 # overall method that gets the files in batches and runs them through the
@@ -206,9 +152,11 @@ def main():
 
     # ---------------------------------------------------------------------------
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-    local_dm = DataModel(os.path.join(project_root, "data", "prod"))
+    work_dir = os.path.join(project_root, "data", "prod")
+    # Anything left from an interrupted run is redone from the shard checkpoints.
+    shutil.rmtree(work_dir, ignore_errors=True)
+    local_dm = DataModel(work_dir)
     remote_dm = DataModel(args.remote_data_dir)
-    local_pdf_dir = os.path.join(local_dm.data_dir, "PDFs")
     local_perf_path = local_dm.performance_file_path(
         f"embedding_pipeline_{args.server_id}"
     )
@@ -217,7 +165,6 @@ def main():
     )
 
     os.makedirs(local_dm.data_dir, exist_ok=True)
-    os.makedirs(local_pdf_dir, exist_ok=True)
     os.makedirs(local_dm.checkpoints_directory, exist_ok=True)
     os.makedirs(local_dm.performance_directory, exist_ok=True)
 
@@ -270,62 +217,99 @@ def main():
     else:
         max_files_to_process = math.inf
     shards = digest_shards(args.shard_prefix_length)[args.server_id :: args.num_servers]
-    files_processed = 0
-    for shard in shards:
-        if files_processed >= max_files_to_process:
-            break
-        job_name = f"embedding_pipeline_shard_{shard}"
-        remote_pdf_iter = RemoteDirectoryIterator(
-            pdf_data_loader,
-            args.pdf_dir,
-            remote_checkpoint_path=remote_dm.checkpoint_file_path(job_name),
-            local_checkpoint_path=local_dm.checkpoint_file_path(job_name),
-            local_dir=local_pdf_dir,
-            checkpoint_loader=data_loader,
-            name_prefix=shard,
+    run_extraction = (
+        args.do_text_embedding
+        or args.do_img_embedding
+        or args.do_metadata_collection
+        or args.do_ocr
+    )
+
+    def download_batches():
+        downloaded = 0
+        number = 0
+        for shard in shards:
+            if downloaded >= max_files_to_process:
+                return
+            job_name = f"embedding_pipeline_shard_{shard}"
+            # Threads, not processes: the other stages run in threads, and
+            # forking a multi-threaded process can deadlock the children.
+            pdf_iter = RemoteDirectoryIterator(
+                pdf_data_loader,
+                args.pdf_dir,
+                remote_checkpoint_path=remote_dm.checkpoint_file_path(job_name),
+                local_checkpoint_path=local_dm.checkpoint_file_path(job_name),
+                local_dir=work_dir,
+                use_multiprocessing=False,
+                checkpoint_loader=data_loader,
+                name_prefix=shard,
+            )
+            while downloaded < max_files_to_process:
+                batch_dm = DataModel(os.path.join(work_dir, f"batch_{number}"))
+                start = time.time()
+                pdf_files = pdf_iter.download_batch(
+                    max_keys=min(args.batch_size, max_files_to_process - downloaded),
+                    filter_fn=lambda key: key.endswith(".pdf"),
+                    local_dir=os.path.join(batch_dm.data_dir, "PDFs"),
+                )
+                pipeline_times["download"] += time.time() - start
+                if not pdf_files:
+                    break
+                downloaded += len(pdf_files)
+                logging.info(
+                    f"Batch {number}: downloaded {len(pdf_files)} PDFs "
+                    f"from shard {shard}"
+                )
+                yield Batch(
+                    number,
+                    shard,
+                    pdf_iter,
+                    pdf_iter.checkpoint_state(),
+                    pdf_files,
+                    batch_dm,
+                )
+                number += 1
+
+    def extract(batch: Batch) -> Batch:
+        if run_extraction:
+            extract_time, ocr_time = processor.extract(
+                batch.pdf_files, batch.data_model, args.do_ocr
+            )
+            pipeline_times["pdf_to_txt_img_time"] += extract_time
+            pipeline_times["ocr_time"] += ocr_time
+        return batch
+
+    def embed(batch: Batch) -> Batch:
+        text_time, img_time = processor.embed(
+            batch.data_model, args.do_text_embedding, args.do_img_embedding
         )
-        while files_processed < max_files_to_process:
-            print("-" * 93)
-            print(f"SHARD {shard}, FILES PROCESSED: {files_processed}")
-            print("-" * 93)
-            time_download = time.time()
-            os.makedirs(local_pdf_dir, exist_ok=True)
-            batch_limit = min(args.batch_size, max_files_to_process - files_processed)
-            local_batch = remote_pdf_iter.download_batch(
-                max_keys=batch_limit, filter_fn=lambda key: key.endswith(".pdf")
-            )
-            pipeline_times["download"] += time.time() - time_download
-            if not local_batch:
-                break
-            print("len(local_batch) = ", len(local_batch))
+        pipeline_times["text_embed_time"] += text_time
+        pipeline_times["img_embed_time"] += img_time
+        return batch
 
-            process_pdfs(
-                local_batch,
-                processor,
-                args.do_text_embedding,
-                args.do_img_embedding,
-                args.do_metadata_collection,
-                args.do_ocr,
-                pipeline_times,
-                data_loader,
-                local_dm,
-                remote_dm,
-            )
+    def upload(batch: Batch) -> None:
+        start = time.time()
+        upload_batch(
+            batch.data_model,
+            remote_dm,
+            data_loader,
+            args.do_text_embedding,
+            args.do_img_embedding,
+            args.do_metadata_collection,
+        )
+        pipeline_times["upload"] += time.time() - start
+        # Batches are uploaded in order, so the checkpoint only ever moves past
+        # batches whose results are on the remote.
+        batch.pdf_iter.save_checkpoint(batch.checkpoint)
+        shutil.rmtree(batch.data_model.data_dir)
+        pipeline_times["pdfs_processed"] += len(batch.pdf_files)
+        logging.info(f"Batch {batch.number} uploaded; pipeline times: {pipeline_times}")
+        with open(local_perf_path, "w") as f:
+            json.dump(pipeline_times, f, indent=2)
+        data_loader.upload_file(local_perf_path, remote_perf_path)
 
-            remote_pdf_iter.save_checkpoint()
-            files_processed += len(local_batch)
-
-            # Delete local data to free up space for the next batch
-            cleanup(local_dm, local_pdf_dir)
-
-            # Write pipeline_times to a JSON file
-            with open(local_perf_path, "w") as f:
-                json.dump(pipeline_times, f, indent=2)
-
-            # Upload the performance JSON to S3
-            data_loader.upload_file(local_perf_path, remote_perf_path)
-
-        remote_pdf_iter.close()
+    # While the GPU embeds one batch, the next is extracted, the one after that
+    # downloaded, and the previous one uploaded.
+    run_pipelined(download_batches(), [extract, embed, upload])
 
     # After all batches are processed, clean up the directories
     if os.path.exists(local_dm.data_dir):

@@ -19,7 +19,7 @@ def _save_embeddings_batch(embed_and_paths):
         np.save(output_path, embedding)
 
 
-def _build_visual_model(model_type):
+def build_visual_model(model_type):
     if model_type == "CLIP":
         return CLIP_VisualEmbeddingModel()
     if model_type == "SigLIP":
@@ -30,9 +30,16 @@ def _build_visual_model(model_type):
 
 
 class PageImageEmbeddingStage(ProcessingStage):
-    def __init__(self, data_model: DataModel, model_type: str, cpu_count: int):
+    def __init__(
+        self,
+        data_model: DataModel,
+        model_type: str | None = None,
+        cpu_count: int = 1,
+        model=None,
+    ):
+        """Pass model to reuse an already loaded model instead of model_type."""
         self.data_model = data_model
-        self.model = _build_visual_model(model_type)
+        self.model = model if model is not None else build_visual_model(model_type)
         self.cpu_count = cpu_count
 
     def validate(self) -> None:

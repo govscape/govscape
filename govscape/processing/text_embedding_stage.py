@@ -38,7 +38,7 @@ def _collect_texts_and_paths(data_model: DataModel):
     return text_batch, file_batch
 
 
-def _build_text_model(model_type):
+def build_text_model(model_type):
     if model_type == "ST":
         return ST_TextEmbeddingModel()
     if model_type == "BGE":
@@ -55,9 +55,12 @@ def _build_text_model(model_type):
 
 
 class TextEmbeddingStage(ProcessingStage):
-    def __init__(self, data_model: DataModel, model_type: str):
+    def __init__(
+        self, data_model: DataModel, model_type: str | None = None, model=None
+    ):
+        """Pass model to reuse an already loaded model instead of model_type."""
         self.data_model = data_model
-        self.model = _build_text_model(model_type)
+        self.model = model if model is not None else build_text_model(model_type)
 
     def validate(self) -> None:
         if not os.path.isdir(self.data_model.txt_directory):

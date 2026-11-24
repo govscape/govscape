@@ -169,14 +169,12 @@ class DataLoader(ABC):
                 build_chunk_task(chunk_idx, tmp_dir) for chunk_idx in chunk_indices
             ]
             if tasks:
+                # Threads rather than processes: gzip releases the GIL, and
+                # forking a process that runs other threads (e.g. the
+                # embedding pipeline's stages) can deadlock the children.
                 workers = min(os.cpu_count() or 1, len(tasks))
-                with Pool(processes=workers) as pool:
-                    pool.map(self._create_tar_chunk, tasks)
-                    # Let workers exit on their own: Pool.__exit__ terminates
-                    # them, and some native libs' SIGTERM handlers can
-                    # deadlock.
-                    pool.close()
-                    pool.join()
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    list(executor.map(self._create_tar_chunk, tasks))
             self.upload_directory(tmp_dir, remote_prefix, compress=False)
 
     @abstractmethod
@@ -634,17 +632,19 @@ class RemoteDirectoryIterator:
         else:
             self._continuation_token = None
 
-    def save_checkpoint(self) -> None:
+    def checkpoint_state(self) -> dict:
+        """The position after the batches downloaded so far, to save later with
+        save_checkpoint(), e.g. once those batches have been processed."""
+        return {
+            "continuation_token": self._continuation_token,
+            "finished": self.finished,
+        }
+
+    def save_checkpoint(self, state: dict | None = None) -> None:
         checkpoint_dir = os.path.dirname(self.local_checkpoint_path)
         os.makedirs(checkpoint_dir, exist_ok=True)
         with open(self.local_checkpoint_path, "w") as f:
-            json.dump(
-                {
-                    "continuation_token": self._continuation_token,
-                    "finished": self.finished,
-                },
-                f,
-            )
+            json.dump(state or self.checkpoint_state(), f)
         self.checkpoint_loader.upload_file(
             self.local_checkpoint_path, self.remote_checkpoint_path
         )
@@ -664,9 +664,12 @@ class RemoteDirectoryIterator:
         max_keys: int = 1000,
         filter_fn: Callable[[str], bool] | None = None,
         num_workers: int | None = None,
+        local_dir: str | None = None,
     ) -> list[str]:
+        """Download the next keys into local_dir (default: the iterator's)."""
         if self.finished:
             return []
+        local_dir = local_dir or self.local_dir
         downloaded_paths: list[str] = []
         remaining = max_keys
         while remaining > 0:
@@ -693,14 +696,14 @@ class RemoteDirectoryIterator:
 
             if regular_keys:
                 pairs = [
-                    (key, self._build_local_path(self.prefix, key, self.local_dir))
+                    (key, self._build_local_path(self.prefix, key, local_dir))
                     for key in regular_keys
                 ]
                 downloaded_paths.extend(download_fn(pairs, num_workers=num_workers))
 
             if tar_keys:
                 tar_pairs = [
-                    (key, self._build_local_path(self.prefix, key, self.local_dir))
+                    (key, self._build_local_path(self.prefix, key, local_dir))
                     for key in tar_keys
                 ]
                 extracted = download_fn(

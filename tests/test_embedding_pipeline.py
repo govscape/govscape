@@ -176,16 +176,18 @@ def test_process_pdfs_builds_embedding_models_once(sample_pipeline, monkeypatch)
     pipeline, pdf_files = sample_pipeline
     built = []
 
-    def counting_stage(stage_cls):
-        def build(**kwargs):
-            built.append(stage_cls.__name__)
-            return stage_cls(**kwargs)
+    def counting(build):
+        def wrapper(model_type):
+            built.append(build.__name__)
+            return build(model_type)
 
-        return build
+        return wrapper
 
-    for stage_cls in (TextEmbeddingStage, PageImageEmbeddingStage):
+    for name in ("build_text_model", "build_visual_model"):
         monkeypatch.setattr(
-            pdf_processing_pipeline, stage_cls.__name__, counting_stage(stage_cls)
+            pdf_processing_pipeline,
+            name,
+            counting(getattr(pdf_processing_pipeline, name)),
         )
 
     for _ in range(2):
@@ -196,7 +198,7 @@ def test_process_pdfs_builds_embedding_models_once(sample_pipeline, monkeypatch)
             do_metadata_collection=False,
         )
 
-    assert sorted(built) == ["PageImageEmbeddingStage", "TextEmbeddingStage"]
+    assert sorted(built) == ["build_text_model", "build_visual_model"]
     embeddings = list(Path(pipeline.data_model.embedding_directory).rglob("*.npy"))
     assert embeddings
     assert np.load(embeddings[0]).shape == (128,)
