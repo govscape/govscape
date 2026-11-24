@@ -40,30 +40,28 @@ class PDFProcessingPipeline:
     def _visual_model(self):
         return build_visual_model(self.visual_model_type)
 
-    def extract(
-        self, pdf_files: list[str], data_model: DataModel, do_ocr: bool = False
-    ) -> float:
+    def extract(self, pdf_files: list[str], data_model: DataModel) -> float:
         """Extract page text, images and metadata from pdf_files into data_model.
-        With do_ocr, also render the pages that need OCR, for ocr(). Returns
+        With an ocr_type, also render the pages that need OCR, for ocr(). Returns
         seconds taken."""
-        if do_ocr and not self.ocr_type:
-            logging.warning("do_ocr=True but no ocr_type set; skipping OCR stage")
         start = time.time()
         logging.info("Converting pdfs to txts and page images")
         pdf_extraction_stage = PDFExtractionStage(
             data_model=data_model,
             pdf_files=pdf_files,
             cpu_count=self.cpu_count,
-            render_ocr_pages=do_ocr and bool(self.ocr_type),
+            render_ocr_pages=bool(self.ocr_type),
         )
         pdf_extraction_stage.validate()
         parsed = pdf_extraction_stage.run()
         logging.info(f"PDFs successfully parsed: {parsed} / {len(pdf_files)}")
-        logging.info(f"pdf -> txt, img, metadata time: {time.time() - start}")
-        return time.time() - start
+        elapsed = time.time() - start
+        logging.info(f"pdf -> txt, img, metadata time: {elapsed}")
+        return elapsed
 
     def ocr(self, data_model: DataModel) -> float:
-        """OCR the pages extract() rendered for it. Returns seconds taken."""
+        """OCR the pages extract() rendered for it, if this pipeline has an
+        ocr_type. Returns seconds taken."""
         if not self.ocr_type:
             return 0.0
         start = time.time()
@@ -73,8 +71,9 @@ class PDFProcessingPipeline:
         )
         ocr_stage.validate()
         ocr_stage.run()
-        logging.info(f"ocr processing time: {time.time() - start}")
-        return time.time() - start
+        elapsed = time.time() - start
+        logging.info(f"ocr processing time: {elapsed}")
+        return elapsed
 
     def embed(
         self, data_model: DataModel, do_text_embedding: bool, do_img_embedding: bool
@@ -83,9 +82,9 @@ class PDFProcessingPipeline:
         if do_text_embedding and do_img_embedding and self._text_model.SERVED_REMOTELY:
             # The image model can use the GPU while the text model's server works.
             with ThreadPoolExecutor(max_workers=1) as executor:
-                text = executor.submit(self._embed_text, data_model)
+                text_future = executor.submit(self._embed_text, data_model)
                 image_time = self._embed_images(data_model)
-                return text.result(), image_time
+            return text_future.result(), image_time
         text_time = self._embed_text(data_model) if do_text_embedding else 0.0
         image_time = self._embed_images(data_model) if do_img_embedding else 0.0
         return text_time, image_time
@@ -96,8 +95,9 @@ class PDFProcessingPipeline:
         text_stage = TextEmbeddingStage(data_model, model=self._text_model)
         text_stage.validate()
         text_stage.run()
-        logging.info(f"txt -> embed time: {time.time() - start}")
-        return time.time() - start
+        elapsed = time.time() - start
+        logging.info(f"txt -> embed time: {elapsed}")
+        return elapsed
 
     def _embed_images(self, data_model: DataModel) -> float:
         start = time.time()
@@ -107,8 +107,9 @@ class PDFProcessingPipeline:
         )
         image_stage.validate()
         image_stage.run()
-        logging.info(f"img per page -> embed time: {time.time() - start}")
-        return time.time() - start
+        elapsed = time.time() - start
+        logging.info(f"img per page -> embed time: {elapsed}")
+        return elapsed
 
     def process_pdfs(
         self,
@@ -116,13 +117,18 @@ class PDFProcessingPipeline:
         do_text_embedding: bool,
         do_img_embedding: bool,
         do_metadata_collection: bool,
-        do_ocr: bool = False,
     ):
-        """Extract and embed pdf_files into this pipeline's data directory."""
+        """Extract, OCR (with an ocr_type) and embed pdf_files into this pipeline's
+        data directory."""
         extract_time = ocr_time = 0.0
-        if do_text_embedding or do_img_embedding or do_metadata_collection or do_ocr:
-            extract_time = self.extract(pdf_files, self.data_model, do_ocr)
-            ocr_time = self.ocr(self.data_model) if do_ocr else 0.0
+        if (
+            do_text_embedding
+            or do_img_embedding
+            or do_metadata_collection
+            or self.ocr_type
+        ):
+            extract_time = self.extract(pdf_files, self.data_model)
+            ocr_time = self.ocr(self.data_model)
         text_embed_time, img_embed_time = self.embed(
             self.data_model, do_text_embedding, do_img_embedding
         )

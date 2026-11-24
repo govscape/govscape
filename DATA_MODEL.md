@@ -26,7 +26,7 @@ holds everything derived from the PDFs:
 * {test,dev,prod}-serving/checkpoints/{job_name}_checkpoint.json
 * {test,dev,prod}-serving/blacklist.txt
 
-While the embedding pipeline runs with OCR, each worker also keeps high-resolution renders of the pages that need OCR in its local data directory, as `ocr_img/{digest}/{digest}_{pg_no}.png`. They are deleted once OCR'd and never uploaded.
+While the embedding pipeline runs, each batch's local data directory also holds two scratch directories that are never uploaded: `PDFs/{digest}.pdf`, the downloaded PDFs, deleted once extracted, and (with OCR) `ocr_img/{digest}/{digest}_{pg_no}.png`, high-resolution renders of the pages that need OCR, deleted once OCR'd.
 
 The embedding pipeline splits the PDFs into shards by the leading characters of their digests (two by default, so 1,024 shards) and deals the shards out across servers. Each shard has its own checkpoint, `embedding_pipeline_shard_{prefix}_checkpoint.json`, so a run can resume with a different number of servers.
 

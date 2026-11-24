@@ -40,8 +40,9 @@ class DataModel:
         self.index_keyword_directory = os.path.join(data_dir, "index_keyword")
         self.index_metadata_directory = os.path.join(data_dir, "index_metadata")
         self.image_directory = os.path.join(data_dir, "img")
-        # High-resolution renders of the pages that need OCR; local scratch only,
-        # never uploaded (see DATA_MODEL.md).
+        # Local scratch only, never uploaded (see DATA_MODEL.md): a batch's
+        # downloaded PDFs, and high-resolution renders of the pages that need OCR.
+        self.pdf_directory = os.path.join(data_dir, "PDFs")
         self.ocr_image_directory = os.path.join(data_dir, "ocr_img")
         self.metadata_directory = os.path.join(data_dir, "metadata")
         self.checkpoints_directory = os.path.join(data_dir, "checkpoints")

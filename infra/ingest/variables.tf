@@ -73,7 +73,7 @@ variable "instance_profile" {
 }
 
 variable "root_volume_gb" {
-  description = "Root volume size. The AMI and the app and vLLM images take ~85 GB, and up to ~6 batches of a few GB each wait on disk at once"
+  description = "Root volume size. The AMI and the app and vLLM images take ~85 GB, and the batches in flight (up to 7, a few GB each) the rest"
   type        = number
   default     = 200
 }

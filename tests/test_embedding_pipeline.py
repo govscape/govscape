@@ -1,4 +1,6 @@
 import shutil
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -157,7 +159,6 @@ def test_process_pdfs_text_only(sample_pipeline):
         do_text_embedding=True,
         do_img_embedding=False,
         do_metadata_collection=False,
-        do_ocr=False,
     )
 
     assert len(timings) == 4
@@ -205,9 +206,6 @@ def test_process_pdfs_builds_embedding_models_once(sample_pipeline, monkeypatch)
 
 
 def test_images_embed_while_a_remote_text_model_works(sample_pipeline, monkeypatch):
-    import threading
-    import time
-
     pipeline, _ = sample_pipeline
     running: set[str] = set()
     overlapped = threading.Event()

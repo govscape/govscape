@@ -26,8 +26,9 @@ not terminated, so its root volume and logs remain until `tofu destroy`.
   directly in `us-west-2.opendata.source.coop`. Its credentials renew
   automatically, unlike source.coop API keys. The stack attaches SSM access and
   write access to the log group to that role, and removes them on destroy.
-- **Working directory:** `/var/lib/govscape-ingest` on the root volume. It only
-  holds the batch in progress; progress is kept in the shard checkpoints.
+- **Working directory:** `/var/lib/govscape-ingest` on the root volume. It holds
+  the batches in flight, one per pipeline stage plus one queued before each (up
+  to 7); progress is kept in the shard checkpoints.
 - **Before each start:** the service pulls the image and checks that PyTorch in
   the container can use the GPU. If the driver were too old for the image's CUDA
   build, the models would otherwise quietly fall back to the CPU.
@@ -45,7 +46,8 @@ not terminated, so its root volume and logs remain until `tofu destroy`.
 
 - **Spot (the default):** a persistent spot request that stops the worker on
   interruption. AWS starts it again when capacity returns, and the service resumes
-  from the shard checkpoints. It loses at most the batch in progress.
+  from the shard checkpoints. It loses at most the batches in flight, which are
+redone.
 - **Logs:** CloudWatch log group `/govscape/ingest`, with one stream per worker
   (`server-<id>`), plus `server-<id>-vllm` when vLLM is on.
 

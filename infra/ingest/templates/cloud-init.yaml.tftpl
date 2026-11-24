@@ -2,7 +2,7 @@
 # Runs this worker's share of the embedding pipeline (server ${server_id} of
 # ${num_servers}) under systemd, then powers the instance off. Progress lives in
 # source.coop's per-shard checkpoints, so a restarted worker resumes where it
-# left off; the local working directory only holds the batch in progress.
+# left off; the local working directory only holds the batches in flight.
 
 write_files:
   - path: /usr/local/sbin/govscape-ingest
@@ -27,6 +27,7 @@ write_files:
         docker rm -f govscape-vllm >/dev/null 2>&1
         [ -z "$vllm_image" ] && return 0
         docker pull "$vllm_image" || return 1
+        # vllm_extra_args is unquoted on purpose: it may hold several arguments.
         docker run -d --name govscape-vllm --network govscape --gpus all $vllm_log_opts \
           -p 127.0.0.1:8000:8000 \
           -v /var/lib/govscape-ingest/hf-cache:/root/.cache/huggingface \

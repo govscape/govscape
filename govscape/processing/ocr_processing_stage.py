@@ -3,7 +3,7 @@
 import logging
 import os
 import shutil
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
 from typing import NamedTuple
 
@@ -66,10 +66,10 @@ class OCRProcessingStage(ProcessingStage):
     ):
         cpus = os.cpu_count() or 1
         if ocr_type == "ocrmypdf":
-            # The Tesseract engine OCRs a batch's pages on one thread per CPU, so
-            # one process is enough. Several pages per thread keep the threads busy
-            # while each batch's slowest pages finish.
-            default_processes, default_pages_per_batch = 1, 8 * cpus
+            # One single-threaded Tesseract per CPU, each handed a few pages at a
+            # time as it finishes, so no CPU waits on another's slowest page.
+            default_processes, default_pages_per_batch = cpus, 4
+            engine_kwargs.setdefault("max_workers", 1)
         else:
             # A worker holds its batch's renders in memory, a few MB each.
             default_processes, default_pages_per_batch = min(4, cpus), 32
@@ -181,10 +181,7 @@ def _process_batch_in_process(image_paths: list[str]) -> list[str | None]:
             len(image_paths),
         )
         return texts
-    # Decoding a 300 dpi render takes tens of ms, so load the batch in parallel
-    # rather than leave the engine waiting on one page at a time.
-    with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-        images = list(executor.map(_load_grayscale, image_paths))
+    images = [_load_grayscale(path) for path in image_paths]
     loaded = [(i, image) for i, image in enumerate(images) if image is not None]
     try:
         results = ocr_engine.extract_text([image for _, image in loaded])
