@@ -12,10 +12,12 @@ from govscape.indexing.keyword import AbstractKeywordIndex
 from .api import init_api
 from .config import ServerConfig
 from .indexing import (
+    AbstractVectorIndex,
     FAISSIndex,
     HybridIndex,
     HybridKeywordMetadataIndex,
     HybridVectorMetadataIndex,
+    IVFPQDiskIndex,
     LanceDBKeywordIndex,
     LuceneKeywordIndex,
     SQLiteKeywordIndex,
@@ -67,6 +69,8 @@ class Server:
         self.visual_model = config.visual_model
         self.visual_d = config.visual_d
 
+        self.text_index: AbstractVectorIndex
+        self.visual_index: AbstractVectorIndex
         if self.vector_index_type == "Memory":
             self.text_index = FAISSIndex(
                 self.data_model.index_directory,
@@ -76,6 +80,9 @@ class Server:
                 self.data_model.index_img_pg_directory,
                 forward_index_type=self.forward_index_type,
             )
+        elif self.vector_index_type == "Disk":
+            self.text_index = IVFPQDiskIndex(self.data_model.index_directory)
+            self.visual_index = IVFPQDiskIndex(self.data_model.index_img_pg_directory)
         else:
             raise ValueError(f"Unsupported vector index type: {self.vector_index_type}")
         self.text_index.load_index()
