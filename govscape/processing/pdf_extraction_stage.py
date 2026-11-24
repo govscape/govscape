@@ -23,6 +23,13 @@ MAX_TEXT_LAYER_CHARS = 20
 # excluded only truly blank pages (~9% of them).
 INK_LEVEL = 160
 MIN_INK_FRACTION = 0.002
+# Tesseract's time grows much faster than a page's pixels: a 43x35 in drawing at
+# 300 dpi (114 MP) takes ~160 s against ~1 s for a letter page (8 MP). Larger
+# pages are rendered for OCR at a lower dpi, to about this many pixels.
+MAX_OCR_PIXELS = 40_000_000
+# Long PDFs are extracted in tasks of this many pages, so one 10,000-page PDF
+# doesn't keep a single process busy while the others sit idle.
+PAGES_PER_TASK = 100
 
 
 def needs_ocr(page_text: str, page_image: Image.Image) -> bool:
@@ -40,49 +47,69 @@ def _remove_partial_pages(data_model: DataModel, pdf_name: str) -> None:
     ):
         shutil.rmtree(directory)
         os.makedirs(directory)
-    shutil.rmtree(
-        os.path.join(data_model.ocr_image_directory, pdf_name), ignore_errors=True
-    )
+    shutil.rmtree(data_model.ocr_img_pdf_directory(pdf_name), ignore_errors=True)
 
 
-def _convert_single_pdf(data_model, pdf_file, render_ocr_pages=False):
+def _ocr_scale(page) -> float:
+    """pdfium render scale for OCR: OCR_DPI, lowered for large-format pages
+    (drawings, maps) so the render stays within MAX_OCR_PIXELS."""
+    width, height = page.get_size()
+    full_size_scale = OCR_DPI / PDF_POINTS_PER_INCH
+    return min(full_size_scale, (MAX_OCR_PIXELS / (width * height)) ** 0.5)
+
+
+def _page_count(pdf_file: str) -> int | None:
+    try:
+        return len(pypdfium2.PdfDocument(pdf_file))
+    except Exception:
+        return None
+
+
+def _write_metadata(data_model: DataModel, pdf_name: str, pdf, num_pages: int):
+    pretty_name = pdf.get_metadata_value("Title").strip()
+    creation_date = pdf.get_metadata_value("CreationDate") or "Unknown"
+    os.makedirs(data_model.metadata_pdf_directory(pdf_name), exist_ok=True)
+    with open(data_model.metadata_file_path(pdf_name), "w") as json_file:
+        json.dump(
+            {
+                "pretty_name": pretty_name,
+                "digest": pdf_name,
+                "creation_date": creation_date,
+                "num_pages": num_pages,
+            },
+            json_file,
+            indent=4,
+        )
+
+
+def _convert_pages(data_model, pdf_file, first_page, end_page, render_ocr_pages):
+    """Extract pages [first_page, end_page) of pdf_file (the whole PDF if
+    end_page is None), and the PDF's metadata with its first page. Returns
+    whether they could all be parsed; on failure the caller removes the PDF's
+    partial pages."""
     pdf_name = os.path.splitext(os.path.basename(pdf_file))[0]
     os.makedirs(data_model.txt_pdf_directory(pdf_name), exist_ok=True)
     os.makedirs(data_model.img_pdf_directory(pdf_name), exist_ok=True)
     try:
         pdf = pypdfium2.PdfDocument(pdf_file)
         num_pages = len(pdf)
-        pretty_name = pdf.get_metadata_value("Title").strip()
-        json_data = {}
-        creation_date = pdf.get_metadata_value("CreationDate")
-        if len(pretty_name) == 0:
-            pretty_name = ""
-        if len(creation_date) == 0:
-            creation_date = "Unknown"
-        json_data["pretty_name"] = pretty_name
-        json_data["digest"] = pdf_name
-        json_data["creation_date"] = creation_date
-        json_data["num_pages"] = num_pages
-        os.makedirs(data_model.metadata_pdf_directory(pdf_name), exist_ok=True)
-        with open(data_model.metadata_file_path(pdf_name), "w") as json_file:
-            json.dump(json_data, json_file, indent=4)
+        if first_page == 0:
+            _write_metadata(data_model, pdf_name, pdf, num_pages)
     except Exception:
         return False
 
     # Write each page as soon as it is rendered: holding every rendered page of a
     # long PDF (or of a large-format one) in memory can use gigabytes.
-    for page_num in range(num_pages):
+    for page_num in range(first_page, num_pages if end_page is None else end_page):
         try:
             page = pdf[page_num]
             page_text = page.get_textpage().get_text_bounded()
             image = page.render(scale=1.0).to_pil()
             ocr_image = None
             if render_ocr_pages and needs_ocr(page_text, image):
-                ocr_scale = OCR_DPI / PDF_POINTS_PER_INCH
-                ocr_image = page.render(scale=ocr_scale, grayscale=True).to_pil()
+                ocr_image = page.render(scale=_ocr_scale(page), grayscale=True)
+                ocr_image = ocr_image.to_pil()
         except Exception:
-            # Leave no partial pages from a PDF that failed part way through.
-            _remove_partial_pages(data_model, pdf_name)
             return False
         # Errors while writing (e.g. a full disk) aren't the PDF's fault, so they
         # propagate and fail the batch instead.
@@ -101,11 +128,20 @@ def _convert_single_pdf(data_model, pdf_file, render_ocr_pages=False):
     return True
 
 
+def _convert_single_pdf(data_model, pdf_file, render_ocr_pages=False):
+    if _convert_pages(data_model, pdf_file, 0, None, render_ocr_pages):
+        return True
+    _remove_partial_pages(data_model, os.path.splitext(os.path.basename(pdf_file))[0])
+    return False
+
+
 class PDFExtractionStage(ProcessingStage):
     """Extracts each PDF's metadata, and each page's text and 72 dpi image.
 
-    With render_ocr_pages, the pages that need OCR are also rendered at OCR_DPI into
-    data_model.ocr_image_directory, for OCRProcessingStage.
+    With render_ocr_pages, the pages that need OCR are also rendered at OCR_DPI
+    (lower for large-format pages) into data_model.ocr_image_directory, for
+    OCRProcessingStage. Long PDFs are split into tasks of PAGES_PER_TASK pages,
+    longest PDFs first, so the processes finish together.
     """
 
     def __init__(
@@ -128,14 +164,40 @@ class PDFExtractionStage(ProcessingStage):
             )
 
     def run(self):
+        tasks = []  # (pdf_file, first_page, end_page), longest PDFs first
+        for pdf_file, num_pages in sorted(
+            ((f, _page_count(f)) for f in self.pdf_files),
+            key=lambda pdf: -(pdf[1] or 0),
+        ):
+            if num_pages is None:  # Unreadable; its task reports the failure.
+                tasks.append((pdf_file, 0, None))
+                continue
+            for first_page in range(0, max(num_pages, 1), PAGES_PER_TASK):
+                end_page = min(first_page + PAGES_PER_TASK, num_pages)
+                tasks.append((pdf_file, first_page, end_page))
+
         ctx = get_context("spawn")
         with ctx.Pool(processes=self.cpu_count) as pool:
             results = pool.starmap(
-                _convert_single_pdf,
-                [(self.data_model, f, self.render_ocr_pages) for f in self.pdf_files],
+                _convert_pages,
+                [
+                    (self.data_model, pdf_file, first, end, self.render_ocr_pages)
+                    for pdf_file, first, end in tasks
+                ],
+                chunksize=1,
             )
             # Let workers exit on their own: Pool.__exit__ terminates them, and some
             # native libs' SIGTERM handlers can deadlock.
             pool.close()
             pool.join()
-        return sum(results)
+
+        failed = {
+            pdf_file
+            for (pdf_file, _, _), ok in zip(tasks, results, strict=True)
+            if not ok
+        }
+        for pdf_file in failed:
+            # Leave no partial pages from a PDF that failed part way through.
+            pdf_name = os.path.splitext(os.path.basename(pdf_file))[0]
+            _remove_partial_pages(self.data_model, pdf_name)
+        return len(self.pdf_files) - len(failed)

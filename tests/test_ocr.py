@@ -8,7 +8,7 @@ import pytest
 
 import numpy as np
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from govscape.config import DataModel
 from govscape.processing import OCRProcessingStage
@@ -18,6 +18,7 @@ from govscape.processing.ocr import (
     OLMOcrImpl,
 )
 from govscape.processing.pdf_extraction_stage import (
+    MAX_OCR_PIXELS,
     OCR_DPI,
     _convert_single_pdf,
     needs_ocr,
@@ -315,3 +316,21 @@ def test_an_unreadable_render_fails_only_its_own_page(temp_data_dir):
     with open(data_model.txt_page_path(digest, 0), encoding="utf-8") as f:
         assert f.read() == _StaticTextOCR.TEXT
     assert not os.path.exists(data_model.txt_page_path(digest, 1))
+
+
+def test_ocr_renders_large_format_pages_at_a_lower_dpi(temp_data_dir):
+    tmpdir, data_model = temp_data_dir
+    # A 43 x 35 in drawing would be ~135 MP at 300 dpi.
+    drawing = Image.new("RGB", (43 * 72, 35 * 72), color=(255, 255, 255))
+    ImageDraw.Draw(drawing).rectangle((100, 100, 2000, 1500), fill=(0, 0, 0))
+    digest = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+    pdf_path = os.path.join(tmpdir, f"{digest}.pdf")
+    drawing.save(pdf_path, format="PDF", resolution=72)
+
+    _convert_single_pdf(data_model, pdf_path, render_ocr_pages=True)
+
+    with Image.open(data_model.ocr_img_page_path(digest, 0)) as render:
+        width, height = render.size
+    # pdfium rounds each side up to whole pixels.
+    assert 0.99 * MAX_OCR_PIXELS < width * height < 1.01 * MAX_OCR_PIXELS
+    assert abs(width / height - 43 / 35) < 0.01

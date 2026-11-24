@@ -14,6 +14,7 @@ from govscape.processing import (
     PageImageEmbeddingStage,
     PDFExtractionStage,
     TextEmbeddingStage,
+    pdf_extraction_stage,
 )
 from govscape.processing.pdf_extraction_stage import _convert_single_pdf
 
@@ -230,3 +231,24 @@ def test_images_embed_while_a_remote_text_model_works(sample_pipeline, monkeypat
     monkeypatch.setattr(pipeline._text_model, "SERVED_REMOTELY", True)
     assert pipeline.embed(pipeline.data_model, True, True) == (0.2, 0.2)
     assert overlapped.is_set()
+
+
+def test_long_pdfs_are_extracted_in_page_ranges_with_the_same_result(
+    sample_pipeline, tmp_path, monkeypatch
+):
+    _, pdf_files = sample_pipeline
+
+    def extract(directory):
+        data_model = DataModel(str(directory))
+        PDFExtractionStage(data_model, pdf_files, cpu_count=2).run()
+        return {
+            str(path.relative_to(directory)): path.read_bytes()
+            for path in Path(directory).rglob("*")
+            if path.is_file()
+        }
+
+    whole = extract(tmp_path / "whole")
+    monkeypatch.setattr(pdf_extraction_stage, "PAGES_PER_TASK", 1)
+    in_ranges = extract(tmp_path / "in_ranges")
+    assert in_ranges.keys() == whole.keys()
+    assert in_ranges == whole

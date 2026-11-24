@@ -1,16 +1,27 @@
 import queue
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 
 _DONE = object()
 
 
-def run_pipelined(items: Iterable, stages: list[Callable], depth: int = 1) -> None:
+class stream:
+    """Marks a pipeline stage that maps its whole input stream to an output
+    stream, e.g. to regroup items, rather than each input item to one output."""
+
+    def __init__(self, fn: Callable[[Iterator], Iterable]):
+        self.fn = fn
+
+
+def run_pipelined(
+    items: Iterable, stages: list[Callable | stream], depth: int = 1
+) -> None:
     """Pass each item through stages in order, each stage in its own thread, so
     stage i works on item k while stage i + 1 works on item k - 1. Each stage's
-    return value is the next stage's input. Items are produced by iterating
-    `items` in its own thread too, and at most `depth` results wait between
-    neighbouring stages. The first exception stops every stage and is re-raised.
+    return value is the next stage's input; a stream stage instead yields its
+    outputs as it consumes its inputs. Items are produced by iterating `items` in
+    its own thread too, and at most `depth` results wait between neighbouring
+    stages. The first exception stops every stage and is re-raised.
     """
     queues: list[queue.Queue] = [queue.Queue(maxsize=depth) for _ in stages]
     stop = threading.Event()
@@ -46,10 +57,18 @@ def run_pipelined(items: Iterable, stages: list[Callable], depth: int = 1) -> No
         except BaseException as error:
             fail(error)
 
+    def inputs(i: int) -> Iterator:
+        while (item := get(queues[i])) is not _DONE:
+            yield item
+
     def work(i: int) -> None:
+        stage = stages[i]
         try:
-            while (item := get(queues[i])) is not _DONE:
-                result = stages[i](item)
+            if isinstance(stage, stream):
+                results = iter(stage.fn(inputs(i)))
+            else:
+                results = (stage(item) for item in inputs(i))
+            for result in results:
                 if i + 1 < len(stages) and not put(queues[i + 1], result):
                     return
             if i + 1 < len(stages):

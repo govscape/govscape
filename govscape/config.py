@@ -86,6 +86,9 @@ class DataModel:
     def img_pack_path(self, pack_name: str) -> str:
         return os.path.join(self.image_directory, pack_name)
 
+    def ocr_img_pdf_directory(self, digest: str) -> str:
+        return os.path.join(self.ocr_image_directory, digest)
+
     def ocr_img_page_path(self, digest: str, pg_no: int) -> str:
         return os.path.join(self.ocr_image_directory, digest, f"{digest}_{pg_no}.png")
 
