@@ -285,3 +285,20 @@ def test_pdf_pages_give_each_packed_page_by_byte_range(server_fixture):
     unpacked = server_fixture.pdf_pages("doc_2.pdf")
     assert unpacked["page_image_ranges"] == []
     assert len(unpacked["images"]) == 2
+
+
+def test_hybrid_weights_search(server_fixture):
+    weights = {"textual": 0.33, "visual": 0.33, "keyword": 0.34}
+    response = server_fixture.search(
+        Query("test query", search_type="hybrid_weights", weights=weights)
+    )
+    assert len(response.results) == server_fixture.config.k
+
+    # All the weight on one index ranks the results as that index does.
+    keyword_only = server_fixture.search(
+        Query("test query", search_type="hybrid_weights", weights={"keyword": 1})
+    )
+    keyword = server_fixture.search(Query("test query", search_type="keyword"))
+    assert [r["pdf"] for r in keyword_only.results] == [
+        r["pdf"] for r in keyword.results
+    ]

@@ -292,21 +292,18 @@ class Server:
             text_embedding = self.text_model.encode_text(query.q_text, is_query=True)
             visual_embedding = self.visual_model.encode_text(query.q_text)
             weights = getattr(query, "weights", None) or {}
-            # Normalize weights if provided
+            # Normalized, in the order of text_visual_keyword_hybrid_index's indices.
+            components = ["textual", "visual", "keyword"]
             try:
-                total = sum(
-                    float(weights.get(k, 0.0)) for k in ["textual", "visual", "keyword"]
-                )
+                total = sum(float(weights.get(k, 0.0)) for k in components)
             except Exception:
                 total = 0.0
 
-            if total and total > 0:
-                normalized = {
-                    k: float(weights.get(k, 0.0)) / total
-                    for k in ["textual", "visual", "keyword"]
-                }
-            else:
-                normalized = None
+            normalized = (
+                [float(weights.get(k, 0.0)) / total for k in components]
+                if total > 0
+                else None
+            )
 
             start = time.time()
             rows, pdf_metadata, state = self.text_visual_keyword_hybrid_index.search(
