@@ -15,6 +15,7 @@ from .text_embedding_models import (
     BGESmall_TextEmbeddingModel,
     Dummy_TextEmbeddingModel,
     Qwen3_TextEmbeddingModel,
+    Qwen3VLLM_TextEmbeddingModel,
     ST_TextEmbeddingModel,
 )
 from .utils import base_argument_parser, extract_subdomain, read_txt_file, str2bool
@@ -36,6 +37,7 @@ __all__ = [
     "LanceDBKeywordIndex",
     "LuceneKeywordIndex",
     "PDFProcessingPipeline",
+    "Qwen3VLLM_TextEmbeddingModel",
     "Qwen3_TextEmbeddingModel",
     "RemoteDirectoryIterator",
     "SQLiteKeywordIndex",

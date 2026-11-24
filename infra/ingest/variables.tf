@@ -48,6 +48,18 @@ variable "pipeline_args" {
   default     = "--text_model_type BGE --visual_model_type CLIP"
 }
 
+variable "vllm_image" {
+  description = "vLLM image to serve Qwen3 text embeddings next to the pipeline, e.g. vllm/vllm-openai:v0.34.0; use with --text_model_type Qwen3vLLM in pipeline_args. null runs no vLLM server."
+  type        = string
+  default     = null
+}
+
+variable "vllm_gpu_memory_utilization" {
+  description = "Fraction of GPU memory the vLLM server may use; the pipeline's image models need the rest"
+  type        = number
+  default     = 0.5
+}
+
 variable "instance_profile" {
   description = "Existing instance profile whose role source.coop allows to write to the govscape repositories"
   type        = string

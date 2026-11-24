@@ -153,12 +153,14 @@ resource "aws_instance" "worker" {
   }
 
   user_data = templatefile("${path.module}/templates/cloud-init.yaml.tftpl", {
-    app_image       = var.app_image
-    log_group       = aws_cloudwatch_log_group.worker.name
-    region          = local.region
-    server_id       = count.index
-    num_servers     = var.num_servers
-    remote_data_dir = var.remote_data_dir
+    app_image                   = var.app_image
+    log_group                   = aws_cloudwatch_log_group.worker.name
+    region                      = local.region
+    server_id                   = count.index
+    num_servers                 = var.num_servers
+    remote_data_dir             = var.remote_data_dir
+    vllm_image                  = var.vllm_image == null ? "" : var.vllm_image
+    vllm_gpu_memory_utilization = var.vllm_gpu_memory_utilization
     pipeline_args = join(" ", compact([
       var.pipeline_args,
       var.max_pdfs == null ? "" : "--max_pdfs ${var.max_pdfs}",

@@ -9,6 +9,7 @@ from ..text_embedding_models import (
     BGESmall_TextEmbeddingModel,
     Dummy_TextEmbeddingModel,
     Qwen3_TextEmbeddingModel,
+    Qwen3VLLM_TextEmbeddingModel,
     ST_TextEmbeddingModel,
 )
 from ..utils import read_txt_file
@@ -46,6 +47,8 @@ def _build_text_model(model_type):
         return BGESmall_TextEmbeddingModel()
     if model_type == "Qwen3":
         return Qwen3_TextEmbeddingModel()
+    if model_type == "Qwen3vLLM":
+        return Qwen3VLLM_TextEmbeddingModel()
     if model_type == "Dummy":
         return Dummy_TextEmbeddingModel()
     raise ValueError(f"Unsupported text model type: {model_type}")

@@ -14,7 +14,7 @@ not terminated, so its root volume and logs remain until `tofu destroy`.
 | File | Contents |
 | --- | --- |
 | `main.tf` | State backend, provider, GPU AMI, default-VPC subnets, security group, log group, role attachments, workers |
-| `variables.tf` | Run settings: `num_servers`, `remote_data_dir`, `app_image`, `max_pdfs`, ... |
+| `variables.tf` | Run settings: `num_servers`, `remote_data_dir`, `app_image`, `max_pdfs`, `vllm_image`, ... |
 | `templates/cloud-init.yaml.tftpl` | The `govscape-ingest` systemd service and its retry script |
 
 ## How a worker runs
@@ -47,7 +47,21 @@ not terminated, so its root volume and logs remain until `tofu destroy`.
   interruption. AWS starts it again when capacity returns, and the service resumes
   from the shard checkpoints. It loses at most the batch in progress.
 - **Logs:** CloudWatch log group `/govscape/ingest`, with one stream per worker
-  (`server-<id>`).
+  (`server-<id>`), plus `server-<id>-vllm` when vLLM is on.
+
+## Qwen3 text embeddings with vLLM
+
+Set `vllm_image` (e.g. `vllm/vllm-openai:v0.34.0`) and pass
+`--text_model_type Qwen3vLLM` in `pipeline_args`. Before each attempt the worker
+starts `vllm serve Qwen/Qwen3-Embedding-0.6B --runner pooling --max-model-len 2048`
+in its own container and waits until it's healthy. The pipeline container then
+sends page text to it over a private Docker network (`VLLM_URL`). vLLM
+tokenizes and truncates each page to its first 2,048 tokens. On a g7.2xlarge
+this embedded about 3× as many pages per second as running Qwen3 inside the
+pipeline, with effectively identical embeddings.
+
+The vLLM server starts first and takes `vllm_gpu_memory_utilization` of the GPU's
+memory (default 0.5). The pipeline's image models use the rest.
 
 ## Prerequisites
 
@@ -68,6 +82,12 @@ tofu init
 # and checks the GPU, credentials and output layout.
 tofu apply -var num_servers=1 -var max_pdfs=2000 \
   -var remote_data_dir=dev-serving/ -var app_image=ghcr.io/govscape/govscape:sha-<commit>
+
+# The same pilot with Qwen3 text embeddings served by vLLM.
+tofu apply -var num_servers=1 -var max_pdfs=2000 \
+  -var remote_data_dir=dev-serving/ -var app_image=ghcr.io/govscape/govscape:sha-<commit> \
+  -var vllm_image=vllm/vllm-openai:v0.34.0 \
+  -var 'pipeline_args=--text_model_type Qwen3vLLM --visual_model_type CLIP'
 
 # Full run, after the pilot.
 tofu apply -var num_servers=8 \
