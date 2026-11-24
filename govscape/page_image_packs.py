@@ -45,16 +45,9 @@ def pack_page_images(data_model: DataModel) -> str | None:
     pack_name = f"pack_{sha1.hexdigest()}{PACK_SUFFIX}"
     os.rename(unnamed_pack, data_model.img_pack_path(pack_name))
     for digest, pdf_offsets in offsets.items():
-        _record_page_images(data_model, digest, pack_name, pdf_offsets)
+        with open(data_model.metadata_file_path(digest)) as f:
+            metadata = json.load(f)
+        metadata["page_images"] = {"pack": pack_name, "offsets": pdf_offsets}
+        with open(data_model.metadata_file_path(digest), "w") as f:
+            json.dump(metadata, f, indent=4)
     return pack_name
-
-
-def _record_page_images(
-    data_model: DataModel, digest: str, pack_name: str, offsets: list[int]
-) -> None:
-    metadata_path = data_model.metadata_file_path(digest)
-    with open(metadata_path) as f:
-        metadata = json.load(f)
-    metadata["page_images"] = {"pack": pack_name, "offsets": offsets}
-    with open(metadata_path, "w") as f:
-        json.dump(metadata, f, indent=4)

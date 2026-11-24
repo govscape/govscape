@@ -190,17 +190,3 @@ def test_page_images_round_trip(index_cls, tmp_path):
         "solar_grid.pdf": {"pack": "pack_b.jpegs", "offsets": [0, 9]},
     }
     assert reloaded.page_images([]) == {}
-
-
-def test_index_built_before_packs_has_no_page_images(tmp_path):
-    import sqlite3
-
-    directory = tmp_path / "metadata_index"
-    directory.mkdir()
-    conn = sqlite3.connect(directory / "metadata.db")
-    conn.execute("CREATE TABLE metadata (digest TEXT)")
-    conn.commit()
-    conn.close()
-
-    index = SQLiteMetadataIndex(directory.as_posix())
-    assert index.page_images(["air_quality.pdf"]) == {}

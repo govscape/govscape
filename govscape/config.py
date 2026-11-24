@@ -89,6 +89,15 @@ class DataModel:
     def ocr_img_pdf_directory(self, digest: str) -> str:
         return os.path.join(self.ocr_image_directory, digest)
 
+    def extracted_pdf_directories(self, digest: str) -> list[str]:
+        """Every directory PDFExtractionStage writes a PDF's pages to."""
+        return [
+            self.txt_pdf_directory(digest),
+            self.img_pdf_directory(digest),
+            self.metadata_pdf_directory(digest),
+            self.ocr_img_pdf_directory(digest),
+        ]
+
     def ocr_img_page_path(self, digest: str, pg_no: int) -> str:
         return os.path.join(self.ocr_image_directory, digest, f"{digest}_{pg_no}.png")
 

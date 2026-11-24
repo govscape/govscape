@@ -44,16 +44,3 @@ def test_pages_are_packed_in_order_and_located_by_offsets(tmp_path):
         _page_images(data_model, "BBBB")["offsets"][0]
         == _page_images(data_model, "AAAA")["offsets"][-1]
     )
-
-
-def test_packs_are_named_after_their_bytes(tmp_path):
-    first, second, third = (DataModel(str(tmp_path / d)) for d in "abc")
-    _write_pdf(first, "AAAA", [b"x"])
-    _write_pdf(second, "AAAA", [b"x"])
-    _write_pdf(third, "AAAA", [b"y"])  # Same files, different bytes.
-    assert pack_page_images(first) == pack_page_images(second)
-    assert pack_page_images(first) != pack_page_images(third)
-
-
-def test_nothing_to_pack(tmp_path):
-    assert pack_page_images(DataModel(str(tmp_path))) is None

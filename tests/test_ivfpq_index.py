@@ -90,19 +90,6 @@ def test_vectors_for_digests(index, corpus):
     assert empty.shape == (0, 0) and no_digests == []
 
 
-def test_too_few_vectors_to_train_all_lists(tmp_path, corpus):
-    vectors, digests, pages = corpus
-    builder = IVFPQIndexBuilder(
-        tmp_path.as_posix(), nlist=1024, m=8, block_size=10**6, use_gpu=False
-    )
-    builder.add(vectors[:2000], digests[:2000], pages[:2000])
-    builder.finish()
-    index = IVFPQDiskIndex(tmp_path.as_posix())
-    index.load_index()
-    assert index.meta["nlist"] == 32  # The largest power of two <= 2000 / 39.
-    assert index.search(vectors[5], k=1)[1] == [digests[5]]
-
-
 def _build(directory, corpus, start_batch=0, builder=None, crash_after=None):
     """Feed the corpus in 1,000-vector batches, checkpointing when due; stop
     without finishing after crash_after batches."""

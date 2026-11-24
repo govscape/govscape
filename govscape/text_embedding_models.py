@@ -186,21 +186,6 @@ class Qwen3VLLM_TextEmbeddingModel(TextEmbeddingModel):
     def d(self):
         return 1024
 
-    def _wait_until_ready(self):
-        if self._ready:
-            return
-        deadline = time.monotonic() + self.STARTUP_TIMEOUT_S
-        while True:
-            try:
-                if requests.get(f"{self.url}/health", timeout=5).ok:
-                    break
-            except requests.ConnectionError:
-                pass
-            if time.monotonic() > deadline:
-                raise TimeoutError(f"vLLM server at {self.url} isn't ready")
-            time.sleep(5)
-        self._ready = True
-
     def _embed(self, texts):
         response = requests.post(
             f"{self.url}/v1/embeddings",
@@ -225,7 +210,18 @@ class Qwen3VLLM_TextEmbeddingModel(TextEmbeddingModel):
             texts = [self.QUERY_PREFIX + text for text in texts]
         if not texts:
             return np.zeros((0, self.d), dtype=np.float32)
-        self._wait_until_ready()
+        if not self._ready:
+            deadline = time.monotonic() + self.STARTUP_TIMEOUT_S
+            while True:
+                try:
+                    if requests.get(f"{self.url}/health", timeout=5).ok:
+                        break
+                except requests.ConnectionError:
+                    pass
+                if time.monotonic() > deadline:
+                    raise TimeoutError(f"vLLM server at {self.url} isn't ready")
+                time.sleep(5)
+            self._ready = True
         chunks = [
             texts[i : i + self.TEXTS_PER_REQUEST]
             for i in range(0, len(texts), self.TEXTS_PER_REQUEST)

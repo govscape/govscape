@@ -33,10 +33,6 @@ def _ocr_engine_class(ocr_type: str) -> type[BaseOCR]:
     return getattr(ocr, _OCR_ENGINES[ocr_type])
 
 
-def _build_ocr_engine(ocr_type: str, **kwargs) -> BaseOCR:
-    return _ocr_engine_class(ocr_type)(**kwargs)
-
-
 class _Page(NamedTuple):
     digest: str
     page_num: int
@@ -88,7 +84,16 @@ class OCRProcessingStage(ProcessingStage):
         pass  # Nothing to check: no renders just means no page needs OCR.
 
     def run(self):
-        pages = self._collect_pages()
+        pages: list[_Page] = []
+        if os.path.isdir(self.data_model.ocr_image_directory):
+            for digest_dir in os.scandir(self.data_model.ocr_image_directory):
+                for page_file in os.listdir(digest_dir.path):
+                    stem, extension = os.path.splitext(page_file)
+                    if extension == ".png":
+                        page_num = int(stem.rsplit("_", 1)[1])
+                        path = os.path.join(digest_dir.path, page_file)
+                        pages.append(_Page(digest_dir.name, page_num, path))
+        pages.sort()
         self.logger.info(f"OCR needed for {len(pages)} pages")
         batches = [
             pages[start : start + self.pages_per_batch]
@@ -107,46 +112,20 @@ class OCRProcessingStage(ProcessingStage):
             )
             for batch, texts in zip(batches, results, strict=True):
                 for page, text in zip(batch, texts, strict=True):
-                    if text is not None and self._write_page_text(page, text):
-                        processed_count += 1
-                    else:
+                    if text is None:
                         error_count += 1
+                        continue
+                    txt_path = self.data_model.txt_page_path(page.digest, page.page_num)
+                    os.makedirs(os.path.dirname(txt_path), exist_ok=True)
+                    with open(txt_path, "w", encoding="utf-8") as f:
+                        f.write(text)
+                    processed_count += 1
         shutil.rmtree(self.data_model.ocr_image_directory, ignore_errors=True)
 
         self.logger.info(
             f"OCR processing complete. Processed: {processed_count}, "
             f"Errors: {error_count}",
         )
-
-    def _collect_pages(self) -> list[_Page]:
-        pages: list[_Page] = []
-        if not os.path.isdir(self.data_model.ocr_image_directory):
-            return pages
-        for digest_dir in os.scandir(self.data_model.ocr_image_directory):
-            if not digest_dir.is_dir():
-                continue
-            for page_file in os.listdir(digest_dir.path):
-                stem, extension = os.path.splitext(page_file)
-                if extension != ".png":
-                    continue
-                page_num = int(stem.rsplit("_", 1)[1])
-                path = os.path.join(digest_dir.path, page_file)
-                pages.append(_Page(digest_dir.name, page_num, path))
-        return sorted(pages)
-
-    def _write_page_text(self, page: _Page, text: str) -> bool:
-        try:
-            txt_output_path = self.data_model.txt_page_path(page.digest, page.page_num)
-            os.makedirs(os.path.dirname(txt_output_path), exist_ok=True)
-            with open(txt_output_path, "w", encoding="utf-8") as f:
-                f.write(text)
-            self.logger.debug(f"Processed: {txt_output_path}")
-            return True
-        except Exception as e:
-            self.logger.error(
-                f"Error writing OCR text for {page.digest} page {page.page_num}: {e}"
-            )
-            return False
 
 
 # Per-worker OCR engine, built once by the process pool initializer and reused
@@ -156,35 +135,23 @@ _WORKER_OCR_ENGINE: BaseOCR | None = None
 
 def _init_ocr_worker(ocr_type: str, engine_kwargs: dict) -> None:
     global _WORKER_OCR_ENGINE
-    _WORKER_OCR_ENGINE = _build_ocr_engine(ocr_type, **engine_kwargs)
-
-
-def _load_grayscale(path: str) -> np.ndarray | None:
-    try:
-        with Image.open(path) as image:
-            return np.asarray(image.convert("L"))
-    except Exception as e:
-        logging.getLogger(__name__).error(f"Failed to read OCR render {path}: {e}")
-        return None
+    _WORKER_OCR_ENGINE = _ocr_engine_class(ocr_type)(**engine_kwargs)
 
 
 def _process_batch_in_process(image_paths: list[str]) -> list[str | None]:
     """OCR a batch of page renders; None for each page that failed."""
     logger = logging.getLogger(__name__)
+    assert _WORKER_OCR_ENGINE is not None  # Built by the pool initializer.
     texts: list[str | None] = [None] * len(image_paths)
-    ocr_engine = _WORKER_OCR_ENGINE
-    if ocr_engine is None:
-        # Should never happen: the pool initializer builds the engine before any
-        # batch is dispatched. Guard defensively so a batch cannot silently vanish.
-        logger.error(
-            "OCR worker engine was not initialized; failing batch of %d images.",
-            len(image_paths),
-        )
-        return texts
-    images = [_load_grayscale(path) for path in image_paths]
-    loaded = [(i, image) for i, image in enumerate(images) if image is not None]
+    loaded: list[tuple[int, np.ndarray]] = []
+    for i, path in enumerate(image_paths):
+        try:
+            with Image.open(path) as image:
+                loaded.append((i, np.asarray(image.convert("L"))))
+        except Exception as e:
+            logger.error(f"Failed to read OCR render {path}: {e}")
     try:
-        results = ocr_engine.extract_text([image for _, image in loaded])
+        results = _WORKER_OCR_ENGINE.extract_text([image for _, image in loaded])
     except Exception as e:
         logger.error(f"OCR failed for batch with {len(loaded)} images: {e}")
         return texts

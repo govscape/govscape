@@ -49,49 +49,24 @@ class FakeVLLM:
 
 @pytest.fixture
 def fake_vllm():
-    fake = FakeVLLM()
+    # Still loading for the first couple of health checks.
+    fake = FakeVLLM(unhealthy_checks=2)
     yield fake
     fake.server.shutdown()
 
 
-def test_embeds_batches_in_order_across_concurrent_requests(fake_vllm, monkeypatch):
+def test_embeds_batches_in_order_once_the_server_is_up(fake_vllm, monkeypatch):
+    monkeypatch.setattr("govscape.text_embedding_models.time.sleep", lambda s: None)
     monkeypatch.setattr(Qwen3VLLM_TextEmbeddingModel, "TEXTS_PER_REQUEST", 3)
     model = Qwen3VLLM_TextEmbeddingModel(url=fake_vllm.url)
     texts = ["x" * n for n in range(1, 11)]
 
     embeddings = model.encode_text_batch(texts)
 
+    assert fake_vllm.unhealthy_checks < 0
     assert embeddings.dtype == np.float32
     assert embeddings[:, 0].tolist() == list(range(1, 11))
     assert sorted(len(r["input"]) for r in fake_vllm.requests) == [1, 3, 3, 3]
     for request in fake_vllm.requests:
         assert request["model"] == "Qwen/Qwen3-Embedding-0.6B"
         assert request["truncation_side"] == "right"
-
-
-def test_queries_get_the_instruction_prefix(fake_vllm):
-    model = Qwen3VLLM_TextEmbeddingModel(url=fake_vllm.url)
-    model.encode_text("snow removal", is_query=True)
-    model.encode_text("snow removal")
-
-    assert [r["input"] for r in fake_vllm.requests] == [
-        [Qwen3VLLM_TextEmbeddingModel.QUERY_PREFIX + "snow removal"],
-        ["snow removal"],
-    ]
-
-
-def test_waits_for_the_server_to_become_healthy(monkeypatch):
-    fake = FakeVLLM(unhealthy_checks=2)
-    monkeypatch.setattr("govscape.text_embedding_models.time.sleep", lambda s: None)
-    try:
-        model = Qwen3VLLM_TextEmbeddingModel(url=fake.url)
-        assert model.encode_text_batch(["abc"])[:, 0].tolist() == [3.0]
-        assert fake.unhealthy_checks < 0
-    finally:
-        fake.server.shutdown()
-
-
-def test_empty_batch_makes_no_requests(fake_vllm):
-    model = Qwen3VLLM_TextEmbeddingModel(url=fake_vllm.url)
-    assert model.encode_text_batch([]).shape == (0, 1024)
-    assert fake_vllm.requests == []

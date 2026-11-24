@@ -58,21 +58,8 @@ def _pdf_name(pdf_file: str) -> str:
 def _remove_pdf(data_model: DataModel, pdf_name: str) -> None:
     """Remove everything extracted from a PDF that couldn't be fully extracted,
     so that it isn't one of the extracted_pdfs."""
-    for directory in (
-        data_model.txt_pdf_directory(pdf_name),
-        data_model.img_pdf_directory(pdf_name),
-        data_model.metadata_pdf_directory(pdf_name),
-        data_model.ocr_img_pdf_directory(pdf_name),
-    ):
+    for directory in data_model.extracted_pdf_directories(pdf_name):
         shutil.rmtree(directory, ignore_errors=True)
-
-
-def _ocr_scale(page) -> float:
-    """pdfium render scale for OCR: OCR_DPI, lowered for large-format pages
-    (drawings, maps) so the render stays within MAX_OCR_PIXELS."""
-    width, height = page.get_size()
-    full_size_scale = OCR_DPI / PDF_POINTS_PER_INCH
-    return min(full_size_scale, (MAX_OCR_PIXELS / (width * height)) ** 0.5)
 
 
 def _page_count(pdf_file: str) -> int | None:
@@ -80,23 +67,6 @@ def _page_count(pdf_file: str) -> int | None:
         return len(pypdfium2.PdfDocument(pdf_file))
     except Exception:
         return None
-
-
-def _write_metadata(data_model: DataModel, pdf_name: str, pdf, num_pages: int):
-    pretty_name = pdf.get_metadata_value("Title").strip()
-    creation_date = pdf.get_metadata_value("CreationDate") or "Unknown"
-    os.makedirs(data_model.metadata_pdf_directory(pdf_name), exist_ok=True)
-    with open(data_model.metadata_file_path(pdf_name), "w") as json_file:
-        json.dump(
-            {
-                "pretty_name": pretty_name,
-                "digest": pdf_name,
-                "creation_date": creation_date,
-                "num_pages": num_pages,
-            },
-            json_file,
-            indent=4,
-        )
 
 
 def _convert_pages(
@@ -116,7 +86,15 @@ def _convert_pages(
         pdf = pypdfium2.PdfDocument(pdf_file)
         num_pages = len(pdf)
         if first_page == 0:
-            _write_metadata(data_model, pdf_name, pdf, num_pages)
+            metadata = {
+                "pretty_name": pdf.get_metadata_value("Title").strip(),
+                "digest": pdf_name,
+                "creation_date": pdf.get_metadata_value("CreationDate") or "Unknown",
+                "num_pages": num_pages,
+            }
+            os.makedirs(data_model.metadata_pdf_directory(pdf_name), exist_ok=True)
+            with open(data_model.metadata_file_path(pdf_name), "w") as json_file:
+                json.dump(metadata, json_file, indent=4)
     except Exception:
         return False
 
@@ -129,8 +107,14 @@ def _convert_pages(
             image = page.render(scale=1.0).to_pil()
             ocr_image = None
             if render_ocr_pages and needs_ocr(page_text, image):
-                ocr_image = page.render(scale=_ocr_scale(page), grayscale=True)
-                ocr_image = ocr_image.to_pil()
+                # At OCR_DPI, lowered for large-format pages (drawings, maps) so
+                # the render stays within MAX_OCR_PIXELS.
+                width, height = page.get_size()
+                scale = min(
+                    OCR_DPI / PDF_POINTS_PER_INCH,
+                    (MAX_OCR_PIXELS / (width * height)) ** 0.5,
+                )
+                ocr_image = page.render(scale=scale, grayscale=True).to_pil()
         except Exception:
             return False
         # Errors while writing (e.g. a full disk) aren't the PDF's fault, so they

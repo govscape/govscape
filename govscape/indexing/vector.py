@@ -32,28 +32,11 @@ with suppress_output():
 
 
 class AbstractVectorIndex(AbstractIndex, ABC):
-    # Each vector index maintains a forward index (digest -> page vectors) next
-    # to its search structure, used for exact scoring when prefiltering.
-    forward_index: ForwardIndex
-
-    def get_vectors_for_digests(self, candidate_digests):
-        """Return (vectors, digests, pages) for every page of the candidates."""
-        return self.forward_index.get_vectors_for_digests(candidate_digests)
-
-    @abstractmethod
-    def build_index(self):
-        pass
-
-    @abstractmethod
-    def add_batch(self, embeddings):
-        pass
+    """What the server and the hybrid indexes need from a vector index: load it,
+    search it, and look up every page vector of given PDFs (for prefiltering)."""
 
     @abstractmethod
     def load_index(self):
-        pass
-
-    @abstractmethod
-    def save_index(self):
         pass
 
     @abstractmethod
@@ -72,8 +55,35 @@ class AbstractVectorIndex(AbstractIndex, ABC):
         :return: Total number of embeddings.
         """
 
+    @abstractmethod
+    def get_vectors_for_digests(self, candidate_digests):
+        """Return (vectors, digests, pages) for every page of the candidates."""
 
-class FAISSIndex(AbstractVectorIndex):
+
+class BuildableVectorIndex(AbstractVectorIndex):
+    """A vector index built incrementally with add_batch(), which keeps a forward
+    index (digest -> page vectors) next to its search structure for
+    get_vectors_for_digests()."""
+
+    forward_index: ForwardIndex
+
+    def get_vectors_for_digests(self, candidate_digests):
+        return self.forward_index.get_vectors_for_digests(candidate_digests)
+
+    @abstractmethod
+    def build_index(self):
+        pass
+
+    @abstractmethod
+    def add_batch(self, embeddings, pdf_names, pdf_pages):
+        pass
+
+    @abstractmethod
+    def save_index(self):
+        pass
+
+
+class FAISSIndex(BuildableVectorIndex):
     def __init__(self, index_directory, index_type="IVFPQ", forward_index_type="LMDB"):
         self.index_directory = index_directory
         self.forward_index = build_forward_index(forward_index_type, index_directory)
@@ -188,7 +198,7 @@ class FAISSIndex(AbstractVectorIndex):
         return self.faiss_index.ntotal
 
 
-class LanceDBVectorIndex(AbstractVectorIndex):
+class LanceDBVectorIndex(BuildableVectorIndex):
     def __init__(
         self, index_directory, table_name="vector_index", forward_index_type="LMDB"
     ):

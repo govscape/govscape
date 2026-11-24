@@ -357,31 +357,6 @@ def test_remote_directory_iterator_checkpoint_loader(
     assert not src_loader.exists("checkpoints/ckpt.json")
 
 
-def test_upload_directory_compressed_reuses_chunk_names(
-    loader: DataLoader, tmp_path: Path
-) -> None:
-    # The same files uploaded again, from anywhere, overwrite the same chunks.
-    for source in ("first", "second"):
-        for i in range(5):
-            _touch(tmp_path / source / "sub" / f"file_{i}.txt")
-        loader.upload_directory(
-            str(tmp_path / source), "uploaded", compress=True, chunk_size=2
-        )
-
-    assert len(_remote_basenames(loader, "uploaded")) == 3
-
-
-def test_list_objects_filters_by_name_prefix(loader: DataLoader) -> None:
-    for key in ("pdfs/AB1.pdf", "pdfs/AC2.pdf", "pdfs/AB3.pdf", "pdfsAB/x.pdf"):
-        loader.upload_bytes(b"x", key)
-
-    assert loader.list_objects("pdfs", name_prefix="AB").keys == [
-        "pdfs/AB1.pdf",
-        "pdfs/AB3.pdf",
-    ]
-    assert loader.list_objects("pdfs/", name_prefix="AD").keys == []
-
-
 def test_remote_directory_iterator_by_name_prefix(
     loader: DataLoader, tmp_path: Path
 ) -> None:

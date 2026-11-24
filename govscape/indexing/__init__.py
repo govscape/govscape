@@ -30,6 +30,7 @@ from .metadata import (
 )
 from .vector import (
     AbstractVectorIndex,
+    BuildableVectorIndex,
     FAISSIndex,
     LanceDBVectorIndex,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "AbstractKeywordIndex",
     "AbstractMetadataIndex",
     "AbstractVectorIndex",
+    "BuildableVectorIndex",
     "DuckDBMetadataIndex",
     "FAISSIndex",
     "ForwardIndex",

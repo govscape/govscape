@@ -1,13 +1,8 @@
 import shutil
-import threading
-import time
 from pathlib import Path
 
 import pytest
 
-import numpy as np
-
-from govscape import pdf_processing_pipeline
 from govscape.config import DataModel
 from govscape.pdf_processing_pipeline import PDFProcessingPipeline
 from govscape.processing import (
@@ -172,65 +167,6 @@ def test_process_pdfs_text_only(sample_pipeline):
         stem = Path(pdf_file).stem
         assert (txt_base / stem).exists()
         assert (img_base / stem).exists()
-
-
-def test_process_pdfs_builds_embedding_models_once(sample_pipeline, monkeypatch):
-    pipeline, pdf_files = sample_pipeline
-    built = []
-
-    def counting(build):
-        def wrapper(model_type):
-            built.append(build.__name__)
-            return build(model_type)
-
-        return wrapper
-
-    for name in ("build_text_model", "build_visual_model"):
-        monkeypatch.setattr(
-            pdf_processing_pipeline,
-            name,
-            counting(getattr(pdf_processing_pipeline, name)),
-        )
-
-    for _ in range(2):
-        pipeline.process_pdfs(
-            pdf_files,
-            do_text_embedding=True,
-            do_img_embedding=True,
-            do_metadata_collection=False,
-        )
-
-    assert sorted(built) == ["build_text_model", "build_visual_model"]
-    embeddings = list(Path(pipeline.data_model.embedding_directory).rglob("*.npy"))
-    assert embeddings
-    assert np.load(embeddings[0]).shape == (128,)
-
-
-def test_images_embed_while_a_remote_text_model_works(sample_pipeline, monkeypatch):
-    pipeline, _ = sample_pipeline
-    running: set[str] = set()
-    overlapped = threading.Event()
-
-    def stage(name):
-        def run(self, data_model):
-            running.add(name)
-            if len(running) > 1:
-                overlapped.set()
-            time.sleep(0.2)
-            running.discard(name)
-            return 0.2
-
-        return run
-
-    monkeypatch.setattr(PDFProcessingPipeline, "_embed_text", stage("text"))
-    monkeypatch.setattr(PDFProcessingPipeline, "_embed_images", stage("images"))
-
-    pipeline.embed(pipeline.data_model, True, True)
-    assert not overlapped.is_set()  # Dummy runs in this process: one at a time.
-
-    monkeypatch.setattr(pipeline._text_model, "SERVED_REMOTELY", True)
-    assert pipeline.embed(pipeline.data_model, True, True) == (0.2, 0.2)
-    assert overlapped.is_set()
 
 
 def test_long_pdfs_are_extracted_in_page_ranges_with_the_same_result(

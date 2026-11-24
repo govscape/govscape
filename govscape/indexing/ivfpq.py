@@ -20,6 +20,7 @@ quantizer with k-means and to assign every vector to its list, which dominate
 the build at this scale. PQ encoding and the list files are done on the CPU.
 """
 
+import itertools
 import json
 import logging
 import os
@@ -42,10 +43,6 @@ DIGEST_LIST_FILE = "build_digests.txt"
 
 # FAISS recommends at least this many training points per coarse centroid.
 MIN_TRAIN_POINTS_PER_LIST = 39
-
-
-def _gpu_count() -> int:
-    return faiss.get_num_gpus() if hasattr(faiss, "get_num_gpus") else 0
 
 
 class IVFPQIndexBuilder:
@@ -79,16 +76,15 @@ class IVFPQIndexBuilder:
         self.train_size = train_size or 50 * nlist
         self.block_size = block_size
         self.nprobe = nprobe
-        self.use_gpu = _gpu_count() > 0 if use_gpu is None else use_gpu
+        self.use_gpu = faiss.get_num_gpus() > 0 if use_gpu is None else use_gpu
         self.checkpoint_every = checkpoint_every
         os.makedirs(index_directory, exist_ok=True)
 
         self.d: int | None = None
         self.ntotal = 0
         self._next_checkpoint = checkpoint_every
-        # Each PDF's id, and the PDFs in id order.
+        # Each PDF's id, in id order; the first _digests_saved are checkpointed.
         self.digest_ids: dict[str, int] = {}
-        self._digests: list[str] = []
         self._digests_saved = 0
         self._pending: list[tuple[np.ndarray, list[str], list]] = []
         self._pending_count = 0
@@ -122,7 +118,33 @@ class IVFPQIndexBuilder:
             use_gpu=use_gpu,
             checkpoint_every=state["checkpoint_every"],
         )
-        builder._restore(state)
+        # Anything written after the checkpoint is discarded: the files are cut
+        # back to their checkpointed lengths and later blocks deleted.
+        builder.d = state["d"]
+        builder.ntotal = state["ntotal"]
+        builder._next_checkpoint = builder.ntotal + builder.checkpoint_every
+        builder._files = {}
+        for name, size in state["file_bytes"].items():
+            # Kept open for the rest of the build; finish() closes them.
+            file = open(builder._path(name), "r+b")  # noqa: SIM115
+            file.truncate(size)
+            file.seek(size)
+            builder._files[name] = file
+        builder._block_paths = [builder._path(name) for name in state["blocks"]]
+        for name in os.listdir(index_directory):
+            if name.startswith("block_") and name not in state["blocks"]:
+                os.remove(builder._path(name))
+        with open(builder._path(DIGEST_LIST_FILE)) as f:
+            digests = [line.rstrip("\n") for line in f][: state["n_digests"]]
+        with open(builder._path(DIGEST_LIST_FILE), "w") as f:
+            f.writelines(d + "\n" for d in digests)
+        builder.digest_ids = {digest: i for i, digest in enumerate(digests)}
+        builder._digests_saved = len(digests)
+        # read_index returns the concrete type; this tells mypy so (wrapping it
+        # in downcast_index would leave the index owned by a discarded object).
+        builder._use_trained(
+            cast(faiss.IndexIVFPQ, faiss.read_index(builder._path(TRAINED_FILE)))
+        )
         return builder, state["progress"]
 
     @property
@@ -140,10 +162,11 @@ class IVFPQIndexBuilder:
         if not os.path.exists(self._path(TRAINED_FILE)):
             faiss.write_index(self._trained, self._path(TRAINED_FILE))
         with open(self._path(DIGEST_LIST_FILE), "a") as f:
-            f.writelines(d + "\n" for d in self._digests[self._digests_saved :])
+            new = itertools.islice(self.digest_ids, self._digests_saved, None)
+            f.writelines(d + "\n" for d in new)
             f.flush()
             os.fsync(f.fileno())
-        self._digests_saved = len(self._digests)
+        self._digests_saved = len(self.digest_ids)
         state = {
             "d": self.d,
             "nlist": self.nlist,
@@ -153,7 +176,7 @@ class IVFPQIndexBuilder:
             "nprobe": self.nprobe,
             "checkpoint_every": self.checkpoint_every,
             "ntotal": self.ntotal,
-            "n_digests": len(self._digests),
+            "n_digests": len(self.digest_ids),
             "blocks": [os.path.basename(p) for p in self._block_paths],
             "file_bytes": {name: f.tell() for name, f in self._files.items()},
             "progress": progress,
@@ -166,35 +189,6 @@ class IVFPQIndexBuilder:
         os.replace(self._path(STATE_FILE) + ".tmp", self._path(STATE_FILE))
         self._next_checkpoint = self.ntotal + self.checkpoint_every
         logging.info(f"Checkpointed {self.ntotal} vectors: {progress}")
-
-    def _restore(self, state: dict) -> None:
-        # Anything written after the checkpoint is discarded: the files are cut
-        # back to their checkpointed lengths and later blocks deleted.
-        self.d = state["d"]
-        self.ntotal = state["ntotal"]
-        self._next_checkpoint = self.ntotal + self.checkpoint_every
-        self._files = {}
-        for name, size in state["file_bytes"].items():
-            # Kept open for the rest of the build; finish() closes them.
-            file = open(self._path(name), "r+b")  # noqa: SIM115
-            file.truncate(size)
-            file.seek(size)
-            self._files[name] = file
-        self._block_paths = [self._path(name) for name in state["blocks"]]
-        for name in os.listdir(self.index_directory):
-            if name.startswith("block_") and name not in state["blocks"]:
-                os.remove(self._path(name))
-        with open(self._path(DIGEST_LIST_FILE)) as f:
-            self._digests = [line.rstrip("\n") for line in f][: state["n_digests"]]
-        with open(self._path(DIGEST_LIST_FILE), "w") as f:
-            f.writelines(d + "\n" for d in self._digests)
-        self._digests_saved = len(self._digests)
-        self.digest_ids = {digest: i for i, digest in enumerate(self._digests)}
-        # read_index returns the concrete type; this tells mypy so (wrapping it
-        # in downcast_index would leave the index owned by a discarded object).
-        self._use_trained(
-            cast(faiss.IndexIVFPQ, faiss.read_index(self._path(TRAINED_FILE)))
-        )
 
     def _path(self, name: str) -> str:
         return os.path.join(self.index_directory, name)
@@ -226,13 +220,25 @@ class IVFPQIndexBuilder:
         from faiss.contrib.ondisk import merge_ondisk
 
         index = self._trained
-        merge_ondisk(
-            index, self._block_paths, os.path.join(self.index_directory, IVFDATA_FILE)
-        )
-        faiss.write_index(index, os.path.join(self.index_directory, INDEX_FILE))
+        merge_ondisk(index, self._block_paths, self._path(IVFDATA_FILE))
+        faiss.write_index(index, self._path(INDEX_FILE))
         for path in self._block_paths:
             os.remove(path)
-        self._write_digest_maps()
+
+        # PDFs -> rows (see IVFPQDiskIndex.load_index).
+        digests = np.array(list(self.digest_ids), dtype=np.bytes_)
+        np.save(self._path("digests.npy"), digests)
+        order = np.argsort(digests).astype(np.uint32)
+        np.save(self._path("digests_sorted.npy"), digests[order])
+        np.save(self._path("digests_sorted_ids.npy"), order)
+        row_digests = np.fromfile(self._path(ROW_DIGESTS_FILE), dtype=np.uint32)
+        row_dtype = np.uint32 if self.ntotal < 2**32 else np.uint64
+        digest_rows = np.argsort(row_digests, kind="stable").astype(row_dtype)
+        offsets = np.zeros(len(digests) + 1, dtype=np.uint64)
+        np.cumsum(np.bincount(row_digests, minlength=len(digests)), out=offsets[1:])
+        np.save(self._path("digest_rows.npy"), digest_rows)
+        np.save(self._path("digest_row_offsets.npy"), offsets)
+
         meta = {
             "d": self.d,
             "nlist": self.nlist,
@@ -241,7 +247,7 @@ class IVFPQIndexBuilder:
             "n_digests": len(self.digest_ids),
             "nprobe": self.nprobe,
         }
-        with open(os.path.join(self.index_directory, META_FILE), "w") as f:
+        with open(self._path(META_FILE), "w") as f:
             json.dump(meta, f, indent=2)
         for name in (STATE_FILE, TRAINED_FILE, DIGEST_LIST_FILE):
             if os.path.exists(self._path(name)):
@@ -301,9 +307,13 @@ class IVFPQIndexBuilder:
         add_preassigned(self._block, vectors, lists.ravel(), ids=rows)
         self.ntotal += len(vectors)
 
-        # A batch holds a few PDFs' pages: look up each distinct digest once.
+        # A batch holds a few PDFs' pages: look up each distinct digest once, giving
+        # new PDFs the next ids.
         unique, inverse = np.unique(np.asarray(digests), return_inverse=True)
-        ids = np.array([self._digest_id(str(d)) for d in unique], dtype=np.uint32)
+        ids = np.array(
+            [self.digest_ids.setdefault(str(d), len(self.digest_ids)) for d in unique],
+            dtype=np.uint32,
+        )
         digest_ids = ids[inverse.ravel()]
         if self._files is None:
             # Kept open for the whole build; finish() closes them.
@@ -317,41 +327,13 @@ class IVFPQIndexBuilder:
         if self._block.ntotal >= self.block_size:
             self._flush_block()
 
-    def _digest_id(self, digest: str) -> int:
-        digest_id = self.digest_ids.get(digest)
-        if digest_id is None:
-            digest_id = self.digest_ids[digest] = len(self._digests)
-            self._digests.append(digest)
-        return digest_id
-
     def _flush_block(self) -> None:
         if self._block is None or self._block.ntotal == 0:
             return
-        path = os.path.join(
-            self.index_directory, f"block_{len(self._block_paths):04d}.index"
-        )
+        path = self._path(f"block_{len(self._block_paths):04d}.index")
         faiss.write_index(self._block, path)
         self._block_paths.append(path)
         self._block = None
-
-    def _write_digest_maps(self) -> None:
-        digests = np.array(self._digests, dtype=np.bytes_)
-        np.save(os.path.join(self.index_directory, "digests.npy"), digests)
-        order = np.argsort(digests).astype(np.uint32)
-        np.save(
-            os.path.join(self.index_directory, "digests_sorted.npy"), digests[order]
-        )
-        np.save(os.path.join(self.index_directory, "digests_sorted_ids.npy"), order)
-
-        row_digests = np.fromfile(
-            os.path.join(self.index_directory, ROW_DIGESTS_FILE), dtype=np.uint32
-        )
-        row_dtype = np.uint32 if self.ntotal < 2**32 else np.uint64
-        digest_rows = np.argsort(row_digests, kind="stable").astype(row_dtype)
-        offsets = np.zeros(len(digests) + 1, dtype=np.uint64)
-        np.cumsum(np.bincount(row_digests, minlength=len(digests)), out=offsets[1:])
-        np.save(os.path.join(self.index_directory, "digest_rows.npy"), digest_rows)
-        np.save(os.path.join(self.index_directory, "digest_row_offsets.npy"), offsets)
 
 
 class IVFPQDiskIndex(AbstractVectorIndex):
@@ -371,15 +353,6 @@ class IVFPQDiskIndex(AbstractVectorIndex):
 
     def _path(self, name: str) -> str:
         return os.path.join(self.index_directory, name)
-
-    def build_index(self):
-        raise NotImplementedError("IVF-PQ indexes are built with IVFPQIndexBuilder")
-
-    def add_batch(self, embeddings):
-        raise NotImplementedError("IVF-PQ indexes are built with IVFPQIndexBuilder")
-
-    def save_index(self):
-        raise NotImplementedError("IVF-PQ indexes are built with IVFPQIndexBuilder")
 
     def load_index(self):
         with open(self._path(META_FILE)) as f:
@@ -435,18 +408,19 @@ class IVFPQDiskIndex(AbstractVectorIndex):
         digests, pages = self._rows_to_results(rows[best])
         return distances[best], digests, pages
 
-    def _digest_rows(self, digest: str) -> np.ndarray | None:
-        key = digest.encode()
-        position = np.searchsorted(self.digests_sorted, key)
-        if position >= len(self.digests_sorted) or self.digests_sorted[position] != key:
-            return None
-        digest_id = self.digests_sorted_ids[position]
-        start, end = self.digest_row_offsets[digest_id : digest_id + 2]
-        return np.asarray(self.digest_rows[start:end])
-
     def get_vectors_for_digests(self, candidate_digests):
-        found = [self._digest_rows(str(d)) for d in candidate_digests]
-        rows = [r for r in found if r is not None and len(r)]
+        # Each PDF's id by binary search over the sorted digests, then its rows.
+        rows = []
+        for digest in candidate_digests:
+            key = str(digest).encode()
+            position = np.searchsorted(self.digests_sorted, key)
+            if (
+                position < len(self.digests_sorted)
+                and self.digests_sorted[position] == key
+            ):
+                digest_id = self.digests_sorted_ids[position]
+                start, end = self.digest_row_offsets[digest_id : digest_id + 2]
+                rows.append(np.asarray(self.digest_rows[start:end]))
         if not rows:
             return np.empty((0, 0), dtype=np.float32), [], []
         all_rows = np.sort(np.concatenate(rows))

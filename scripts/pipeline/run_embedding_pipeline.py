@@ -51,49 +51,6 @@ class PageBatch:
     )
 
 
-def move_pdf(source: DataModel, destination: DataModel, digest: str) -> None:
-    for pdf_directory in (
-        DataModel.txt_pdf_directory,
-        DataModel.img_pdf_directory,
-        DataModel.metadata_pdf_directory,
-        DataModel.ocr_img_pdf_directory,
-    ):
-        if os.path.isdir(pdf_directory(source, digest)):
-            os.makedirs(
-                os.path.dirname(pdf_directory(destination, digest)), exist_ok=True
-            )
-            os.rename(pdf_directory(source, digest), pdf_directory(destination, digest))
-
-
-def upload_batch(
-    local_dm, remote_dm, data_loader, do_text_embedding, do_img_embedding, do_metadata
-):
-    if do_text_embedding or do_img_embedding or do_metadata:
-        data_loader.upload_directory(
-            local_dm.txt_directory, remote_dm.txt_directory, compress=True
-        )
-        # The pages' images go up as one pack, and before the metadata, which
-        # records where in the pack each PDF's pages are.
-        pack_name = pack_page_images(local_dm)
-        if pack_name:
-            data_loader.upload_file(
-                local_dm.img_pack_path(pack_name), remote_dm.img_pack_path(pack_name)
-            )
-        data_loader.upload_directory(
-            local_dm.metadata_directory, remote_dm.metadata_directory, compress=True
-        )
-    if do_text_embedding:
-        data_loader.upload_directory(
-            local_dm.embedding_directory, remote_dm.embedding_directory, compress=True
-        )
-    if do_img_embedding:
-        data_loader.upload_directory(
-            local_dm.embedding_img_pg_directory,
-            remote_dm.embedding_img_pg_directory,
-            compress=True,
-        )
-
-
 # overall method that gets the files in batches and runs them through the
 # pipeline
 def main():
@@ -333,7 +290,14 @@ def main():
         batch = new_batch()
         for download in downloads:
             for digest, num_pages in extracted_pdfs(download.data_model):
-                move_pdf(download.data_model, batch.data_model, digest)
+                for source, destination in zip(
+                    download.data_model.extracted_pdf_directories(digest),
+                    batch.data_model.extracted_pdf_directories(digest),
+                    strict=True,
+                ):
+                    if os.path.isdir(source):
+                        os.makedirs(os.path.dirname(destination), exist_ok=True)
+                        os.rename(source, destination)
                 batch.num_pdfs += 1
                 batch.num_pages += num_pages
                 if batch.num_pages >= args.pages_per_batch:
@@ -360,14 +324,33 @@ def main():
 
     def upload(batch: PageBatch) -> None:
         start = time.time()
-        if batch.num_pdfs:
-            upload_batch(
-                batch.data_model,
-                remote_dm,
-                data_loader,
-                args.do_text_embedding,
-                args.do_img_embedding,
-                args.do_metadata_collection,
+        batch_dm = batch.data_model
+        if batch.num_pdfs and run_extraction:
+            data_loader.upload_directory(
+                batch_dm.txt_directory, remote_dm.txt_directory, compress=True
+            )
+            # The pages' images go up as one pack, and before the metadata, which
+            # records where in the pack each PDF's pages are.
+            pack_name = pack_page_images(batch_dm)
+            if pack_name:
+                data_loader.upload_file(
+                    batch_dm.img_pack_path(pack_name),
+                    remote_dm.img_pack_path(pack_name),
+                )
+            data_loader.upload_directory(
+                batch_dm.metadata_directory, remote_dm.metadata_directory, compress=True
+            )
+        if batch.num_pdfs and args.do_text_embedding:
+            data_loader.upload_directory(
+                batch_dm.embedding_directory,
+                remote_dm.embedding_directory,
+                compress=True,
+            )
+        if batch.num_pdfs and args.do_img_embedding:
+            data_loader.upload_directory(
+                batch_dm.embedding_img_pg_directory,
+                remote_dm.embedding_img_pg_directory,
+                compress=True,
             )
         pipeline_times["upload"] += time.time() - start
         # Batches are uploaded in order, so a checkpoint only ever moves past PDFs

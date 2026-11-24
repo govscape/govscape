@@ -59,18 +59,6 @@ def read_chunk(path: str) -> tuple[np.ndarray, list[str], list[int]]:
     return np.stack(vectors).astype(np.float32), digests, pages
 
 
-def list_chunks(data_loader, remote_dir: str) -> list[str]:
-    keys, token = [], None
-    while True:
-        result = data_loader.list_objects(
-            remote_dir, max_keys=1000, continuation_token=token
-        )
-        keys += [key for key in result.keys if key.endswith(".tar.gz")]
-        if not result.is_truncated:
-            return sorted(keys)
-        token = result.continuation_token
-
-
 def chunks_digest(chunks: list[str]) -> str:
     return hashlib.sha1("\n".join(chunks).encode()).hexdigest()
 
@@ -116,7 +104,16 @@ def main():
         profile_name=args.profile,
         endpoint_url=args.endpoint_url,
     )
-    chunks = list_chunks(data_loader, remote_embeddings)[: args.max_chunks]
+    chunks, token = [], None
+    while True:
+        listing = data_loader.list_objects(
+            remote_embeddings, max_keys=1000, continuation_token=token
+        )
+        chunks += [key for key in listing.keys if key.endswith(".tar.gz")]
+        if not listing.is_truncated:
+            break
+        token = listing.continuation_token
+    chunks = sorted(chunks)[: args.max_chunks]
     logging.info(f"{len(chunks)} embedding chunks in {remote_embeddings}")
 
     resumed = None if args.restart else IVFPQIndexBuilder.resume(local_index)
