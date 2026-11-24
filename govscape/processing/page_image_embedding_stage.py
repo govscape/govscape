@@ -1,6 +1,6 @@
 import logging
 import os
-from multiprocessing import get_context
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
@@ -11,12 +11,6 @@ from ..visual_embedding_models import (
     SigLIP_VisualEmbeddingModel,
 )
 from .processing_stage import ProcessingStage
-
-
-def _save_embeddings_batch(embed_and_paths):
-    embed, embed_file_paths = embed_and_paths
-    for output_path, embedding in zip(embed_file_paths, embed, strict=False):
-        np.save(output_path, embedding)
 
 
 def build_visual_model(model_type):
@@ -71,26 +65,7 @@ class PageImageEmbeddingStage(ProcessingStage):
         self._save_embeddings_parallel(emb, embedding_paths)
 
     def _save_embeddings_parallel(self, embed, embed_file_paths):
-        chunks = np.array_split(embed, self.cpu_count)
-        chunk_embed_file_paths = []
-        start = 0
-        for chunk in chunks:
-            end = chunk.shape[0]
-            chunk_embed_file_paths.append(embed_file_paths[start : start + end])
-            start = start + end
-
-        if len(chunks) != len(chunk_embed_file_paths):
-            raise Exception(
-                "chunks and chunk_embed_file_paths should be the same length."
-            )
-
-        ctx = get_context("spawn")
-        with ctx.Pool(processes=self.cpu_count) as pool:
-            pool.map(
-                _save_embeddings_batch,
-                zip(chunks, chunk_embed_file_paths, strict=False),
-            )
-            # Let workers exit on their own: Pool.__exit__ terminates them, and some
-            # native libs' SIGTERM handlers can deadlock.
-            pool.close()
-            pool.join()
+        # Threads rather than processes: saving is I/O, and every spawned process
+        # would add hundreds of MB of interpreter and imports for a few seconds' work.
+        with ThreadPoolExecutor(max_workers=self.cpu_count) as executor:
+            list(executor.map(np.save, embed_file_paths, embed))
