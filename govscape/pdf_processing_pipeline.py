@@ -42,39 +42,39 @@ class PDFProcessingPipeline:
 
     def extract(
         self, pdf_files: list[str], data_model: DataModel, do_ocr: bool = False
-    ) -> tuple[float, float]:
-        """Extract page text, images and metadata from pdf_files into data_model,
-        then OCR the pages that need it. Returns (extraction, OCR) seconds."""
+    ) -> float:
+        """Extract page text, images and metadata from pdf_files into data_model.
+        With do_ocr, also render the pages that need OCR, for ocr(). Returns
+        seconds taken."""
         if do_ocr and not self.ocr_type:
             logging.warning("do_ocr=True but no ocr_type set; skipping OCR stage")
-        ocr_type = self.ocr_type if do_ocr else None
-
-        time1 = time.time()
+        start = time.time()
         logging.info("Converting pdfs to txts and page images")
         pdf_extraction_stage = PDFExtractionStage(
             data_model=data_model,
             pdf_files=pdf_files,
             cpu_count=self.cpu_count,
-            render_ocr_pages=bool(ocr_type),
+            render_ocr_pages=do_ocr and bool(self.ocr_type),
         )
         pdf_extraction_stage.validate()
         parsed = pdf_extraction_stage.run()
         logging.info(f"PDFs successfully parsed: {parsed} / {len(pdf_files)}")
+        logging.info(f"pdf -> txt, img, metadata time: {time.time() - start}")
+        return time.time() - start
 
-        time2 = time.time()
-        if ocr_type:
-            logging.info(f"Running OCR extraction using {ocr_type}")
-            ocr_stage = OCRProcessingStage(
-                data_model=data_model, ocr_type=ocr_type, **self.ocr_kwargs
-            )
-            ocr_stage.validate()
-            ocr_stage.run()
-        time3 = time.time()
-
-        logging.info(f"pdf -> txt, img, metadata time: {time2 - time1}")
-        if do_ocr:
-            logging.info(f"ocr processing time: {time3 - time2}")
-        return time2 - time1, time3 - time2
+    def ocr(self, data_model: DataModel) -> float:
+        """OCR the pages extract() rendered for it. Returns seconds taken."""
+        if not self.ocr_type:
+            return 0.0
+        start = time.time()
+        logging.info(f"Running OCR extraction using {self.ocr_type}")
+        ocr_stage = OCRProcessingStage(
+            data_model=data_model, ocr_type=self.ocr_type, **self.ocr_kwargs
+        )
+        ocr_stage.validate()
+        ocr_stage.run()
+        logging.info(f"ocr processing time: {time.time() - start}")
+        return time.time() - start
 
     def embed(
         self, data_model: DataModel, do_text_embedding: bool, do_img_embedding: bool
@@ -121,7 +121,8 @@ class PDFProcessingPipeline:
         """Extract and embed pdf_files into this pipeline's data directory."""
         extract_time = ocr_time = 0.0
         if do_text_embedding or do_img_embedding or do_metadata_collection or do_ocr:
-            extract_time, ocr_time = self.extract(pdf_files, self.data_model, do_ocr)
+            extract_time = self.extract(pdf_files, self.data_model, do_ocr)
+            ocr_time = self.ocr(self.data_model) if do_ocr else 0.0
         text_embed_time, img_embed_time = self.embed(
             self.data_model, do_text_embedding, do_img_embedding
         )

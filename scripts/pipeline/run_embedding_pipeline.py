@@ -275,14 +275,16 @@ def main():
 
     def extract(batch: Batch) -> Batch:
         if run_extraction:
-            extract_time, ocr_time = processor.extract(
+            pipeline_times["pdf_to_txt_img_time"] += processor.extract(
                 batch.pdf_files, batch.data_model, args.do_ocr
             )
-            pipeline_times["pdf_to_txt_img_time"] += extract_time
-            pipeline_times["ocr_time"] += ocr_time
             # Nothing reads the PDFs again, and several batches wait on disk for
             # the GPU.
             shutil.rmtree(batch_pdf_dir(batch.data_model))
+        return batch
+
+    def ocr(batch: Batch) -> Batch:
+        pipeline_times["ocr_time"] += processor.ocr(batch.data_model)
         return batch
 
     def embed(batch: Batch) -> Batch:
@@ -314,9 +316,10 @@ def main():
             json.dump(pipeline_times, f, indent=2)
         data_loader.upload_file(local_perf_path, remote_perf_path)
 
-    # While the GPU embeds one batch, the next is extracted, the one after that
-    # downloaded, and the previous one uploaded.
-    run_pipelined(download_batches(), [extract, embed, upload])
+    # While the GPU embeds one batch, the next is OCR'd, the one after that
+    # extracted, the next downloaded, and the previous one uploaded.
+    stages = [extract, ocr, embed, upload] if args.do_ocr else [extract, embed, upload]
+    run_pipelined(download_batches(), stages)
 
     # After all batches are processed, clean up the directories
     if os.path.exists(local_dm.data_dir):
