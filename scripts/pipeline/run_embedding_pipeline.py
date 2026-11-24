@@ -32,6 +32,10 @@ class Batch:
     data_model: DataModel
 
 
+def batch_pdf_dir(batch_dm: DataModel) -> str:
+    return os.path.join(batch_dm.data_dir, "PDFs")
+
+
 def upload_batch(
     local_dm, remote_dm, data_loader, do_text_embedding, do_img_embedding, do_metadata
 ):
@@ -249,7 +253,7 @@ def main():
                 pdf_files = pdf_iter.download_batch(
                     max_keys=min(args.batch_size, max_files_to_process - downloaded),
                     filter_fn=lambda key: key.endswith(".pdf"),
-                    local_dir=os.path.join(batch_dm.data_dir, "PDFs"),
+                    local_dir=batch_pdf_dir(batch_dm),
                 )
                 pipeline_times["download"] += time.time() - start
                 if not pdf_files:
@@ -276,6 +280,9 @@ def main():
             )
             pipeline_times["pdf_to_txt_img_time"] += extract_time
             pipeline_times["ocr_time"] += ocr_time
+            # Nothing reads the PDFs again, and several batches wait on disk for
+            # the GPU.
+            shutil.rmtree(batch_pdf_dir(batch.data_model))
         return batch
 
     def embed(batch: Batch) -> Batch:

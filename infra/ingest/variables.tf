@@ -73,7 +73,7 @@ variable "instance_profile" {
 }
 
 variable "root_volume_gb" {
-  description = "Root volume size, which holds the OS, the Docker image and the batch in progress"
+  description = "Root volume size. The AMI and the app and vLLM images take ~85 GB, and up to ~6 batches of a few GB each wait on disk at once"
   type        = number
-  default     = 100
+  default     = 200
 }
