@@ -2,6 +2,7 @@ import functools
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from .config import DataModel
 from .processing import (
@@ -79,26 +80,35 @@ class PDFProcessingPipeline:
         self, data_model: DataModel, do_text_embedding: bool, do_img_embedding: bool
     ) -> tuple[float, float]:
         """Embed the extracted pages in data_model. Returns (text, image) seconds."""
-        time1 = time.time()
-        if do_text_embedding:
-            logging.info("Converting txts to embeddings")
-            text_stage = TextEmbeddingStage(data_model, model=self._text_model)
-            text_stage.validate()
-            text_stage.run()
-        time2 = time.time()
+        if do_text_embedding and do_img_embedding and self._text_model.SERVED_REMOTELY:
+            # The image model can use the GPU while the text model's server works.
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                text = executor.submit(self._embed_text, data_model)
+                image_time = self._embed_images(data_model)
+                return text.result(), image_time
+        text_time = self._embed_text(data_model) if do_text_embedding else 0.0
+        image_time = self._embed_images(data_model) if do_img_embedding else 0.0
+        return text_time, image_time
 
-        if do_img_embedding:
-            logging.info("Converting imgs to embeddings")
-            image_stage = PageImageEmbeddingStage(
-                data_model, cpu_count=self.cpu_count, model=self._visual_model
-            )
-            image_stage.validate()
-            image_stage.run()
-        time3 = time.time()
+    def _embed_text(self, data_model: DataModel) -> float:
+        start = time.time()
+        logging.info("Converting txts to embeddings")
+        text_stage = TextEmbeddingStage(data_model, model=self._text_model)
+        text_stage.validate()
+        text_stage.run()
+        logging.info(f"txt -> embed time: {time.time() - start}")
+        return time.time() - start
 
-        logging.info(f"txt -> embed time: {time2 - time1}")
-        logging.info(f"img per page -> embed time: {time3 - time2}")
-        return time2 - time1, time3 - time2
+    def _embed_images(self, data_model: DataModel) -> float:
+        start = time.time()
+        logging.info("Converting imgs to embeddings")
+        image_stage = PageImageEmbeddingStage(
+            data_model, cpu_count=self.cpu_count, model=self._visual_model
+        )
+        image_stage.validate()
+        image_stage.run()
+        logging.info(f"img per page -> embed time: {time.time() - start}")
+        return time.time() - start
 
     def process_pdfs(
         self,

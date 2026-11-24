@@ -17,6 +17,10 @@ BATCH_SIZE = 128
 
 
 class TextEmbeddingModel(ABC):
+    # Whether the model runs in another process (a server), leaving this process
+    # free to use the GPU while it waits for embeddings.
+    SERVED_REMOTELY = False
+
     @property
     @abstractmethod
     def d(self):
@@ -163,6 +167,7 @@ class Qwen3VLLM_TextEmbeddingModel(TextEmbeddingModel):
     and batches them, and returns normalized embeddings.
     """
 
+    SERVED_REMOTELY = True
     MODEL = "Qwen/Qwen3-Embedding-0.6B"
     QUERY_PREFIX = Qwen3_TextEmbeddingModel.QUERY_PREFIX
     # Requests run concurrently so vLLM's scheduler always has work queued.

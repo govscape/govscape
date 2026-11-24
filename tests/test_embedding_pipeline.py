@@ -202,3 +202,33 @@ def test_process_pdfs_builds_embedding_models_once(sample_pipeline, monkeypatch)
     embeddings = list(Path(pipeline.data_model.embedding_directory).rglob("*.npy"))
     assert embeddings
     assert np.load(embeddings[0]).shape == (128,)
+
+
+def test_images_embed_while_a_remote_text_model_works(sample_pipeline, monkeypatch):
+    import threading
+    import time
+
+    pipeline, _ = sample_pipeline
+    running: set[str] = set()
+    overlapped = threading.Event()
+
+    def stage(name):
+        def run(self, data_model):
+            running.add(name)
+            if len(running) > 1:
+                overlapped.set()
+            time.sleep(0.2)
+            running.discard(name)
+            return 0.2
+
+        return run
+
+    monkeypatch.setattr(PDFProcessingPipeline, "_embed_text", stage("text"))
+    monkeypatch.setattr(PDFProcessingPipeline, "_embed_images", stage("images"))
+
+    pipeline.embed(pipeline.data_model, True, True)
+    assert not overlapped.is_set()  # Dummy runs in this process: one at a time.
+
+    monkeypatch.setattr(pipeline._text_model, "SERVED_REMOTELY", True)
+    assert pipeline.embed(pipeline.data_model, True, True) == (0.2, 0.2)
+    assert overlapped.is_set()
