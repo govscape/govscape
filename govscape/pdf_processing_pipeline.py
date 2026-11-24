@@ -11,6 +11,7 @@ from .processing import (
     TextEmbeddingStage,
 )
 from .processing.page_image_embedding_stage import build_visual_model
+from .processing.pdf_extraction_stage import OCR_DPI
 from .processing.text_embedding_stage import build_text_model
 
 
@@ -47,7 +48,10 @@ class PDFProcessingPipeline:
         time1 = time.time()
         logging.info("Converting pdfs to txts and page images")
         pdf_extraction_stage = PDFExtractionStage(
-            data_model=data_model, pdf_files=pdf_files, cpu_count=self.cpu_count
+            data_model=data_model,
+            pdf_files=pdf_files,
+            cpu_count=self.cpu_count,
+            ocr_dpi=OCR_DPI if do_ocr and self.ocr_type else None,
         )
         pdf_extraction_stage.validate()
         parsed = pdf_extraction_stage.run()

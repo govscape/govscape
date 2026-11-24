@@ -7,10 +7,15 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /home/govscape
 
+# Tesseract for the ocrmypdf OCR backend (`--do_ocr true --ocr_type ocrmypdf`).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 
 # Install poetry and dependencies. --no-cache still produces /root/.cache/pypoetry/artifacts/
-RUN poetry install --no-cache \
+RUN poetry install --no-cache --extras ocrmypdf \
     && rm -rf /root/.cache/pypoetry/artifacts/
 
 EXPOSE 8080

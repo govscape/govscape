@@ -8,12 +8,19 @@ import pytest
 
 import numpy as np
 
+from PIL import Image
+
 from govscape.config import DataModel
 from govscape.processing import OCRProcessingStage
 from govscape.processing.ocr import (
     EasyOCRImpl,
     OcrMyPDFImpl,
     OLMOcrImpl,
+)
+from govscape.processing.pdf_extraction_stage import (
+    OCR_DPI,
+    _convert_single_pdf,
+    needs_ocr,
 )
 
 
@@ -141,19 +148,24 @@ def test_ocr_implementations_on_sample_images(impl_class, init_args, skip_pkg):
         assert expected.lower().split()[0] in text.lower()
 
 
+def _write_ocr_render(data_model, digest, page_num, image):
+    path = data_model.ocr_img_page_path(digest, page_num)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    Image.fromarray(image).convert("L").save(path, format="PNG")
+
+
 @pytest.mark.parametrize("impl_class,init_args,skip_pkg", OCR_IMPLS)
 def test_ocr_processing_stage_writes_txt(
     impl_class, init_args, skip_pkg, temp_data_dir
 ):
-    """OCRProcessingStage should dispatch batches through a ProcessPoolExecutor and
-    write one txt file per page, for every OCR engine type.
+    """OCRProcessingStage should dispatch batches through a ProcessPoolExecutor,
+    write one txt file per rendered page, and delete the renders, for every OCR
+    engine type.
 
     The worker-side engine is replaced with a fake so no real OCR model is loaded,
     and the pool runs inline so the test does not depend on the multiprocessing
     start method.
     """
-    pytest.importorskip("cv2")
-
     _, data_model = temp_data_dir
 
     # Map impl_class to ocr_type string expected by OCRProcessingStage
@@ -171,17 +183,19 @@ def test_ocr_processing_stage_writes_txt(
         **init_args,
     )
 
-    # Create sample images on disk that cv2 can read. Two pages with batch_size=1
-    # means more than one batch, so page-to-text alignment is exercised too.
-    import cv2
-
+    # Two pages with batch_size=1 means more than one batch, so page-to-text
+    # alignment is exercised too.
     digest = "abc123def456abc123def456abc123def45"
-    img_dir = os.path.join(data_model.image_directory, digest)
-    os.makedirs(img_dir, exist_ok=True)
     for page_num in range(2):
-        img = _create_test_image(f"PIPELINE TEST {page_num}")
-        img_path = os.path.join(img_dir, f"{digest}_{page_num}.jpeg")
-        cv2.imwrite(img_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+        _write_ocr_render(
+            data_model,
+            digest,
+            page_num,
+            _create_test_image(f"PIPELINE TEST {page_num}"),
+        )
+    os.makedirs(data_model.txt_pdf_directory(digest), exist_ok=True)
+    with open(data_model.txt_page_path(digest, 1), "w") as f:
+        f.write("12")
 
     _InlineProcessPoolExecutor.map_calls = 0
     with (
@@ -200,29 +214,11 @@ def test_ocr_processing_stage_writes_txt(
     for page_num in range(2):
         with open(data_model.txt_page_path(digest, page_num), encoding="utf-8") as f:
             assert f.read() == _StaticTextOCR.TEXT
+    assert not os.path.exists(data_model.ocr_image_directory)
 
 
-def test_ocr_processing_stage_skips_pages_with_text_or_blank(temp_data_dir):
-    cv2 = pytest.importorskip("cv2")
+def test_ocr_processing_stage_with_nothing_to_ocr(temp_data_dir):
     _, data_model = temp_data_dir
-
-    digest = "abc123def456abc123def456abc123def45"
-    img_dir = os.path.join(data_model.image_directory, digest)
-    os.makedirs(img_dir, exist_ok=True)
-    os.makedirs(data_model.txt_pdf_directory(digest), exist_ok=True)
-    text_layer = "A page with a real text layer from the PDF."
-    pages = {
-        0: (_create_test_image("PAGE ZERO"), text_layer),
-        1: (_create_test_image("PAGE ONE"), "12"),
-        2: (np.full((80, 300, 3), 255, dtype=np.uint8), None),
-        3: (_create_test_image("PAGE THREE"), None),
-    }
-    for page_num, (img, txt) in pages.items():
-        cv2.imwrite(os.path.join(img_dir, f"{digest}_{page_num}.jpeg"), img)
-        if txt is not None:
-            with open(data_model.txt_page_path(digest, page_num), "w") as f:
-                f.write(txt)
-
     stage = OCRProcessingStage(data_model=data_model, ocr_type="easyocr")
     with (
         patch(
@@ -235,15 +231,62 @@ def test_ocr_processing_stage_skips_pages_with_text_or_blank(temp_data_dir):
         ),
     ):
         stage.run()
+    assert not os.path.exists(data_model.txt_directory) or not os.listdir(
+        data_model.txt_directory
+    )
 
-    def page_text(page_num):
-        path = data_model.txt_page_path(digest, page_num)
-        if not os.path.exists(path):
-            return None
-        with open(path, encoding="utf-8") as f:
-            return f.read()
 
-    assert page_text(0) == text_layer
-    assert page_text(1) == _StaticTextOCR.TEXT
-    assert page_text(2) is None
-    assert page_text(3) == _StaticTextOCR.TEXT
+def _scanned_page() -> Image.Image:
+    """A letter-size page image covered in lines of text, like a scan."""
+    from PIL import ImageDraw
+
+    page = Image.new("RGB", (612, 792), color=(255, 255, 255))
+    draw = ImageDraw.Draw(page)
+    for line in range(40):
+        draw.text((40, 30 + 18 * line), "SCANNED REPORT TEXT " * 4, fill=(0, 0, 0))
+    return page
+
+
+def test_needs_ocr_skips_pages_with_a_text_layer_or_blank():
+    page = Image.fromarray(_create_test_image("SCANNED TEXT"))
+    blank = Image.new("RGB", (300, 80), color=(255, 255, 255))
+    assert needs_ocr("", page)
+    assert needs_ocr("  12 \n", page)  # a bare page number isn't a text layer
+    assert not needs_ocr("A page with a real text layer from the PDF.", page)
+    assert not needs_ocr("", blank)
+
+
+def test_extraction_renders_only_pages_that_need_ocr_at_ocr_dpi(temp_data_dir):
+    tmpdir, data_model = temp_data_dir
+    # PIL writes image-only PDFs (no text layer), one page per image, at 72 dpi.
+    scanned = _scanned_page()
+    blank = Image.new("RGB", (612, 792), color=(255, 255, 255))
+    digest = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+    pdf_path = os.path.join(tmpdir, f"{digest}.pdf")
+    blank.save(pdf_path, format="PDF", save_all=True, append_images=[scanned])
+
+    _convert_single_pdf(data_model, pdf_path, ocr_dpi=OCR_DPI)
+
+    assert os.path.exists(data_model.img_page_path(digest, 0))
+    assert os.path.exists(data_model.img_page_path(digest, 1))
+    assert not os.path.exists(data_model.ocr_img_page_path(digest, 0))
+    with Image.open(data_model.ocr_img_page_path(digest, 1)) as render:
+        assert render.mode == "L"
+        width, height = render.size
+        assert abs(width - 612 * OCR_DPI / 72) <= 1
+        assert abs(height - 792 * OCR_DPI / 72) <= 1
+    with Image.open(data_model.img_page_path(digest, 1)) as page_image:
+        assert page_image.size == (612, 792)
+
+
+def test_extraction_without_ocr_dpi_renders_nothing_for_ocr(temp_data_dir):
+    tmpdir, data_model = temp_data_dir
+    scanned = _scanned_page()
+    digest = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+    pdf_path = os.path.join(tmpdir, f"{digest}.pdf")
+    scanned.save(pdf_path, format="PDF")
+
+    _convert_single_pdf(data_model, pdf_path)
+
+    assert os.path.exists(data_model.img_page_path(digest, 0))
+    assert not os.path.exists(data_model.ocr_image_directory)

@@ -28,7 +28,7 @@ from govscape.config import (
 )
 from govscape.data_loader import S3DataLoader
 from govscape.processing.ocr_processing_stage import OCRProcessingStage
-from govscape.processing.pdf_extraction_stage import PDFExtractionStage
+from govscape.processing.pdf_extraction_stage import OCR_DPI, PDFExtractionStage
 
 DEFAULT_BUCKET = PDF_ARCHIVE_BUCKET
 DEFAULT_PREFIX = PDF_ARCHIVE_PDF_DIR
@@ -90,23 +90,34 @@ def download_pdfs(data_root: str, bucket: str, prefix: str, num_pdfs: int) -> li
 
 
 def extract_images(data_model: DataModel, pdf_files: list[str]) -> int:
-    """Extract page images from PDFs and return total image count."""
+    """Extract the pages that need OCR from PDFs and return how many there are."""
     stage = PDFExtractionStage(
         data_model=data_model,
         pdf_files=pdf_files,
         cpu_count=os.cpu_count() or 1,
+        ocr_dpi=OCR_DPI,
     )
     stage.validate()
     stage.run()
+    # OCRProcessingStage deletes the renders it reads, so keep a copy for each
+    # engine to start from.
+    if os.path.isdir(data_model.ocr_image_directory):
+        shutil.copytree(
+            data_model.ocr_image_directory, _pristine_ocr_images(data_model)
+        )
 
     total = 0
-    if os.path.isdir(data_model.image_directory):
-        for digest_dir in os.scandir(data_model.image_directory):
+    if os.path.isdir(data_model.ocr_image_directory):
+        for digest_dir in os.scandir(data_model.ocr_image_directory):
             if digest_dir.is_dir():
                 total += sum(
-                    1 for f in os.listdir(digest_dir.path) if f.endswith(".jpeg")
+                    1 for f in os.listdir(digest_dir.path) if f.endswith(".png")
                 )
     return total
+
+
+def _pristine_ocr_images(data_model: DataModel) -> str:
+    return data_model.ocr_image_directory + "_pristine"
 
 
 def select_engines(requested: Sequence[str]) -> list[str]:
@@ -139,6 +150,11 @@ def benchmark_engine(
 
         if os.path.isdir(data_model.txt_directory):
             shutil.rmtree(data_model.txt_directory)
+        shutil.rmtree(data_model.ocr_image_directory, ignore_errors=True)
+        if os.path.isdir(_pristine_ocr_images(data_model)):
+            shutil.copytree(
+                _pristine_ocr_images(data_model), data_model.ocr_image_directory
+            )
 
         start = time.perf_counter()
         stage.run()
