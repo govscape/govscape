@@ -14,7 +14,8 @@ separate from the hosting and ingest stacks and has its own state.
 | `keyword` | `scripts/indexing/generate_index_keyword.py` (Tantivy by default) | `<remote_data_dir>/index_keyword/` |
 | `metadata` | `scripts/indexing/generate_index_metadata.py` (also reads the CDX from the PDF archive) | `<remote_data_dir>/index_metadata/` |
 
-The vector indexes are disk-based IVF-PQ indexes (`govscape/indexing/ivfpq.py`),
+The vector indexes are disk-based IVF-PQ indexes (`IVFPQDiskIndex` in
+`govscape/indexing/vector.py`),
 served with `--vector_index_type Disk`.
 
 ## How a builder runs

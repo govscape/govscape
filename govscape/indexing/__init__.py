@@ -14,7 +14,6 @@ from .hybrid import (
     HybridKeywordMetadataIndex,
     HybridVectorMetadataIndex,
 )
-from .ivfpq import IVFPQDiskIndex, IVFPQIndexBuilder
 from .keyword import (
     AbstractKeywordIndex,
     LanceDBKeywordIndex,
@@ -32,6 +31,7 @@ from .vector import (
     AbstractVectorIndex,
     BuildableVectorIndex,
     FAISSIndex,
+    IVFPQDiskIndex,
     LanceDBVectorIndex,
 )
 
@@ -52,7 +52,6 @@ __all__ = [
     "HybridKeywordMetadataIndex",
     "HybridVectorMetadataIndex",
     "IVFPQDiskIndex",
-    "IVFPQIndexBuilder",
     "LMDBForwardIndex",
     "LanceDBKeywordIndex",
     "LanceDBVectorIndex",

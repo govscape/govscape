@@ -5,7 +5,7 @@ import pytest
 
 import numpy as np
 
-from govscape.indexing.ivfpq import IVFPQDiskIndex, IVFPQIndexBuilder
+from govscape.indexing import IVFPQDiskIndex
 
 D = 64
 PDFS = 200
@@ -30,7 +30,7 @@ def index(corpus, tmp_path_factory):
     vectors, digests, pages = corpus
     directory = tmp_path_factory.mktemp("ivfpq").as_posix()
     # Small blocks, so the build writes several and merges them.
-    builder = IVFPQIndexBuilder(
+    builder = IVFPQDiskIndex(
         directory,
         nlist=64,
         m=8,
@@ -41,8 +41,8 @@ def index(corpus, tmp_path_factory):
     )
     for start in range(0, len(vectors), 1000):
         end = start + 1000
-        builder.add(vectors[start:end], digests[start:end], pages[start:end])
-    builder.finish()
+        builder.add_batch(vectors[start:end], digests[start:end], pages[start:end])
+    builder.save_index()
     assert not [f for f in os.listdir(directory) if f.startswith("block_")]
 
     # Served from a copy: the index must not depend on where it was built.
@@ -94,7 +94,7 @@ def _build(directory, corpus, start_batch=0, builder=None, crash_after=None):
     """Feed the corpus in 1,000-vector batches, checkpointing when due; stop
     without finishing after crash_after batches."""
     vectors, digests, pages = corpus
-    builder = builder or IVFPQIndexBuilder(
+    builder = builder or IVFPQDiskIndex(
         directory,
         nlist=64,
         m=8,
@@ -111,10 +111,10 @@ def _build(directory, corpus, start_batch=0, builder=None, crash_after=None):
         if crash_after is not None and batch == crash_after:
             return builder
         end = start + 1000
-        builder.add(vectors[start:end], digests[start:end], pages[start:end])
+        builder.add_batch(vectors[start:end], digests[start:end], pages[start:end])
         if builder.checkpoint_due:
             builder.save_checkpoint({"batches_done": batch + 1})
-    builder.finish()
+    builder.save_index()
     return builder
 
 
@@ -126,8 +126,8 @@ def test_resumed_build_matches_an_uninterrupted_one(corpus, tmp_path):
     # Crash after 8 batches: past the checkpoint at 6,000 vectors, so later
     # blocks, rows and digests were written and must be discarded.
     _build(resumed, corpus, crash_after=8)
-    assert IVFPQIndexBuilder.resume((tmp_path / "nothing").as_posix()) is None
-    builder, progress = IVFPQIndexBuilder.resume(resumed, use_gpu=False)
+    assert IVFPQDiskIndex.resume((tmp_path / "nothing").as_posix()) is None
+    builder, progress = IVFPQDiskIndex.resume(resumed, use_gpu=False)
     assert progress == {"batches_done": 6} and builder.ntotal == 6000
     _build(resumed, corpus, start_batch=progress["batches_done"], builder=builder)
 

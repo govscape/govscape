@@ -1,10 +1,11 @@
-"""Build a disk-based IVF-PQ index (govscape/indexing/ivfpq.py) of a serving
+"""Build a disk-based IVF-PQ index (IVFPQDiskIndex in
+govscape/indexing/vector.py) of a serving
 directory's text or page-image embeddings, and upload it to the serving
 directory's index directory (index/ or index_img_pg/).
 
 The embeddings are read once, straight from the pipeline's chunks (tar.gz
 archives of per-page .npy files): chunks are downloaded in threads and parsed in
-processes, a window at a time, and their vectors go to the builder in order.
+processes, a window at a time, and their vectors are added to the index in order.
 The build uses the GPU when FAISS has one. Every --checkpoint_every vectors it
 checkpoints in the local index directory, and a restarted build resumes from
 there (a spot builder keeps its root volume when it's interrupted); --restart
@@ -26,7 +27,7 @@ import numpy as np
 
 from govscape.config import DataModel
 from govscape.data_loader import build_data_loader
-from govscape.indexing.ivfpq import IVFPQIndexBuilder
+from govscape.indexing import IVFPQDiskIndex
 from govscape.utils import base_argument_parser
 
 logging.basicConfig(
@@ -35,7 +36,7 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
-# Chunks downloaded and parsed together before their vectors go to the builder.
+# Chunks downloaded and parsed together before their vectors are added.
 CHUNKS_PER_WINDOW = 64
 
 
@@ -116,9 +117,9 @@ def main():
     chunks = sorted(chunks)[: args.max_chunks]
     logging.info(f"{len(chunks)} embedding chunks in {remote_embeddings}")
 
-    resumed = None if args.restart else IVFPQIndexBuilder.resume(local_index)
+    resumed = None if args.restart else IVFPQDiskIndex.resume(local_index)
     if resumed is not None:
-        builder, progress = resumed
+        index, progress = resumed
         chunks_done = progress["chunks_done"]
         # The chunks are listed afresh, so check those already indexed still
         # come first (new chunks may have been added after them).
@@ -127,10 +128,10 @@ def main():
                 "The embedding chunks changed since the checkpoint; rerun with "
                 "--restart"
             )
-        logging.info(f"Resuming after {chunks_done} chunks, {builder.ntotal} vectors")
+        logging.info(f"Resuming after {chunks_done} chunks, {index.ntotal} vectors")
     else:
         shutil.rmtree(local_index, ignore_errors=True)
-        builder = IVFPQIndexBuilder(
+        index = IVFPQDiskIndex(
             local_index,
             nlist=args.nlist,
             m=args.m,
@@ -158,19 +159,19 @@ def main():
             )
             for vectors, digests, pages in parsers.map(read_chunk, paths):
                 if len(vectors):
-                    builder.add(vectors, digests, pages)
+                    index.add_batch(vectors, digests, pages)
             for path in paths:
                 os.remove(path)
             done = first + len(paths)
-            if builder.checkpoint_due:
-                builder.save_checkpoint(
+            if index.checkpoint_due:
+                index.save_checkpoint(
                     {"chunks_done": done, "chunks_digest": chunks_digest(chunks[:done])}
                 )
             logging.info(
-                f"{done}/{len(chunks)} chunks, {builder.ntotal} vectors "
+                f"{done}/{len(chunks)} chunks, {index.ntotal} vectors "
                 f"encoded, {time.time() - start:.0f} s"
             )
-    builder.finish()
+    index.save_index()
     logging.info(f"Built in {time.time() - start:.0f} s; uploading to {remote_index}")
     data_loader.upload_directory(local_index, remote_index)
     logging.info(f"Done in {time.time() - start:.0f} s")
