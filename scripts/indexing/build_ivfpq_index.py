@@ -7,13 +7,14 @@ The embeddings are read once, straight from the pipeline's chunks (tar.gz
 archives of per-page .npy files): chunks are downloaded in threads and parsed in
 processes, a window at a time, and their vectors are added to the index in order.
 The build uses the GPU when FAISS has one. Every --checkpoint_every vectors it
-checkpoints in the local index directory, and a restarted build resumes from
-there (a spot builder keeps its root volume when it's interrupted); --restart
-ignores the checkpoint.
+saves the index and records the chunks in it in a local checkpoint, and a
+restarted build adds the rest to the saved index (a spot builder keeps its root
+volume when it's interrupted); --restart ignores the checkpoint.
 """
 
 import hashlib
 import io
+import json
 import logging
 import os
 import shutil
@@ -28,6 +29,7 @@ import numpy as np
 from govscape.config import DataModel
 from govscape.data_loader import build_data_loader
 from govscape.indexing import IVFPQDiskIndex
+from govscape.indexing.vector import IVFPQ_INDEX_FILE
 from govscape.utils import base_argument_parser
 
 logging.basicConfig(
@@ -117,30 +119,57 @@ def main():
     chunks = sorted(chunks)[: args.max_chunks]
     logging.info(f"{len(chunks)} embedding chunks in {remote_embeddings}")
 
-    resumed = None if args.restart else IVFPQDiskIndex.resume(local_index)
-    if resumed is not None:
-        index, progress = resumed
-        chunks_done = progress["chunks_done"]
+    index = IVFPQDiskIndex(
+        local_index,
+        nlist=args.nlist,
+        m=args.m,
+        train_size=args.train_size,
+        block_size=args.block_size,
+        nprobe=args.nprobe,
+    )
+    # Each save of the index is recorded here before it's made, with the rows it
+    # will have, so a restart continues from the record of the save that finished.
+    checkpoint_path = local_dm.checkpoint_file_path(f"ivfpq_{args.embedding_type}")
+    saves = []
+    if not args.restart and os.path.exists(checkpoint_path):
+        with open(checkpoint_path) as f:
+            saves = json.load(f)
+    chunks_done = 0
+    if saves and os.path.exists(os.path.join(local_index, IVFPQ_INDEX_FILE)):
+        index.load_index()
+        matching = [s for s in saves if s["ntotal"] == index.total_entries()]
         # The chunks are listed afresh, so check those already indexed still
         # come first (new chunks may have been added after them).
-        if chunks_digest(chunks[:chunks_done]) != progress["chunks_digest"]:
+        if (
+            not matching
+            or chunks_digest(chunks[: matching[-1]["chunks_done"]])
+            != matching[-1]["chunks_digest"]
+        ):
             raise RuntimeError(
-                "The embedding chunks changed since the checkpoint; rerun with "
+                "The saved index doesn't match the embedding chunks; rerun with "
                 "--restart"
             )
+        chunks_done = matching[-1]["chunks_done"]
         logging.info(f"Resuming after {chunks_done} chunks, {index.ntotal} vectors")
     else:
+        saves = []
         shutil.rmtree(local_index, ignore_errors=True)
-        index = IVFPQDiskIndex(
-            local_index,
-            nlist=args.nlist,
-            m=args.m,
-            train_size=args.train_size,
-            block_size=args.block_size,
-            nprobe=args.nprobe,
-            checkpoint_every=args.checkpoint_every,
-        )
-        chunks_done = 0
+
+    def save(done: int) -> None:
+        saves[:] = saves[-1:] + [
+            {
+                "chunks_done": done,
+                "chunks_digest": chunks_digest(chunks[:done]),
+                "ntotal": index.total_entries(),
+            }
+        ]
+        os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+        with open(checkpoint_path + ".tmp", "w") as f:
+            json.dump(saves, f)
+        os.replace(checkpoint_path + ".tmp", checkpoint_path)
+        index.save_index()
+
+    saved_entries = index.total_entries()
     start = time.time()
     with (
         tempfile.TemporaryDirectory() as download_dir,
@@ -163,15 +192,14 @@ def main():
             for path in paths:
                 os.remove(path)
             done = first + len(paths)
-            if index.checkpoint_due:
-                index.save_checkpoint(
-                    {"chunks_done": done, "chunks_digest": chunks_digest(chunks[:done])}
-                )
+            if index.total_entries() - saved_entries >= args.checkpoint_every:
+                save(done)
+                saved_entries = index.total_entries()
             logging.info(
                 f"{done}/{len(chunks)} chunks, {index.ntotal} vectors "
                 f"encoded, {time.time() - start:.0f} s"
             )
-    index.save_index()
+    save(len(chunks))
     logging.info(f"Built in {time.time() - start:.0f} s; uploading to {remote_index}")
     data_loader.upload_directory(local_index, remote_index)
     logging.info(f"Done in {time.time() - start:.0f} s")

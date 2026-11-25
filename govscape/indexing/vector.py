@@ -1,15 +1,13 @@
 import contextlib
-import itertools
-import json
 import logging
 import os
 import pickle as pkl
+import shutil
 import struct
 import sys
 import types
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import cast
 
 import numpy as np
 
@@ -405,42 +403,36 @@ class LanceDBVectorIndex(AbstractVectorIndex):
 
 IVFPQ_INDEX_FILE = "ivfpq.index"
 IVFPQ_DATA_FILE = "ivfpq.ivfdata"
-IVFPQ_META_FILE = "meta.json"
 VECTORS_FILE = "vectors.f16"
 ROW_DIGESTS_FILE = "row_digests.u32"
 ROW_PAGES_FILE = "row_pages.u32"
 DIGEST_ROWS_DB = "digest_rows.lmdb"
-# A build's checkpoint, removed when the build finishes.
-STATE_FILE = "build_state.json"
-TRAINED_FILE = "build_trained.index"
-DIGEST_LIST_FILE = "build_digests.txt"
 # FAISS recommends at least this many training points per coarse centroid.
 MIN_TRAIN_POINTS_PER_LIST = 39
 
 
 class IVFPQDiskIndex(AbstractVectorIndex):
-    """A disk-based IVF-PQ index for archive-scale serving, built in a single pass
-    over the data and served with almost everything memory-mapped from disk:
+    """A disk-based IVF-PQ index for archive-scale serving, served with almost
+    everything memory-mapped from disk:
 
-    - ivfpq.index, ivfpq.ivfdata: a FAISS IndexIVFPQ whose inverted lists (each
-      vector's PQ code and row id) live in ivfpq.ivfdata and are read from disk
-      at search time; only the coarse centroids are held in memory.
+    - ivfpq.index, ivfpq.ivfdata: a FAISS IndexIVFPQ whose inverted lists
+      (each vector's PQ code and row id) are read from disk at search time; only
+      the coarse centroids are held in memory.
     - vectors.f16: every vector in float16, by row, to rerank PQ candidates
       exactly and to return all of a PDF's page vectors for prefiltering.
     - row_digests.u32, row_pages.u32: each row's PDF (an index into digests.npy)
       and page number.
     - digests.npy: the PDF digests, by id.
     - digest_rows.lmdb: each PDF's rows, by digest (a KVStore).
-    - meta.json: dimensions, sizes and search settings.
 
     Building: the first train_size vectors passed to add_batch() are buffered to
     train the index, so they should be a fair sample (digests are hashes, so any
     shard is). FAISS trains the coarse quantizer and assigns vectors to lists on
     the GPU when it has one; PQ encoding is done on the CPU. Encoded vectors are
-    written in blocks of block_size, which save_index() merges into one on-disk
-    index. Once checkpoint_due (every checkpoint_every vectors), the caller can
-    save_checkpoint() with its progress through its input; resume() then restores
-    the index being built and that progress after a restart.
+    written in blocks of block_size, which save_index() merges with the lists
+    already saved. A saved index can be added to after load_index(), so a build
+    can be saved and continued; rows written after the last save (by a build that
+    stopped) are discarded.
     """
 
     # PQ candidates per result, reranked with the exact (float16) vectors. On the
@@ -458,7 +450,6 @@ class IVFPQDiskIndex(AbstractVectorIndex):
         block_size: int = 20_000_000,
         nprobe: int = 128,
         use_gpu: bool | None = None,
-        checkpoint_every: int = 100_000_000,
     ):
         self.index_directory = index_directory
         self.nlist = nlist
@@ -467,17 +458,15 @@ class IVFPQDiskIndex(AbstractVectorIndex):
         self.block_size = block_size
         self.nprobe = nprobe
         self.use_gpu = faiss.get_num_gpus() > 0 if use_gpu is None else use_gpu
-        self.checkpoint_every = checkpoint_every
+        # The saved index, once loaded or saved.
         self.index = None
 
         self.d: int | None = None
         self.ntotal = 0
-        self._next_checkpoint = checkpoint_every
-        # Each PDF's id, in id order; the first _digests_saved are checkpointed.
+        # Each PDF's id, in id order.
         self.digest_ids: dict[str, int] = {}
-        self._digests_saved = 0
         self._pending: list[tuple[np.ndarray, list[str], list]] = []
-        self._pending_count = 0
+        # An empty trained index, which blocks are cloned from.
         self._trained: faiss.IndexIVFPQ | None = None
         # The trained index's quantizer, kept referenced for as long as the index.
         self._quantizer: faiss.Index | None = None
@@ -492,93 +481,6 @@ class IVFPQDiskIndex(AbstractVectorIndex):
 
     # Building
 
-    @classmethod
-    def resume(
-        cls, index_directory: str, use_gpu: bool | None = None
-    ) -> tuple["IVFPQDiskIndex", dict] | None:
-        """The index last checkpointed in index_directory, with the progress saved
-        with it, or None if there's no checkpoint."""
-        path = os.path.join(index_directory, STATE_FILE)
-        if not os.path.exists(path):
-            return None
-        with open(path) as f:
-            state = json.load(f)
-        index = cls(index_directory, use_gpu=use_gpu, **state["config"])
-        # Anything written after the checkpoint is discarded: the files are cut
-        # back to their checkpointed lengths and later blocks deleted.
-        index.d = state["d"]
-        index.ntotal = state["ntotal"]
-        index._next_checkpoint = index.ntotal + index.checkpoint_every
-        index._files = {}
-        for name, size in state["file_bytes"].items():
-            # Kept open for the rest of the build; save_index() closes them.
-            file = open(index._path(name), "r+b")  # noqa: SIM115
-            file.truncate(size)
-            file.seek(size)
-            index._files[name] = file
-        index._block_paths = [index._path(name) for name in state["blocks"]]
-        for name in os.listdir(index_directory):
-            if name.startswith("block_") and name not in state["blocks"]:
-                os.remove(index._path(name))
-        with open(index._path(DIGEST_LIST_FILE)) as f:
-            digests = [line.rstrip("\n") for line in f][: state["n_digests"]]
-        with open(index._path(DIGEST_LIST_FILE), "w") as f:
-            f.writelines(d + "\n" for d in digests)
-        index.digest_ids = {digest: i for i, digest in enumerate(digests)}
-        index._digests_saved = len(digests)
-        # read_index returns the concrete type; this tells mypy so (wrapping it
-        # in downcast_index would leave the index owned by a discarded object).
-        index._use_trained(
-            cast(faiss.IndexIVFPQ, faiss.read_index(index._path(TRAINED_FILE)))
-        )
-        return index, state["progress"]
-
-    @property
-    def checkpoint_due(self) -> bool:
-        return self._trained is not None and self.ntotal >= self._next_checkpoint
-
-    def save_checkpoint(self, progress: dict) -> None:
-        """Make everything added so far survive a restart (see resume()), with
-        the caller's progress through its input."""
-        assert self._trained is not None and self._files is not None
-        self._flush_block()
-        for file in self._files.values():
-            file.flush()
-            os.fsync(file.fileno())
-        if not os.path.exists(self._path(TRAINED_FILE)):
-            faiss.write_index(self._trained, self._path(TRAINED_FILE))
-        with open(self._path(DIGEST_LIST_FILE), "a") as f:
-            new = itertools.islice(self.digest_ids, self._digests_saved, None)
-            f.writelines(d + "\n" for d in new)
-            f.flush()
-            os.fsync(f.fileno())
-        self._digests_saved = len(self.digest_ids)
-        config = (
-            "nlist",
-            "m",
-            "train_size",
-            "block_size",
-            "nprobe",
-            "checkpoint_every",
-        )
-        state = {
-            "config": {name: getattr(self, name) for name in config},
-            "d": self.d,
-            "ntotal": self.ntotal,
-            "n_digests": len(self.digest_ids),
-            "blocks": [os.path.basename(p) for p in self._block_paths],
-            "file_bytes": {name: f.tell() for name, f in self._files.items()},
-            "progress": progress,
-        }
-        # Written last and atomically: the checkpoint is whatever it describes.
-        with open(self._path(STATE_FILE) + ".tmp", "w") as f:
-            json.dump(state, f)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(self._path(STATE_FILE) + ".tmp", self._path(STATE_FILE))
-        self._next_checkpoint = self.ntotal + self.checkpoint_every
-        logging.info(f"Checkpointed {self.ntotal} vectors: {progress}")
-
     def build_index(self):
         return
 
@@ -586,41 +488,65 @@ class IVFPQDiskIndex(AbstractVectorIndex):
         vectors = np.ascontiguousarray(embeddings, dtype=np.float32)
         if self.d is None:
             self.d = vectors.shape[1]
+        if self._trained is None and self.index is not None:
+            # Adding to a saved index: encode with its training, in empty lists.
+            trained = faiss.read_index(
+                self._path(IVFPQ_INDEX_FILE), faiss.IO_FLAG_ONDISK_SAME_DIR
+            )
+            lists = faiss.ArrayInvertedLists(trained.nlist, trained.code_size)
+            trained.replace_invlists(lists, True)
+            lists.this.disown()
+            trained.ntotal = 0
+            self._use_trained(trained)
+            # Rows and blocks written after the save are discarded, and the
+            # PDFs that only they had.
+            used = int(self.row_digests.max()) + 1 if self.ntotal else 0
+            self.digest_ids = {d.decode(): i for i, d in enumerate(self.digests[:used])}
+            for name, row_bytes in (
+                (VECTORS_FILE, 2 * self.d),
+                (ROW_DIGESTS_FILE, 4),
+                (ROW_PAGES_FILE, 4),
+            ):
+                os.truncate(self._path(name), self.ntotal * row_bytes)
+            for name in os.listdir(self.index_directory):
+                if name.startswith("block_"):
+                    os.remove(self._path(name))
         if self._trained is None:
             self._pending.append((vectors, pdf_names, pdf_pages))
-            self._pending_count += len(vectors)
-            if self._pending_count >= self.train_size:
+            if sum(len(v) for v, _, _ in self._pending) >= self.train_size:
                 self._train_and_add_pending()
             return
         self._encode(vectors, pdf_names, pdf_pages)
 
     def save_index(self):
-        """Encode what's left, merge the blocks into the on-disk index and write
-        the row and PDF maps."""
+        """Merge what was added with the lists already saved into a new on-disk
+        index, write the row and PDF maps, and load it."""
         if self._trained is None:
+            if self.index is not None:
+                return
             if not self._pending:
                 raise ValueError("No vectors were added")
             self._train_and_add_pending()
-        assert self._trained is not None and self._files is not None
+        if self._files is None:
+            return  # Nothing was added since the index was saved.
+        assert self._trained is not None
         self._flush_block()
         for file in self._files.values():
+            file.flush()
+            os.fsync(file.fileno())
             file.close()
-
-        from faiss.contrib.ondisk import merge_ondisk
-
-        index = self._trained
-        merge_ondisk(index, self._block_paths, self._path(IVFPQ_DATA_FILE))
-        faiss.write_index(index, self._path(IVFPQ_INDEX_FILE))
-        for path in self._block_paths:
-            os.remove(path)
+        self._files = None
 
         digests = np.array(list(self.digest_ids), dtype=np.bytes_)
         np.save(self._path("digests.npy"), digests)
         # PDFs -> rows: all rows, by PDF id, and where each PDF's begin.
         row_digests = np.fromfile(self._path(ROW_DIGESTS_FILE), dtype=np.uint32)
-        rows = np.argsort(row_digests, kind="stable").astype(self._row_dtype)
+        rows = np.argsort(row_digests, kind="stable").astype(np.uint32)
         offsets = np.zeros(len(digests) + 1, dtype=np.int64)
         np.cumsum(np.bincount(row_digests, minlength=len(digests)), out=offsets[1:])
+        if self.index is not None:
+            self.digest_rows.close()
+        shutil.rmtree(self._path(DIGEST_ROWS_DB), ignore_errors=True)
         store = KVStore(self._path(DIGEST_ROWS_DB))
         # Appended in key order, in transactions of a million PDFs.
         order = np.argsort(digests)
@@ -634,24 +560,38 @@ class IVFPQDiskIndex(AbstractVectorIndex):
             )
         store.close()
 
-        meta = {
-            "d": self.d,
-            "nlist": self.nlist,
-            "m": self.m,
-            "ntotal": self.ntotal,
-            "n_digests": len(self.digest_ids),
-            "nprobe": self.nprobe,
-        }
-        with open(self._path(IVFPQ_META_FILE), "w") as f:
-            json.dump(meta, f, indent=2)
-        for name in (STATE_FILE, TRAINED_FILE, DIGEST_LIST_FILE):
-            if os.path.exists(self._path(name)):
-                os.remove(self._path(name))
-        logging.info(f"IVF-PQ index written: {meta}")
-
-    @property
-    def _row_dtype(self):
-        return np.uint32 if self.ntotal < 2**32 else np.uint64
+        # The saved lists are read from disk and the blocks memory-mapped. (FAISS's
+        # merge_ondisk() memory-maps every input, which crashes on saved lists.)
+        saved = self._path(IVFPQ_INDEX_FILE)
+        inputs = []
+        if self.index is not None:
+            inputs.append(faiss.read_index(saved, faiss.IO_FLAG_ONDISK_SAME_DIR))
+        inputs += [
+            faiss.read_index(path, faiss.IO_FLAG_MMAP) for path in self._block_paths
+        ]
+        lists = faiss.InvertedListsPtrVector()
+        for index in inputs:
+            lists.push_back(index.invlists)
+        ivfdata = self._path(IVFPQ_DATA_FILE)
+        merged = faiss.OnDiskInvertedLists(
+            self._trained.nlist, self._trained.code_size, ivfdata + ".tmp"
+        )
+        index = faiss.clone_index(self._trained)
+        index.ntotal = merged.merge_from_multiple(lists.data(), lists.size(), False)
+        merged.filename = ivfdata
+        index.replace_invlists(merged, True)
+        merged.this.disown()
+        faiss.write_index(index, saved + ".tmp")
+        del inputs, index
+        # The previous save is intact until these renames; load_index() finishes
+        # them if they're interrupted.
+        os.replace(ivfdata + ".tmp", ivfdata)
+        os.replace(saved + ".tmp", saved)
+        for path in self._block_paths:
+            os.remove(path)
+        self._block_paths = []
+        logging.info(f"IVF-PQ index saved: {self.ntotal} rows, {len(digests)} PDFs")
+        self.load_index()
 
     def _train_and_add_pending(self) -> None:
         assert self.d is not None
@@ -705,6 +645,8 @@ class IVFPQDiskIndex(AbstractVectorIndex):
         rows = np.arange(self.ntotal, self.ntotal + len(vectors), dtype=np.int64)
         add_preassigned(self._block, vectors, lists.ravel(), ids=rows)
         self.ntotal += len(vectors)
+        if self.ntotal >= 2**32:
+            raise ValueError("Rows are numbered with 32 bits")
 
         # A batch holds a few PDFs' pages: look up each distinct digest once, giving
         # new PDFs the next ids.
@@ -716,9 +658,10 @@ class IVFPQDiskIndex(AbstractVectorIndex):
         digest_ids = ids[inverse.ravel()]
         if self._files is None:
             os.makedirs(self.index_directory, exist_ok=True)
-            # Kept open for the whole build; save_index() closes them.
+            # Appended to a saved index's rows; kept open until save_index().
+            mode = "ab" if self.index is not None else "wb"
             self._files = {
-                name: open(self._path(name), "wb")  # noqa: SIM115
+                name: open(self._path(name), mode)  # noqa: SIM115
                 for name in (VECTORS_FILE, ROW_DIGESTS_FILE, ROW_PAGES_FILE)
             }
         self._files[VECTORS_FILE].write(vectors.astype(np.float16).tobytes())
@@ -738,17 +681,20 @@ class IVFPQDiskIndex(AbstractVectorIndex):
     # Serving
 
     def load_index(self):
-        with open(self._path(IVFPQ_META_FILE)) as f:
-            self.meta = json.load(f)
-        d, ntotal = self.meta["d"], self.meta["ntotal"]
-        self.d, self.ntotal = d, ntotal
-        # ONDISK_SAME_DIR finds ivfpq.ivfdata next to ivfpq.index, wherever the
-        # directory was moved; the lists are memory-mapped, not read in.
+        # A save stopped between its renames (see save_index()) is finished, and
+        # one stopped before them is discarded.
+        saved, ivfdata = self._path(IVFPQ_INDEX_FILE), self._path(IVFPQ_DATA_FILE)
+        if os.path.exists(saved + ".tmp") and not os.path.exists(ivfdata + ".tmp"):
+            os.replace(saved + ".tmp", saved)
+        for path in (saved + ".tmp", ivfdata + ".tmp"):
+            if os.path.exists(path):
+                os.remove(path)
+        # ONDISK_SAME_DIR finds the lists next to ivfpq.index, wherever the
+        # directory was moved; they're memory-mapped, not read in.
         self.index = faiss.read_index(
-            self._path(IVFPQ_INDEX_FILE),
-            faiss.IO_FLAG_ONDISK_SAME_DIR | faiss.IO_FLAG_READ_ONLY,
+            saved, faiss.IO_FLAG_ONDISK_SAME_DIR | faiss.IO_FLAG_READ_ONLY
         )
-        self.index.nprobe = self.meta["nprobe"]
+        self.d, self.ntotal = d, ntotal = self.index.d, self.index.ntotal
         self.vectors = np.memmap(
             self._path(VECTORS_FILE), dtype=np.float16, mode="r", shape=(ntotal, d)
         )
@@ -764,7 +710,8 @@ class IVFPQDiskIndex(AbstractVectorIndex):
         self.digest_rows = KVStore(self._path(DIGEST_ROWS_DB))
 
     def total_entries(self):
-        return self.meta["ntotal"]
+        # Including the vectors buffered to train on.
+        return self.ntotal + sum(len(v) for v, _, _ in self._pending)
 
     def _rows_to_results(self, rows: np.ndarray) -> tuple[list[str], list[str]]:
         digests = self.digests[self.row_digests[rows]]
@@ -787,7 +734,7 @@ class IVFPQDiskIndex(AbstractVectorIndex):
 
     def get_vectors_for_digests(self, candidate_digests):
         values = self.digest_rows.get_many(str(d).encode() for d in candidate_digests)
-        rows = [np.frombuffer(v, self._row_dtype) for v in values if v is not None]
+        rows = [np.frombuffer(v, np.uint32) for v in values if v is not None]
         if not rows:
             return np.empty((0, 0), dtype=np.float32), [], []
         all_rows = np.sort(np.concatenate(rows))

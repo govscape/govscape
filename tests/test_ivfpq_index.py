@@ -90,11 +90,15 @@ def test_vectors_for_digests(index, corpus):
     assert empty.shape == (0, 0) and no_digests == []
 
 
-def _build(directory, corpus, start_batch=0, builder=None, crash_after=None):
-    """Feed the corpus in 1,000-vector batches, checkpointing when due; stop
-    without finishing after crash_after batches."""
+def _add(index, corpus, batches):
     vectors, digests, pages = corpus
-    builder = builder or IVFPQDiskIndex(
+    for start in range(1000 * batches.start, 1000 * batches.stop, 1000):
+        end = start + 1000
+        index.add_batch(vectors[start:end], digests[start:end], pages[start:end])
+
+
+def _new_index(directory):
+    return IVFPQDiskIndex(
         directory,
         nlist=64,
         m=8,
@@ -102,47 +106,47 @@ def _build(directory, corpus, start_batch=0, builder=None, crash_after=None):
         block_size=1500,
         nprobe=16,
         use_gpu=False,
-        checkpoint_every=2500,
     )
-    batches = range(0, len(vectors), 1000)
-    for batch, start in enumerate(batches):
-        if batch < start_batch:
-            continue
-        if crash_after is not None and batch == crash_after:
-            return builder
-        end = start + 1000
-        builder.add_batch(vectors[start:end], digests[start:end], pages[start:end])
-        if builder.checkpoint_due:
-            builder.save_checkpoint({"batches_done": batch + 1})
-    builder.save_index()
-    return builder
 
 
-def test_resumed_build_matches_an_uninterrupted_one(corpus, tmp_path):
+def test_saved_index_can_be_continued(corpus, tmp_path):
     straight = (tmp_path / "straight").as_posix()
-    _build(straight, corpus)
+    index = _new_index(straight)
+    _add(index, corpus, range(12))
+    index.save_index()
 
-    resumed = (tmp_path / "resumed").as_posix()
-    # Crash after 8 batches: past the checkpoint at 6,000 vectors, so later
-    # blocks, rows and digests were written and must be discarded.
-    _build(resumed, corpus, crash_after=8)
-    assert IVFPQDiskIndex.resume((tmp_path / "nothing").as_posix()) is None
-    builder, progress = IVFPQDiskIndex.resume(resumed, use_gpu=False)
-    assert progress == {"batches_done": 6} and builder.ntotal == 6000
-    _build(resumed, corpus, start_batch=progress["batches_done"], builder=builder)
+    continued = (tmp_path / "continued").as_posix()
+    index = _new_index(continued)
+    _add(index, corpus, range(6))
+    index.save_index()
+    # Batches added but never saved, as by a build that stopped: discarded.
+    _add(index, corpus, range(6, 8))
+    index._flush_block()
+    for file in index._files.values():
+        file.flush()
 
-    assert not [f for f in os.listdir(resumed) if f.startswith("build_")]
+    index = _new_index(continued)
+    index.load_index()
+    assert index.total_entries() == 6000
+    _add(index, corpus, range(6, 12))
+    index.save_index()
+
+    assert sorted(os.listdir(straight)) == sorted(os.listdir(continued))
     for name in ("vectors.f16", "row_digests.u32", "row_pages.u32", "digests.npy"):
         with (
             open(os.path.join(straight, name), "rb") as a,
-            open(os.path.join(resumed, name), "rb") as b,
+            open(os.path.join(continued, name), "rb") as b,
         ):
             assert a.read() == b.read(), name
     indexes = []
-    for directory in (straight, resumed):
+    for directory in (straight, continued):
         index = IVFPQDiskIndex(directory)
         index.load_index()
         indexes.append(index)
+    assert (
+        indexes[0].get_vectors_for_digests(["PDF00150"])[1:]
+        == (indexes[1].get_vectors_for_digests(["PDF00150"])[1:])
+    )
     vectors = corpus[0]
     for query in vectors[::997]:
         a, b = (index.search(query, k=10) for index in indexes)

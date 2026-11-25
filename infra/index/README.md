@@ -31,11 +31,11 @@ served with `--vector_index_type Disk`.
   source.coop lets write to the `govscape/` repositories. The stack adds write
   access to its log group to that role, and removes it on destroy. It doesn't
   attach SSM access: the ingest stack manages that on the same role.
-- **Progress:** the vector builders checkpoint every 100M vectors in their
+- **Progress:** the vector builders save their index every 100M vectors in their
   working directory on the root volume (`vector_root_volume_gb`, 3.5 TB by
   default, with 1,000 MB/s of throughput), which survives retries and spot
-  interruptions, and upload the finished index; each build starts from scratch
-  on a new instance. The keyword and metadata scripts checkpoint in
+  interruptions, and continue from the last save after a restart. They upload
+  the finished index; each build starts from scratch on a new instance. The keyword and metadata scripts checkpoint in
   `<remote_data_dir>/checkpoints/` and add to the index already in the serving
   directory, so building them again later adds only what's new; to rebuild one
   from scratch, delete it and its checkpoint first.
