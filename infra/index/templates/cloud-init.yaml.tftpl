@@ -1,0 +1,91 @@
+#cloud-config
+# Builds the ${index} index of ${remote_data_dir} under systemd, then powers the
+# instance off. The index script checkpoints, in the serving directory or (for
+# the vector indexes) in its working directory on the root volume, so a
+# restarted builder resumes where it left off.
+
+%{ if !gpu ~}
+packages:
+  - docker
+%{ endif ~}
+
+write_files:
+  - path: /usr/local/sbin/govscape-index
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # Builds the index, retrying failures, then powers the instance off either
+      # way. The container logs go to CloudWatch; this script's own messages also
+      # go to the serial console, so `aws ec2 get-console-output` shows them
+      # after the builder has stopped.
+      set -uo pipefail
+      image=${app_image}
+      log_opts="--log-driver awslogs --log-opt awslogs-region=${region} --log-opt awslogs-group=${log_group} --log-opt awslogs-stream=index-${index}"
+
+      build_once() {
+        docker rm -f govscape-index >/dev/null 2>&1
+%{ if resumable ~}
+        # The script resumes from its checkpoint in its working directory
+        # (data/prod in the image), so that is kept between attempts.
+%{ else ~}
+        # The script's working directory (data/prod in the image) starts empty;
+        # it downloads what it needs, including the index built so far.
+        rm -rf /var/lib/govscape-index/prod
+%{ endif ~}
+        mkdir -p /var/lib/govscape-index
+        docker pull "$image" || return 1
+%{ if gpu ~}
+        # Fail fast if FAISS in the image can't run on this GPU (no GPU, or no
+        # kernels for its architecture), rather than at the end of the download.
+        docker run --rm --gpus all $log_opts "$image" \
+          poetry run python -c "import faiss, numpy as np; x = np.zeros((1, 8), 'float32'); i = faiss.index_cpu_to_all_gpus(faiss.IndexFlatL2(8)); i.add(x); i.search(x, 1); print('FAISS GPUs:', faiss.get_num_gpus())" \
+          || return 1
+%{ endif ~}
+        docker run --rm --name govscape-index $log_opts${gpu ? " --gpus all" : ""} \
+          -v /var/lib/govscape-index:/home/govscape/data \
+          -e AWS_REGION=${region} \
+          "$image" \
+          poetry run python -u ${command} \
+          --backend s3 --endpoint_url= \
+          --bucket_name us-west-2.opendata.source.coop/govscape/eota-derivative-data/ \
+          --pdf_bucket_name us-west-2.opendata.source.coop/govscape/eota-pdf-archive/ \
+          --remote_data_dir ${remote_data_dir}
+      }
+
+      for attempt in 1 2 3; do
+        echo "govscape-index: building ${index}, attempt $attempt"
+        if build_once; then
+          echo "govscape-index: finished ${index}"
+          systemctl poweroff
+          exit 0
+        fi
+        echo "govscape-index: attempt $attempt failed"
+        sleep 60
+      done
+      echo "govscape-index: giving up on ${index} after 3 failed attempts"
+      systemctl poweroff
+
+  - path: /etc/systemd/system/govscape-index.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=GovScape index build
+      Requires=docker.service
+      After=docker.service network-online.target
+      Wants=network-online.target
+
+      [Service]
+      ExecStart=/usr/local/sbin/govscape-index
+      ExecStop=/usr/bin/docker stop -t 120 govscape-index
+      StandardOutput=journal+console
+      StandardError=journal+console
+      TimeoutStopSec=150
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - systemctl daemon-reload
+  - systemctl enable --now docker
+  # --no-block: the build can run for hours; don't hold up cloud-init.
+  - systemctl enable --now --no-block govscape-index.service

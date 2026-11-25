@@ -1,12 +1,18 @@
 import json
 import logging
+import math
 import os
 import shutil
 import time
+from collections.abc import Iterator
+from dataclasses import dataclass, field
 
 import govscape as gs
-from govscape.config import PDF_ARCHIVE_PDF_DIR, DataModel
+from govscape.config import PDF_ARCHIVE_PDF_DIR, DataModel, digest_shards
 from govscape.data_loader import RemoteDirectoryIterator, build_data_loader
+from govscape.page_image_packs import pack_page_images
+from govscape.pipelining import StreamStage, run_pipelined
+from govscape.processing.pdf_extraction_stage import extracted_pdfs
 from govscape.utils import base_argument_parser, str2bool
 
 logging.basicConfig(
@@ -16,98 +22,33 @@ logging.basicConfig(
 )
 
 
-# processing the pdfs: running through embedding pipeline and uploading to s3
-def process_pdfs(
-    pdf_files,
-    processor,
-    do_text_embedding,
-    do_img_embedding,
-    do_metadata_collection,
-    do_ocr,
-    pipeline_times,
-    data_loader,
-    local_dm,
-    remote_dm,
-):
-    print("Do_Text_embedding: ", do_text_embedding)
-    print("Do_Img_embedding: ", do_img_embedding)
-    print("Do_Metadata_collection: ", do_metadata_collection)
-    print("Do_OCR: ", do_ocr)
+@dataclass
+class Download:
+    """A batch of downloaded PDFs, extracted in its own directory."""
 
-    # PROCESS PDFS HERE
-    pdf_to_txt_img_time, ocr_time, text_embed_time, img_embed_time = (
-        processor.process_pdfs(
-            pdf_files,
-            do_text_embedding,
-            do_img_embedding,
-            do_metadata_collection,
-            do_ocr,
-        )
+    pdf_iter: RemoteDirectoryIterator
+    # The shard's position after these PDFs, saved once they're all uploaded.
+    checkpoint: dict
+    pdf_files: list[str]
+    data_model: DataModel
+
+
+@dataclass
+class PageBatch:
+    """Whole extracted PDFs, at least --pages_per_batch pages of them (except the
+    last batch), OCR'd, embedded and uploaded together in their own directory."""
+
+    number: int
+    data_model: DataModel
+    num_pdfs: int = 0
+    num_pages: int = 0
+    # Saved once this batch is uploaded: the checkpoints of the downloads all of
+    # whose PDFs are in this batch or earlier ones. A batch may hold only
+    # checkpoints (num_pdfs == 0), e.g. when a download's last PDF fills the
+    # previous batch.
+    checkpoints: list[tuple[RemoteDirectoryIterator, dict]] = field(
+        default_factory=list
     )
-    pipeline_times["pdf_to_txt_img_time"] += pdf_to_txt_img_time
-    pipeline_times["ocr_time"] += ocr_time
-    pipeline_times["text_embed_time"] += text_embed_time
-    pipeline_times["img_embed_time"] += img_embed_time
-
-    time1 = time.time()
-    # UPLOADING EMBEDDINGS, TXTS, IMAGES TO S3 HERE
-    if do_text_embedding or do_img_embedding or do_metadata_collection:
-        data_loader.upload_directory(
-            local_dm.txt_directory, remote_dm.txt_directory, compress=True
-        )
-        print("finished uploading txt")
-
-        data_loader.upload_directory(
-            local_dm.image_directory, remote_dm.image_directory, compress=False
-        )
-        print("finished uploading img")
-
-        data_loader.upload_directory(
-            local_dm.metadata_directory, remote_dm.metadata_directory, compress=True
-        )
-        print("finished uploading metadata")
-
-    if do_text_embedding:
-        data_loader.upload_directory(
-            local_dm.embedding_directory,
-            remote_dm.embedding_directory,
-            compress=True,
-        )
-        print("finished uploading embeddings")
-
-    if do_img_embedding:
-        data_loader.upload_directory(
-            local_dm.embedding_img_pg_directory,
-            remote_dm.embedding_img_pg_directory,
-            compress=True,
-        )
-        print("finished uploading embed img pg")
-    time2 = time.time()
-
-    pipeline_times["upload"] += time2 - time1
-    pipeline_times["pdfs_processed"] += len(pdf_files)
-
-    print("finished uploading current batch")
-    print("pipeline times: ", pipeline_times)
-
-
-def cleanup(local_dm, local_pdf_dir):
-    if os.path.exists(local_dm.data_dir):
-        if os.path.exists(local_dm.txt_directory):
-            shutil.rmtree(local_dm.txt_directory)
-        if os.path.exists(local_dm.image_directory):
-            shutil.rmtree(local_dm.image_directory)
-        if os.path.exists(local_dm.embedding_directory):
-            shutil.rmtree(local_dm.embedding_directory)
-        if os.path.exists(local_dm.embedding_img_pg_directory):
-            shutil.rmtree(local_dm.embedding_img_pg_directory)
-        if os.path.exists(local_dm.metadata_directory):
-            shutil.rmtree(local_dm.metadata_directory)
-        os.makedirs(local_dm.data_dir, exist_ok=True)
-
-    if os.path.exists(local_pdf_dir):
-        shutil.rmtree(local_pdf_dir)
-        os.makedirs(local_pdf_dir, exist_ok=True)
 
 
 # overall method that gets the files in batches and runs them through the
@@ -137,6 +78,14 @@ def main():
         "--server_id", type=int, help="The ID of the current server", default=0
     )
     parser.add_argument(
+        "--shard_prefix_length",
+        type=int,
+        default=2,
+        help="PDFs are split into shards by this many leading digest characters "
+        "(32 ** length shards), which are dealt out across servers; each shard is "
+        "checkpointed separately, so --num_servers can change between runs",
+    )
+    parser.add_argument(
         "--do_text_embedding",
         type=str2bool,
         help="Whether to do text embedding",
@@ -163,7 +112,7 @@ def main():
     parser.add_argument(
         "--ocr_type",
         type=str,
-        help="OCR engine type (easyocr, paddleocr, olmocr, ocrmypdf)",
+        help="OCR engine type (easyocr, olmocr, ocrmypdf)",
         default="easyocr",
     )
     parser.add_argument(
@@ -188,21 +137,29 @@ def main():
         "--max_pdfs",
         type=int,
         default=None,
-        help="Stop after this many PDFs (overrides --num_pages_to_process)",
+        help="Stop after this many PDFs (overrides --num_pages_to_process, which "
+        "caps at 1000 PDFs per unit); by default all of this server's shards",
     )
+    parser.add_argument(
+        "--pages_per_batch",
+        type=int,
+        default=15000,
+        help="Pages to OCR, embed and upload together. PDFs are downloaded and "
+        "extracted --batch_size at a time, then regrouped by page count, since PDFs "
+        "range from 1 to over 10,000 pages. A PDF is never split across these "
+        "batches (though long PDFs are extracted in parallel page ranges).",
+    )
+    # No cap unless --num_pages_to_process or --max_pdfs is given.
+    parser.set_defaults(num_pages_to_process=None)
     args = parser.parse_args()
 
     # ---------------------------------------------------------------------------
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-    local_dm = DataModel(os.path.join(project_root, "data", "prod"))
+    work_dir = os.path.join(project_root, "data", "prod")
+    # Anything left from an interrupted run is redone from the shard checkpoints.
+    shutil.rmtree(work_dir, ignore_errors=True)
+    local_dm = DataModel(work_dir)
     remote_dm = DataModel(args.remote_data_dir)
-    local_pdf_dir = os.path.join(local_dm.data_dir, "PDFs")
-    local_checkpoint_path = local_dm.checkpoint_file_path(
-        f"embedding_pipeline_{args.server_id}"
-    )
-    remote_checkpoint_path = remote_dm.checkpoint_file_path(
-        f"embedding_pipeline_{args.server_id}"
-    )
     local_perf_path = local_dm.performance_file_path(
         f"embedding_pipeline_{args.server_id}"
     )
@@ -211,7 +168,6 @@ def main():
     )
 
     os.makedirs(local_dm.data_dir, exist_ok=True)
-    os.makedirs(local_pdf_dir, exist_ok=True)
     os.makedirs(local_dm.checkpoints_directory, exist_ok=True)
     os.makedirs(local_dm.performance_directory, exist_ok=True)
 
@@ -242,23 +198,10 @@ def main():
         profile_name=args.pdf_profile,
         endpoint_url=args.endpoint_url,
     )
-    remote_pdf_iter = RemoteDirectoryIterator(
-        pdf_data_loader,
-        args.pdf_dir,
-        remote_checkpoint_path=remote_checkpoint_path,
-        local_checkpoint_path=local_checkpoint_path,
-        local_dir=local_pdf_dir,
-        checkpoint_loader=data_loader,
-    )
-
     _ocr_kwargs: dict = {}
-    if args.do_ocr:
-        if args.ocr_type in ("easyocr", "olmocr"):
-            _ocr_kwargs["languages"] = args.ocr_languages.split(",")
-            _ocr_kwargs["gpu"] = args.ocr_gpu
-        elif args.ocr_type == "paddleocr":
-            _ocr_kwargs["language"] = args.ocr_languages.split(",")[0]
-            _ocr_kwargs["use_gpu"] = args.ocr_gpu
+    if args.do_ocr and args.ocr_type in ("easyocr", "olmocr"):
+        _ocr_kwargs["languages"] = args.ocr_languages.split(",")
+        _ocr_kwargs["gpu"] = args.ocr_gpu
 
     processor = gs.PDFProcessingPipeline(
         local_dm.data_dir,
@@ -270,56 +213,166 @@ def main():
 
     overall_start_time = time.time()
 
-    max_files_to_process = (
-        args.max_pdfs if args.max_pdfs is not None else args.num_pages_to_process * 1000
+    if args.max_pdfs is not None:
+        max_files_to_process = args.max_pdfs
+    elif args.num_pages_to_process is not None:
+        max_files_to_process = args.num_pages_to_process * 1000
+    else:
+        max_files_to_process = math.inf
+    shards = digest_shards(args.shard_prefix_length)[args.server_id :: args.num_servers]
+    run_extraction = (
+        args.do_text_embedding
+        or args.do_img_embedding
+        or args.do_metadata_collection
+        or args.do_ocr
     )
-    files_processed = 0
-    while files_processed < max_files_to_process:
-        print("-" * 93)
-        print("FILES PROCESSED: ", files_processed)
-        print("-" * 93)
-        time_download = time.time()
-        os.makedirs(local_pdf_dir, exist_ok=True)
-        batch_limit = min(args.batch_size, max_files_to_process - files_processed)
-        local_batch = remote_pdf_iter.download_batch(
-            max_keys=batch_limit,
-            filter_fn=lambda key: (
-                key.endswith(".pdf")
-                and (hash(key) % args.num_servers) == args.server_id
-            ),
+
+    def downloads():
+        downloaded = 0
+        number = 0
+        for shard in shards:
+            if downloaded >= max_files_to_process:
+                return
+            job_name = f"embedding_pipeline_shard_{shard}"
+            # Threads, not processes: the other stages run in threads, and
+            # forking a multi-threaded process can deadlock the children.
+            pdf_iter = RemoteDirectoryIterator(
+                pdf_data_loader,
+                args.pdf_dir,
+                remote_checkpoint_path=remote_dm.checkpoint_file_path(job_name),
+                local_checkpoint_path=local_dm.checkpoint_file_path(job_name),
+                local_dir=work_dir,
+                use_multiprocessing=False,
+                checkpoint_loader=data_loader,
+                name_prefix=shard,
+            )
+            while downloaded < max_files_to_process:
+                download_dm = DataModel(os.path.join(work_dir, f"download_{number}"))
+                start = time.time()
+                pdf_files = pdf_iter.download_batch(
+                    max_keys=min(args.batch_size, max_files_to_process - downloaded),
+                    filter_fn=lambda key: key.endswith(".pdf"),
+                    local_dir=download_dm.pdf_directory,
+                )
+                pipeline_times["download"] += time.time() - start
+                if not pdf_files:
+                    break
+                downloaded += len(pdf_files)
+                logging.info(
+                    f"Download {number}: {len(pdf_files)} PDFs from shard {shard}"
+                )
+                yield Download(
+                    pdf_iter,
+                    pdf_iter.checkpoint_state(),
+                    pdf_files,
+                    download_dm,
+                )
+                number += 1
+
+    def extract(download: Download) -> Download:
+        if run_extraction:
+            pipeline_times["pdf_to_txt_img_time"] += processor.extract(
+                download.pdf_files, download.data_model
+            )
+            # Free the disk now: later stages read only the extracted pages and
+            # renders, and several batches can wait behind the GPU.
+            shutil.rmtree(download.data_model.pdf_directory)
+        return download
+
+    def page_batches(downloads: Iterator[Download]) -> Iterator[PageBatch]:
+        number = 0
+
+        def new_batch() -> PageBatch:
+            data_model = DataModel(os.path.join(work_dir, f"pages_{number}"))
+            os.makedirs(data_model.data_dir)
+            return PageBatch(number, data_model)
+
+        batch = new_batch()
+        for download in downloads:
+            for digest, num_pages in extracted_pdfs(download.data_model):
+                for source, destination in zip(
+                    download.data_model.extracted_pdf_directories(digest),
+                    batch.data_model.extracted_pdf_directories(digest),
+                    strict=True,
+                ):
+                    if os.path.isdir(source):
+                        os.makedirs(os.path.dirname(destination), exist_ok=True)
+                        os.rename(source, destination)
+                batch.num_pdfs += 1
+                batch.num_pages += num_pages
+                if batch.num_pages >= args.pages_per_batch:
+                    yield batch
+                    number += 1
+                    batch = new_batch()
+            shutil.rmtree(download.data_model.data_dir)
+            batch.checkpoints.append((download.pdf_iter, download.checkpoint))
+        if batch.num_pdfs or batch.checkpoints:
+            yield batch
+
+    def ocr(batch: PageBatch) -> PageBatch:
+        pipeline_times["ocr_time"] += processor.ocr(batch.data_model)
+        return batch
+
+    def embed(batch: PageBatch) -> PageBatch:
+        if batch.num_pdfs:
+            text_time, img_time = processor.embed(
+                batch.data_model, args.do_text_embedding, args.do_img_embedding
+            )
+            pipeline_times["text_embed_time"] += text_time
+            pipeline_times["img_embed_time"] += img_time
+        return batch
+
+    def upload(batch: PageBatch) -> None:
+        start = time.time()
+        batch_dm = batch.data_model
+        if batch.num_pdfs and run_extraction:
+            data_loader.upload_directory(
+                batch_dm.txt_directory, remote_dm.txt_directory, compress=True
+            )
+            # The pages' images go up as one pack, and before the metadata, which
+            # records where in the pack each PDF's pages are.
+            pack_name = pack_page_images(batch_dm)
+            if pack_name:
+                data_loader.upload_file(
+                    batch_dm.img_pack_path(pack_name),
+                    remote_dm.img_pack_path(pack_name),
+                )
+            data_loader.upload_directory(
+                batch_dm.metadata_directory, remote_dm.metadata_directory, compress=True
+            )
+        if batch.num_pdfs and args.do_text_embedding:
+            data_loader.upload_directory(
+                batch_dm.embedding_directory,
+                remote_dm.embedding_directory,
+                compress=True,
+            )
+        if batch.num_pdfs and args.do_img_embedding:
+            data_loader.upload_directory(
+                batch_dm.embedding_img_pg_directory,
+                remote_dm.embedding_img_pg_directory,
+                compress=True,
+            )
+        pipeline_times["upload"] += time.time() - start
+        # Batches are uploaded in order, so a checkpoint only ever moves past PDFs
+        # whose results are on the remote.
+        for pdf_iter, checkpoint in batch.checkpoints:
+            pdf_iter.save_checkpoint(checkpoint)
+        shutil.rmtree(batch.data_model.data_dir)
+        pipeline_times["pdfs_processed"] += batch.num_pdfs
+        logging.info(
+            f"Batch {batch.number} uploaded ({batch.num_pdfs} PDFs, "
+            f"{batch.num_pages} pages); pipeline times: {pipeline_times}"
         )
-        pipeline_times["download"] += time.time() - time_download
-        if not local_batch:
-            break
-        print("len(local_batch) = ", len(local_batch))
-
-        process_pdfs(
-            local_batch,
-            processor,
-            args.do_text_embedding,
-            args.do_img_embedding,
-            args.do_metadata_collection,
-            args.do_ocr,
-            pipeline_times,
-            data_loader,
-            local_dm,
-            remote_dm,
-        )
-
-        remote_pdf_iter.save_checkpoint()
-        files_processed += len(local_batch)
-
-        # Delete local data to free up space for the next batch
-        cleanup(local_dm, local_pdf_dir)
-
-        # Write pipeline_times to a JSON file
         with open(local_perf_path, "w") as f:
             json.dump(pipeline_times, f, indent=2)
-
-        # Upload the performance JSON to S3
         data_loader.upload_file(local_perf_path, remote_perf_path)
 
-    remote_pdf_iter.close()
+    # Each stage has its own thread. PDFs are downloaded and extracted a batch of
+    # PDFs at a time, then regrouped into batches of pages for the stages whose
+    # work goes with the page count: while the GPU embeds page batch k, k+1 is
+    # OCR'd (with --do_ocr), the next PDFs are extracted and downloaded, and k-1
+    # is uploaded.
+    run_pipelined(downloads(), [extract, StreamStage(page_batches), ocr, embed, upload])
 
     # After all batches are processed, clean up the directories
     if os.path.exists(local_dm.data_dir):
@@ -331,6 +384,7 @@ def main():
     print("TOTAL TIME list pdfs:", pipeline_times["list"])
     print("TOTAL TIME download pdfs:", pipeline_times["download"])
     print("TOTAL TIME pdf -> txt and img time:", pipeline_times["pdf_to_txt_img_time"])
+    print("TOTAL TIME ocr time:", pipeline_times["ocr_time"])
     print("TOTAL TIME txt -> embed time:", pipeline_times["text_embed_time"])
     print("TOTAL TIME img -> embed time:", pipeline_times["img_embed_time"])
     print("TOTAL TIME uploading data:", pipeline_times["upload"])

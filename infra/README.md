@@ -70,7 +70,7 @@ gh variable set SITE_DISTRIBUTION_ID     --body "$(tofu output -raw site_distrib
 There is no SSH; use SSM Session Manager (requires the [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)):
 
 ```bash
-aws ssm start-session --region us-east-2 --target "$(tofu output -raw api_instance_id)"
+aws ssm start-session --region us-west-2 --target "$(tofu output -raw api_instance_id)"
 sudo journalctl -u govscape-api -f       # logs
 sudo systemctl restart govscape-api      # re-pull the image tag and the indices
 ```

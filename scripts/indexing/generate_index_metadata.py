@@ -176,6 +176,9 @@ def main():
             index.add_batch(cur_batch)
             rows_added += len(cur_batch)
             print(f"Added {rows_added} rows to index")
+        index.add_page_images(
+            {r["digest"]: r["page_images"] for r in rows if r["page_images"]}
+        )
 
         print("Uploading Index")
         data_loader.upload_directory(
@@ -213,6 +216,7 @@ def _read_metadata_row(filepath):
             "num_pages": metadata_json.get("num_pages", None),
             "creation_date": metadata_json.get("creation_date", None),
             "pretty_name": metadata_json.get("pretty_name", ""),
+            "page_images": metadata_json.get("page_images"),
         }
     except Exception as exc:
         print(f"Error reading {filepath}: {exc}")

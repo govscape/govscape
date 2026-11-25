@@ -1,8 +1,12 @@
 # global vars
+import os
+import time
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
+import requests
 import torch
 from sentence_transformers import SentenceTransformer
 
@@ -13,6 +17,10 @@ BATCH_SIZE = 128
 
 
 class TextEmbeddingModel(ABC):
+    # Whether the model runs in another process (a server), leaving this process
+    # free to use the GPU while it waits for embeddings.
+    SERVED_REMOTELY = False
+
     @property
     @abstractmethod
     def d(self):
@@ -149,6 +157,77 @@ class Qwen3_TextEmbeddingModel(_SentenceTransformerModel):
             return self.model.encode(
                 texts, batch_size=GPU_BATCH_SIZE, device=self.device
             )
+
+
+class Qwen3VLLM_TextEmbeddingModel(TextEmbeddingModel):
+    """Qwen3-Embedding-0.6B served by a separate vLLM server at $VLLM_URL, e.g.
+    `vllm serve Qwen/Qwen3-Embedding-0.6B --runner pooling --max-model-len 2048`.
+
+    Texts go to its OpenAI-compatible embeddings API; vLLM tokenizes, truncates
+    and batches them, and returns normalized embeddings.
+    """
+
+    SERVED_REMOTELY = True
+    MODEL = "Qwen/Qwen3-Embedding-0.6B"
+    QUERY_PREFIX = Qwen3_TextEmbeddingModel.QUERY_PREFIX
+    # Requests run concurrently so vLLM's scheduler always has work queued.
+    TEXTS_PER_REQUEST = 64
+    CONCURRENT_REQUESTS = 8
+    # The server may still be downloading or compiling the model.
+    STARTUP_TIMEOUT_S = 1800
+
+    def __init__(self, url: str | None = None):
+        self.url = (url or os.environ.get("VLLM_URL", "http://localhost:8000")).rstrip(
+            "/"
+        )
+        self._ready = False
+
+    @property
+    def d(self):
+        return 1024
+
+    def _embed(self, texts):
+        response = requests.post(
+            f"{self.url}/v1/embeddings",
+            json={
+                "model": self.MODEL,
+                "input": texts,
+                # Truncate to the server's --max-model-len, keeping each text's start.
+                "truncate_prompt_tokens": -1,
+                "truncation_side": "right",
+            },
+            timeout=600,
+        )
+        response.raise_for_status()
+        data = sorted(response.json()["data"], key=lambda item: item["index"])
+        return np.array([item["embedding"] for item in data], dtype=np.float32)
+
+    def encode_text(self, text, is_query=False):
+        return self.encode_text_batch([text], is_query=is_query)[0]
+
+    def encode_text_batch(self, texts, is_query=False):
+        if is_query:
+            texts = [self.QUERY_PREFIX + text for text in texts]
+        if not texts:
+            return np.zeros((0, self.d), dtype=np.float32)
+        if not self._ready:
+            deadline = time.monotonic() + self.STARTUP_TIMEOUT_S
+            while True:
+                try:
+                    if requests.get(f"{self.url}/health", timeout=5).ok:
+                        break
+                except requests.ConnectionError:
+                    pass
+                if time.monotonic() > deadline:
+                    raise TimeoutError(f"vLLM server at {self.url} isn't ready")
+                time.sleep(5)
+            self._ready = True
+        chunks = [
+            texts[i : i + self.TEXTS_PER_REQUEST]
+            for i in range(0, len(texts), self.TEXTS_PER_REQUEST)
+        ]
+        with ThreadPoolExecutor(self.CONCURRENT_REQUESTS) as executor:
+            return np.concatenate(list(executor.map(self._embed, chunks)))
 
 
 class Dummy_TextEmbeddingModel(TextEmbeddingModel):

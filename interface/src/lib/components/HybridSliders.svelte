@@ -1,36 +1,28 @@
 <script>
   import { searchStore, searchActions } from '$lib/stores/search';
-  import { get } from 'svelte/store';
 
-  let weights = get(searchStore).hybridWeights || { textual: 0.33, visual: 0.33, keyword: 0.34 };
-
-  // Keep local weights in sync with store changes
-  $: if (get(searchStore).hybridWeights && get(searchStore).hybridWeights !== weights) {
-    weights = get(searchStore).hybridWeights;
-  }
+  // Follows the store, e.g. when a search link sets the weights.
+  $: weights = $searchStore.hybridWeights || { textual: 0.33, visual: 0.33, keyword: 0.34 };
 
   function updateWeight(key, value) {
-    const numeric = Number(value);
-    weights = { ...weights, [key]: numeric };
-    // Update store
-    searchActions.setHybridWeights({ [key]: numeric });
+    searchActions.setHybridWeights({ [key]: Number(value) });
   }
 </script>
 
 <div class="hybrid-sliders">
   <div class="slider-row">
     <label for="textual">Textual</label>
-    <input id="textual" type="range" min="0" max="1" step="0.01" bind:value={weights.textual} on:input={(e) => updateWeight('textual', e.target.value)} />
+    <input id="textual" type="range" min="0" max="1" step="0.01" value={weights.textual} on:input={(e) => updateWeight('textual', e.target.value)} />
     <div class="value">{Math.round(weights.textual * 100)}%</div>
   </div>
   <div class="slider-row">
     <label for="visual">Visual</label>
-    <input id="visual" type="range" min="0" max="1" step="0.01" bind:value={weights.visual} on:input={(e) => updateWeight('visual', e.target.value)} />
+    <input id="visual" type="range" min="0" max="1" step="0.01" value={weights.visual} on:input={(e) => updateWeight('visual', e.target.value)} />
     <div class="value">{Math.round(weights.visual * 100)}%</div>
   </div>
   <div class="slider-row">
     <label for="keyword">Keyword</label>
-    <input id="keyword" type="range" min="0" max="1" step="0.01" bind:value={weights.keyword} on:input={(e) => updateWeight('keyword', e.target.value)} />
+    <input id="keyword" type="range" min="0" max="1" step="0.01" value={weights.keyword} on:input={(e) => updateWeight('keyword', e.target.value)} />
     <div class="value">{Math.round(weights.keyword * 100)}%</div>
   </div>
   <div class="note">Weights are sent as-is and normalized server-side.</div>

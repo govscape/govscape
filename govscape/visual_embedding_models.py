@@ -1,12 +1,11 @@
 import logging
-import multiprocessing as mp
-import os
 from abc import ABC, abstractmethod
 
 import numpy as np
 
 import torch
 from PIL import Image
+from torchvision.io import ImageReadMode, decode_image, decode_jpeg, read_file
 from transformers import AutoModel, AutoProcessor, CLIPModel, CLIPProcessor
 
 from .model_device import LazyDeviceModel
@@ -63,11 +62,18 @@ class CLIP_VisualEmbeddingModel(LazyDeviceModel, VisualEmbeddingModel):
 
     def __init__(self):
         self.processor = CLIPProcessor.from_pretrained(
-            "openai/clip-vit-base-patch32", use_fast=True
+            "openai/clip-vit-base-patch32", backend="torchvision"
         )
         # Loaded on the CPU; LazyDeviceModel moves it on first use.
         self.model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
         self.model.eval()
+
+    def _move_model_to(self, device):
+        # Half precision on the GPU, as for the text models; it's an order of
+        # magnitude slower on the CPU, which keeps float32.
+        if device.type != "cpu":
+            self.model.half()
+        self.model.to(device)
 
     def encode_text(
         self, text
@@ -92,17 +98,20 @@ class CLIP_VisualEmbeddingModel(LazyDeviceModel, VisualEmbeddingModel):
         batch_input_ids = torch.cat(chunk_tensors, dim=0)
         batch_attention_mask = torch.ones_like(batch_input_ids)
 
+        # Since transformers 5 the get_*_features methods return model outputs;
+        # pooler_output holds the projected embeddings. Embeddings are normalized
+        # in float32: in half precision their norms come out ~0.9997.
         with torch.no_grad():
             batch_embeddings = self.model.get_text_features(
                 input_ids=batch_input_ids, attention_mask=batch_attention_mask
-            )
+            ).pooler_output.float()
         batch_embeddings = batch_embeddings / batch_embeddings.norm(
             dim=-1, keepdim=True
         )
 
         embeddings = batch_embeddings.split(1, dim=0)
         # decision: average embedding to create one embedding per PDF
-        return torch.mean(torch.stack(embeddings), dim=0).to("cpu").numpy()
+        return torch.mean(torch.stack(embeddings), dim=0).float().cpu().numpy()
 
     def encode_texts(self, texts):
         return [self.encode_text(txt) for txt in texts]
@@ -111,120 +120,89 @@ class CLIP_VisualEmbeddingModel(LazyDeviceModel, VisualEmbeddingModel):
         image = Image.open(jpg_path).convert("RGB")
 
         # preprocess image
-        inputs = self.processor(images=image, return_tensors="pt").to(self.device)
+        inputs = self.processor(images=image, return_tensors="pt").to(
+            self.device, self.model.dtype
+        )
 
         with torch.no_grad():
-            image_embedding = self.model.get_image_features(**inputs)
+            image_embedding = self.model.get_image_features(
+                **inputs
+            ).pooler_output.float()
 
         image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
 
-        return image_embedding[0].to("cpu").numpy()
+        return image_embedding[0].float().cpu().numpy()
 
-    # single GPU version using self.model (created in __init__)
-    @staticmethod
-    def _safe_load_image(path, processor):
-        try:
-            with Image.open(path) as img:
-                img = img.convert("RGB")
-            return processor(images=img, return_tensors="pt")["pixel_values"]
-        except (OSError, ValueError) as e:
-            print(f"Failed to load/process {path}: {e}")
-            return None
-
-    # single GPU version using self.model (created in __init__)
-    @staticmethod
-    def _load_and_process_image(image_paths, processor):
-        """Return (pixels of the loadable images, their indices in image_paths)."""
-        tensors = []
-        loaded_indices = []
-        for i, path in enumerate(image_paths):
-            pv = CLIP_VisualEmbeddingModel._safe_load_image(path, processor)
-            if pv is not None:
-                tensors.append(pv)  # shape [1,3,H,W]
-                loaded_indices.append(i)
-        if not tensors:
-            return None, loaded_indices
-        return torch.cat(tensors, dim=0), loaded_indices  # shape [N,3,H,W]
+    # Images per batch for decoding, preprocessing and the forward pass.
+    IMAGE_BATCH_SIZE = 256
 
     def encode_images(self, jpg_paths):
-        """
-        Load and preprocess images in parallel (CPU workers) then run batched
-        single-GPU forward passes. Returns one row per path, in order; images
-        that fail to load get a zero vector.
+        """Embed page images, one row per path, in order; images that can't be
+        read or decoded get a zero vector.
+
+        The JPEGs are decoded (nvJPEG), resized and normalized on the model's
+        device, so on a GPU the CPU only reads the files.
         """
         embeddings = np.zeros((len(jpg_paths), self.d), dtype=np.float32)
-        if not jpg_paths:
-            return embeddings
-
-        cpu_batch_size = 256
-        print("Processing Images")
-        path_batches = [
-            jpg_paths[i : i + cpu_batch_size]
-            for i in range(0, len(jpg_paths), cpu_batch_size)
-        ]
-
-        # Use spawn to avoid CUDA + fork deadlocks
-        ctx = mp.get_context("spawn")
-        with ctx.Pool(processes=min(os.cpu_count(), len(path_batches))) as pool:
-            batch_results = pool.starmap(
-                self._load_and_process_image,
-                [(p, self.processor) for p in path_batches],
-            )
-            # Let workers exit on their own: Pool.__exit__ terminates them, and some
-            # native libs' SIGTERM handlers (e.g. Paddle's) can deadlock.
-            pool.close()
-            pool.join()
-
-        # Keep track of which input rows each preprocessed image belongs to, so
-        # failed images do not shift the embeddings of the ones after them.
-        image_tensors = []
-        loaded_rows: list[int] = []
-        for batch_index, (pixels, loaded_indices) in enumerate(batch_results):
-            if pixels is not None:
-                image_tensors.append(pixels)
-                loaded_rows.extend(
-                    batch_index * cpu_batch_size + i for i in loaded_indices
-                )
-        if len(loaded_rows) < len(jpg_paths):
+        failed = 0
+        for start in range(0, len(jpg_paths), self.IMAGE_BATCH_SIZE):
+            batch_paths = jpg_paths[start : start + self.IMAGE_BATCH_SIZE]
+            rows, images = self._decode_images(batch_paths)
+            failed += len(batch_paths) - len(rows)
+            if not images:
+                continue
+            pixels = self.processor.image_processor(
+                images=images, return_tensors="pt", device=self.device
+            )["pixel_values"]
+            with torch.no_grad():
+                features = self.model.get_image_features(
+                    pixel_values=pixels.to(self.device, self.model.dtype)
+                ).pooler_output.float()
+                features = features / features.norm(dim=-1, keepdim=True)
+            embeddings[[start + row for row in rows]] = features.float().cpu().numpy()
+        if failed:
             logging.warning(
                 "%d of %d images failed to load; using zero embeddings for them",
-                len(jpg_paths) - len(loaded_rows),
+                failed,
                 len(jpg_paths),
             )
-        if not image_tensors:
-            return embeddings
-
-        all_pixels = torch.cat(image_tensors, dim=0)
-        print(f"Total images preprocessed: {all_pixels.size(0)}")
-
-        all_embeddings = []
-        gpu_batch = 256  # GPU forward batch size
-        print("Embedding Images")
-        for i in range(0, all_pixels.size(0), gpu_batch):
-            pixel_batch = all_pixels[i : i + gpu_batch].to(self.device)
-            with torch.no_grad():
-                batch_embeddings = self.model.get_image_features(
-                    pixel_values=pixel_batch
-                )
-                batch_embeddings = batch_embeddings / batch_embeddings.norm(
-                    dim=-1, keepdim=True
-                )
-            all_embeddings.append(batch_embeddings.cpu())
-            del pixel_batch, batch_embeddings
-            torch.cuda.empty_cache()
-
-        embeddings[loaded_rows] = torch.cat(all_embeddings, dim=0).numpy()
         return embeddings
+
+    def _decode_images(self, paths):
+        """Return (indices of the decodable images in paths, decoded images)."""
+        rows, data = [], []
+        for i, path in enumerate(paths):
+            try:
+                data.append(read_file(path))
+                rows.append(i)
+            except (OSError, RuntimeError):
+                pass
+        if not data:
+            return [], []
+        try:
+            return rows, decode_jpeg(data, device=self.device, mode=ImageReadMode.RGB)
+        except RuntimeError:
+            # One bad image fails the whole batch; decode them one at a time to
+            # skip just the bad ones.
+            decoded_rows, images = [], []
+            for row, image_data in zip(rows, data, strict=True):
+                try:
+                    image = decode_image(image_data, mode=ImageReadMode.RGB)
+                except RuntimeError:
+                    continue
+                images.append(image.to(self.device))
+                decoded_rows.append(row)
+            return decoded_rows, images
 
 
 class SigLIP_VisualEmbeddingModel(CLIP_VisualEmbeddingModel):
-    """Google SigLIP image/text embeddings.
+    """Google SigLIP image/text embeddings; SigLIP 2 by default.
 
     Image encoding reuses the batched CLIP implementation; only model loading
     and text encoding differ.
     """
 
-    DEFAULT_MODEL_NAME = "google/siglip-base-patch16-224"
+    DEFAULT_MODEL_NAME = "google/siglip2-base-patch16-224"
 
     @property
     def d(self):
@@ -232,15 +210,22 @@ class SigLIP_VisualEmbeddingModel(CLIP_VisualEmbeddingModel):
 
     def __init__(self, model_name: str = DEFAULT_MODEL_NAME):
         self.model_name = model_name
-        self.processor = AutoProcessor.from_pretrained(model_name, use_fast=True)
+        self.processor = AutoProcessor.from_pretrained(
+            model_name, backend="torchvision"
+        )
         self.model = AutoModel.from_pretrained(model_name)
         self.model.eval()
         self.max_text_len = self.model.config.text_config.max_position_embeddings
+        # SigLIP 2 was trained on lowercased text, but its checkpoints load a
+        # Gemma tokenizer that keeps case (SigLIP's own tokenizer lowercases).
+        self.lowercase_text = "siglip2" in model_name.lower()
 
     def encode_text(self, text):
         # SigLIP was trained on text padded to a fixed length, so each chunk is
         # padded to max_text_len rather than masked. Long text is split into
         # chunks whose embeddings are averaged, as for CLIP.
+        if self.lowercase_text:
+            text = text.lower()
         tokenizer = self.processor.tokenizer
         token_ids = tokenizer(text, add_special_tokens=True)["input_ids"]
         chunks = [
@@ -255,8 +240,10 @@ class SigLIP_VisualEmbeddingModel(CLIP_VisualEmbeddingModel):
         )["input_ids"].to(self.device)
 
         with torch.no_grad():
-            batch_embeddings = self.model.get_text_features(input_ids=batch)
+            batch_embeddings = self.model.get_text_features(
+                input_ids=batch
+            ).pooler_output.float()
         batch_embeddings = batch_embeddings / batch_embeddings.norm(
             dim=-1, keepdim=True
         )
-        return torch.mean(batch_embeddings, dim=0, keepdim=True).to("cpu").numpy()
+        return torch.mean(batch_embeddings, dim=0, keepdim=True).float().cpu().numpy()

@@ -23,14 +23,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--keyword_index_type",
         type=str,
-        default="LanceDB",
-        help="Type of keyword index to use: LanceDB, SQLite or Whoosh",
+        default="Tantivy",
+        help="Type of keyword index to use: LanceDB, SQLite, Whoosh, Lucene or Tantivy",
     )
     args = parser.parse_args()
 
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process
     BATCH_SIZE = args.batch_size
-    INDEX_TYPE = args.keyword_index_type  # 'LanceDB', 'SQLite' or 'Whoosh'
+    INDEX_TYPE = args.keyword_index_type
 
     # ---------------------------------------------------------------------------
     BUCKET_NAME = args.bucket_name
@@ -91,11 +91,13 @@ if __name__ == "__main__":
     remote_existing_idx_files = data_loader.list_objects(
         remote_dm.index_keyword_directory
     )
+    # Relative paths are kept: some indexes (e.g. Tantivy) are directories.
     for remote_file in remote_existing_idx_files.keys:
         data_loader.download_file(
             remote_file,
             os.path.join(
-                local_dm.index_keyword_directory, os.path.basename(remote_file)
+                local_dm.index_keyword_directory,
+                os.path.relpath(remote_file, remote_dm.index_keyword_directory),
             ),
         )
 
@@ -114,9 +116,12 @@ if __name__ == "__main__":
             index = gs.WhooshKeywordIndex(local_dm.index_keyword_directory)
         elif INDEX_TYPE == "Lucene":
             index = gs.LuceneKeywordIndex(local_dm.index_keyword_directory)
+        elif INDEX_TYPE == "Tantivy":
+            index = gs.TantivyKeywordIndex(local_dm.index_keyword_directory)
         else:
             raise ValueError(
-                "index_type must be either 'LanceDB', 'SQLite', 'Whoosh', or 'Lucene'"
+                "index_type must be 'LanceDB', 'SQLite', 'Whoosh', 'Lucene', "
+                "or 'Tantivy'"
             )
 
         index.load_index()

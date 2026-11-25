@@ -76,7 +76,6 @@ def test_end_to_end_pipeline_benchmark(benchmark, sample_pdf_files, tmp_path: Pa
             do_text_embedding=True,
             do_img_embedding=True,
             do_metadata_collection=True,
-            do_ocr=False,
         )
         shutil.rmtree(data_model.data_dir, ignore_errors=True)
         return timings

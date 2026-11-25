@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import mimetypes
 import os
@@ -42,7 +43,10 @@ class DataLoader(ABC):
         prefix: str,
         max_keys: int = 1000,
         continuation_token: str | None = None,
+        name_prefix: str = "",
     ) -> ListResult:
+        """List keys under the directory *prefix* whose path relative to it
+        starts with *name_prefix*."""
         raise NotImplementedError
 
     @abstractmethod
@@ -131,9 +135,9 @@ class DataLoader(ABC):
         """Upload a directory as a series of compressed .tar.gz chunks.
 
         Each chunk archive contains at most *chunk_size* files.  Archives are
-        named using a hash of their contents for uniqueness across concurrent
-        uploaders, e.g. ``chunk_<hash>.tar.gz``, and uploaded under
-        *remote_prefix*.
+        named by a hash of the relative paths they contain, e.g.
+        ``chunk_<sha1>.tar.gz``, so concurrent uploaders don't collide and
+        uploading the same files again overwrites the same chunk.
         """
         all_files: list[str] = [
             os.path.join(root, filename)
@@ -150,8 +154,8 @@ class DataLoader(ABC):
             chunk_idx: int, tmp_dir: str
         ) -> tuple[list[str], str, str]:
             chunk_files = all_files[chunk_idx : chunk_idx + chunk_size]
-            chunk_hash = hash(tuple(chunk_files))
-            chunk_name = f"chunk_{chunk_hash}.tar.gz"
+            rel_paths = "\n".join(os.path.relpath(f, local_dir) for f in chunk_files)
+            chunk_name = f"chunk_{hashlib.sha1(rel_paths.encode()).hexdigest()}.tar.gz"
             tar_path = os.path.join(tmp_dir, chunk_name)
             return (chunk_files, local_dir, tar_path)
 
@@ -161,11 +165,10 @@ class DataLoader(ABC):
                 build_chunk_task(chunk_idx, tmp_dir) for chunk_idx in chunk_indices
             ]
             if tasks:
+                # Threads rather than processes: gzip releases the GIL, and
+                # forking a process that runs other threads (e.g. the
+                # embedding pipeline's stages) can deadlock the children.
                 workers = min(os.cpu_count() or 1, len(tasks))
-                # Threads, not a forked Pool: zlib releases the GIL while
-                # compressing, and forking a process that has other threads
-                # running (servers, native libs) can leave a worker deadlocked
-                # on a lock inherited mid-use, hanging the pool's join forever.
                 with ThreadPoolExecutor(max_workers=workers) as executor:
                     list(executor.map(self._create_tar_chunk, tasks))
             self.upload_directory(tmp_dir, remote_prefix, compress=False)
@@ -261,6 +264,7 @@ class S3DataLoader(DataLoader):
         prefix: str,
         max_keys: int = 1000,
         continuation_token: str | None = None,
+        name_prefix: str = "",
     ) -> ListResult:
         # Treat the prefix as a directory, matching LocalDataLoader, so that e.g.
         # "embeddings" does not also match "embeddings_img_pg/".
@@ -268,7 +272,7 @@ class S3DataLoader(DataLoader):
             prefix += "/"
         kwargs = {
             "Bucket": self.bucket_name,
-            "Prefix": self.base_prefix + prefix,
+            "Prefix": self.base_prefix + prefix + name_prefix,
             "MaxKeys": max_keys,
         }
         if continuation_token:
@@ -402,6 +406,7 @@ class LocalDataLoader(DataLoader):
         prefix: str,
         max_keys: int = 1000,
         continuation_token: str | None = None,
+        name_prefix: str = "",
     ) -> ListResult:
         start_index = int(continuation_token) if continuation_token else 0
         base_path = self._resolve(prefix)
@@ -410,6 +415,8 @@ class LocalDataLoader(DataLoader):
             for root, _, files in os.walk(base_path):
                 for filename in files:
                     abs_path = os.path.join(root, filename)
+                    if not os.path.relpath(abs_path, base_path).startswith(name_prefix):
+                        continue
                     rel_path = os.path.relpath(abs_path, self.base_dir)
                     keys.append(rel_path.replace("\\", "/"))
         keys.sort()
@@ -561,12 +568,16 @@ class RemoteDirectoryIterator:
         local_dir: str,
         use_multiprocessing: bool = True,
         checkpoint_loader: DataLoader | None = None,
+        name_prefix: str = "",
     ) -> None:
         self.data_loader = data_loader
         # Checkpoints may live in a different store than the iterated data,
         # e.g. when reading from a read-only archive.
         self.checkpoint_loader = checkpoint_loader or data_loader
         self.prefix = prefix
+        # Restricts iteration to keys under prefix whose names start with this,
+        # e.g. one shard of the PDFs by digest prefix.
+        self.name_prefix = name_prefix
         self.remote_checkpoint_path = remote_checkpoint_path
         self.local_dir = local_dir
         self.local_checkpoint_path = local_checkpoint_path
@@ -590,10 +601,8 @@ class RemoteDirectoryIterator:
     def close(self) -> None:
         """Shut down the cached multiprocessing pool, if any."""
         if self._mp_pool is not None:
-            # Let the idle workers exit on their own rather than terminate()
-            # them: they inherit native SIGTERM handlers (e.g. Paddle's, which
-            # `import govscape` installs) that can keep them alive, hanging the
-            # join inside terminate().
+            # Let workers exit on their own: terminate() sends SIGTERM, which
+            # some native libs' handlers can deadlock on.
             self._mp_pool.close()
             self._mp_pool.join()
             self._mp_pool = None
@@ -619,17 +628,19 @@ class RemoteDirectoryIterator:
         else:
             self._continuation_token = None
 
-    def save_checkpoint(self) -> None:
+    def checkpoint_state(self) -> dict:
+        """The position after the batches downloaded so far, to save later with
+        save_checkpoint(), e.g. once those batches have been processed."""
+        return {
+            "continuation_token": self._continuation_token,
+            "finished": self.finished,
+        }
+
+    def save_checkpoint(self, state: dict | None = None) -> None:
         checkpoint_dir = os.path.dirname(self.local_checkpoint_path)
         os.makedirs(checkpoint_dir, exist_ok=True)
         with open(self.local_checkpoint_path, "w") as f:
-            json.dump(
-                {
-                    "continuation_token": self._continuation_token,
-                    "finished": self.finished,
-                },
-                f,
-            )
+            json.dump(state or self.checkpoint_state(), f)
         self.checkpoint_loader.upload_file(
             self.local_checkpoint_path, self.remote_checkpoint_path
         )
@@ -649,9 +660,12 @@ class RemoteDirectoryIterator:
         max_keys: int = 1000,
         filter_fn: Callable[[str], bool] | None = None,
         num_workers: int | None = None,
+        local_dir: str | None = None,
     ) -> list[str]:
+        """Download the next keys into local_dir (default: the iterator's)."""
         if self.finished:
             return []
+        local_dir = local_dir or self.local_dir
         downloaded_paths: list[str] = []
         remaining = max_keys
         while remaining > 0:
@@ -659,6 +673,7 @@ class RemoteDirectoryIterator:
                 self.prefix,
                 max_keys=min(100000, remaining),
                 continuation_token=self._continuation_token,
+                name_prefix=self.name_prefix,
             )
             self._continuation_token = result.continuation_token
             keys = result.keys
@@ -677,14 +692,14 @@ class RemoteDirectoryIterator:
 
             if regular_keys:
                 pairs = [
-                    (key, self._build_local_path(self.prefix, key, self.local_dir))
+                    (key, self._build_local_path(self.prefix, key, local_dir))
                     for key in regular_keys
                 ]
                 downloaded_paths.extend(download_fn(pairs, num_workers=num_workers))
 
             if tar_keys:
                 tar_pairs = [
-                    (key, self._build_local_path(self.prefix, key, self.local_dir))
+                    (key, self._build_local_path(self.prefix, key, local_dir))
                     for key in tar_keys
                 ]
                 extracted = download_fn(

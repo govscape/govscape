@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
-  import { searchStore, searchActions } from '$lib/stores/search';
+  import { parseHybridWeights, searchStore, searchActions } from '$lib/stores/search';
   import SearchBox from '$lib/components/SearchBox.svelte';
   import ResultsGrid from '$lib/components/ResultsGrid.svelte';
   import PDFPreview from '$lib/components/PDFPreview.svelte';
@@ -37,6 +37,7 @@
     return {
       q,
       mode: ['textual', 'visual', 'keyword', 'hybrid_weights'].includes(mode) ? mode : 'textual',
+      weights: parseHybridWeights(params.get('weights')),
       page: Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1,
       filters: {
         crawledAfter: crawledAfter || null,
@@ -50,22 +51,23 @@
   let lastSearchParams = null;
 
   async function applyFromURL(urlSearchParams) {
-    const { q, mode, page: pageNum, filters } = getParamsObject(urlSearchParams);
+    const { q, mode, weights, page: pageNum, filters } = getParamsObject(urlSearchParams);
 
     if (!q.trim()) {
       goto('/', { replaceState: true });
       return;
     }
 
-    const currentSignature = JSON.stringify({ q, mode, page: pageNum, filters });
+    const currentSignature = JSON.stringify({ q, mode, weights, page: pageNum, filters });
     if (lastApplied === currentSignature) return;
     lastApplied = currentSignature;
 
-    const currentSearchParams = JSON.stringify({ q, mode, filters });
+    const currentSearchParams = JSON.stringify({ q, mode, weights, filters });
     const isNewSearch = lastSearchParams !== currentSearchParams;
     lastSearchParams = currentSearchParams;
 
     searchActions.setSearchMode(mode);
+    if (weights) searchActions.setHybridWeights(weights);
     searchActions.setQuery(q);
     searchActions.updateFilters(filters);
 

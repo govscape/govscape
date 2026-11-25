@@ -1,0 +1,117 @@
+#cloud-config
+# Runs this worker's share of the embedding pipeline (server ${server_id} of
+# ${num_servers}) under systemd, then powers the instance off. Progress lives in
+# source.coop's per-shard checkpoints, so a restarted worker resumes where it
+# left off; the local working directory only holds the batches in flight.
+
+write_files:
+  - path: /usr/local/sbin/govscape-ingest
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # Runs the pipeline, retrying failures, then powers the instance off either
+      # way: after success there's nothing left to do, and after repeated
+      # failures it shouldn't idle on a GPU. The container logs go to CloudWatch;
+      # this script's own messages also go to the serial console, so
+      # `aws ec2 get-console-output` shows them after the worker has stopped.
+      set -uo pipefail
+      image=${app_image}
+      vllm_image="${vllm_image}"
+      log_opts="--log-driver awslogs --log-opt awslogs-region=${region} --log-opt awslogs-group=${log_group} --log-opt awslogs-stream=server-${server_id}"
+      vllm_log_opts="--log-driver awslogs --log-opt awslogs-region=${region} --log-opt awslogs-group=${log_group} --log-opt awslogs-stream=server-${server_id}-vllm"
+
+      # Serves Qwen3 text embeddings to the pipeline container over the
+      # govscape network. It starts first and takes its share of GPU memory;
+      # the pipeline's image models use the rest.
+      start_vllm() {
+        docker rm -f govscape-vllm >/dev/null 2>&1
+        [ -z "$vllm_image" ] && return 0
+        docker pull "$vllm_image" || return 1
+        # vllm_extra_args is unquoted on purpose: it may hold several arguments.
+        docker run -d --name govscape-vllm --network govscape --gpus all $vllm_log_opts \
+          -p 127.0.0.1:8000:8000 \
+          -v /var/lib/govscape-ingest/hf-cache:/root/.cache/huggingface \
+          --entrypoint vllm "$vllm_image" \
+          serve Qwen/Qwen3-Embedding-0.6B --runner pooling --max-model-len 2048 \
+          --gpu-memory-utilization ${vllm_gpu_memory_utilization} ${vllm_extra_args} || return 1
+        for _ in $(seq 1 120); do
+          curl -sf http://127.0.0.1:8000/health >/dev/null && return 0
+          docker inspect -f '{{.State.Running}}' govscape-vllm 2>/dev/null | grep -q true || return 1
+          sleep 10
+        done
+        echo "govscape-ingest: vLLM didn't become healthy"
+        return 1
+      }
+
+      run_once() {
+        docker rm -f govscape-ingest >/dev/null 2>&1
+        # Drop any half-finished batch; it's redone from the shard checkpoint.
+        # The model cache (hf-cache) is kept.
+        rm -rf /var/lib/govscape-ingest/prod
+        mkdir -p /var/lib/govscape-ingest
+        docker network create govscape >/dev/null 2>&1
+        docker pull "$image" || return 1
+        # Fail if the image can't use the GPU (e.g. the driver is too old for
+        # its CUDA build); the models would otherwise fall back to the CPU.
+        docker run --rm --gpus all $log_opts "$image" \
+          poetry run python -c "import torch; assert torch.cuda.is_available(), 'no usable GPU'; print('GPU:', torch.cuda.get_device_name(0))" \
+          || return 1
+        start_vllm || return 1
+        # Docker's default 64 MB /dev/shm is too small for torch tensors sent
+        # between worker processes.
+        docker run --rm --name govscape-ingest --gpus all $log_opts \
+          --shm-size=4g --network govscape \
+          -v /var/lib/govscape-ingest:/home/govscape/data \
+          -e HF_HOME=/home/govscape/data/hf-cache \
+          -e VLLM_URL=http://govscape-vllm:8000 \
+          -e AWS_REGION=${region} \
+          "$image" \
+          poetry run python -u scripts/pipeline/run_embedding_pipeline.py \
+          --server_id ${server_id} --num_servers ${num_servers} \
+          --endpoint_url= \
+          --bucket_name us-west-2.opendata.source.coop/govscape/eota-derivative-data/ \
+          --pdf_bucket_name us-west-2.opendata.source.coop/govscape/eota-pdf-archive/ \
+          --remote_data_dir ${remote_data_dir} \
+          ${pipeline_args}
+        status=$?
+        docker rm -f govscape-vllm >/dev/null 2>&1
+        return $status
+      }
+
+      for attempt in 1 2 3 4 5; do
+        echo "govscape-ingest: attempt $attempt"
+        if run_once; then
+          echo "govscape-ingest: finished"
+          systemctl poweroff
+          exit 0
+        fi
+        echo "govscape-ingest: attempt $attempt failed"
+        sleep 60
+      done
+      echo "govscape-ingest: giving up after 5 failed attempts"
+      systemctl poweroff
+
+  - path: /etc/systemd/system/govscape-ingest.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=GovScape ingestion pipeline
+      Requires=docker.service
+      After=docker.service network-online.target
+      Wants=network-online.target
+
+      [Service]
+      ExecStart=/usr/local/sbin/govscape-ingest
+      ExecStop=/usr/bin/docker stop -t 120 govscape-ingest
+      StandardOutput=journal+console
+      StandardError=journal+console
+      TimeoutStopSec=150
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - systemctl daemon-reload
+  - systemctl enable --now docker
+  # --no-block: the service runs for hours; don't hold up cloud-init.
+  - systemctl enable --now --no-block govscape-ingest.service

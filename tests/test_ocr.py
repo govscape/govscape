@@ -1,12 +1,13 @@
 """Tests for OCR implementations and OCRProcessingStage."""
 
 import os
-import tempfile
-from unittest.mock import patch
+import shutil
 
 import pytest
 
 import numpy as np
+
+from PIL import Image, ImageDraw, ImageFont
 
 from govscape.config import DataModel
 from govscape.processing import OCRProcessingStage
@@ -14,192 +15,116 @@ from govscape.processing.ocr import (
     EasyOCRImpl,
     OcrMyPDFImpl,
     OLMOcrImpl,
-    PaddleOCRImpl,
+)
+from govscape.processing.pdf_extraction_stage import (
+    MAX_OCR_PIXELS,
+    OCR_DPI,
+    _convert_single_pdf,
 )
 
 
 def _create_test_image(text: str, size=(300, 80)) -> np.ndarray:
-    """Create a simple white RGB image with black text.
-
-    Returns a numpy array representing the image.
-    """
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-
-        img = Image.new("RGB", size, color=(255, 255, 255))
-        draw = ImageDraw.Draw(img)
-        try:
-            font = ImageFont.load_default()
-        except Exception:
-            font = None
-        draw.text((10, 10), text, fill=(0, 0, 0), font=font)
-        return np.array(img)
-    except Exception:
-        # Fall back to a blank numpy image if PIL is not available
-        return np.full((size[1], size[0], 3), 255, dtype=np.uint8)
+    """A white RGB image with black text."""
+    img = Image.new("RGB", size, color=(255, 255, 255))
+    ImageDraw.Draw(img).text(
+        (10, 10), text, fill=(0, 0, 0), font=ImageFont.load_default()
+    )
+    return np.array(img)
 
 
-@pytest.fixture
-def temp_data_dir():
-    """Create temporary data directory for testing and yield DataModel."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        data_model = DataModel(tmpdir)
-        os.makedirs(data_model.image_directory, exist_ok=True)
-        yield tmpdir, data_model
-
-
-class _StaticTextOCR:
-    """Fake OCR engine returning a fixed string for every image.
-
-    Lets us exercise the OCRProcessingStage orchestration (batching, worker
-    dispatch, metadata mapping, writing) without loading a real OCR model.
-    """
-
-    TEXT = "fake-ocr-text"
-
-    def validate(self) -> None:
-        return None
-
-    def extract_text(self, images):
-        return [self.TEXT for _ in images]
-
-
-class _InlineProcessPoolExecutor:
-    """Drop-in ProcessPoolExecutor substitute that runs everything in-process.
-
-    It honors ``initializer``/``initargs`` exactly like the real executor, so the
-    per-worker engine setup in ``run`` is exercised, while avoiding the
-    spawning of real processes (and loading of real OCR models) during tests.
-    """
-
-    map_calls = 0
-
-    def __init__(
-        self, max_workers=None, mp_context=None, initializer=None, initargs=()
-    ):
-        self._initializer = initializer
-        self._initargs = initargs
-
-    def __enter__(self):
-        if self._initializer is not None:
-            self._initializer(*self._initargs)
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-    def map(self, fn, items):
-        type(self).map_calls += 1
-        return [fn(item) for item in items]
+def _scanned_page() -> Image.Image:
+    """A letter-size page image covered in lines of text, like a scan."""
+    page = Image.new("RGB", (612, 792), color=(255, 255, 255))
+    draw = ImageDraw.Draw(page)
+    for line in range(40):
+        draw.text((40, 30 + 18 * line), "SCANNED REPORT TEXT " * 4, fill=(0, 0, 0))
+    return page
 
 
 OCR_IMPLS = [
     (EasyOCRImpl, {"languages": ["en"], "gpu": False}, "easyocr"),
-    (PaddleOCRImpl, {"language": "en", "use_gpu": False}, "paddleocr"),
     (OLMOcrImpl, {"model_name": "default"}, "olmocr"),
-    (OcrMyPDFImpl, {"language": "eng"}, None),
+    (OcrMyPDFImpl, {"language": "eng"}, "pytesseract"),
 ]
 
 
 @pytest.mark.parametrize("impl_class,init_args,skip_pkg", OCR_IMPLS)
 def test_ocr_implementations_on_sample_images(impl_class, init_args, skip_pkg):
-    """Functionality-oriented test: each OCR implementation should extract expected text
-
-    This test will be skipped for implementations whose dependencies are not installed.
-    """
-    # Skip based on known package name when provided
-    if skip_pkg:
-        pytest.importorskip(skip_pkg)
-
+    """Each OCR implementation extracts the expected text; skipped for those whose
+    dependencies are not installed."""
+    pytest.importorskip(skip_pkg)
     # olmOCR runs a ~7B vision-language model (large download, slow, GPU-bound),
     # so its real-inference test is opt-in rather than run on every invocation.
     if impl_class is OLMOcrImpl and not os.environ.get("RUN_OLMOCR_MODEL"):
         pytest.skip("Set RUN_OLMOCR_MODEL=1 to run the olmOCR model test.")
 
-    # OcrMyPDF requires both ocrmypdf and pytesseract
-    if impl_class is OcrMyPDFImpl:
-        pytest.importorskip("ocrmypdf")
-        pytest.importorskip("pytesseract")
-
-    expected_pairs = [
-        ("TEST ONE", _create_test_image("TEST ONE")),
-        ("HELLO 123", _create_test_image("HELLO 123")),
-    ]
-
-    # Instantiate and validate the OCR engine
+    expected = ["TEST ONE", "HELLO 123"]
     ocr = impl_class(**init_args)
     try:
         ocr.validate()
     except ImportError:
         pytest.skip("Required OCR dependency is not available")
 
-    # Extract the whole batch at once and assert each result contains its substring
-    images = [img for _expected, img in expected_pairs]
-    extracted = ocr.extract_text(images)
-    assert isinstance(extracted, list)
-    assert len(extracted) == len(expected_pairs)
-    for (expected, _img), text in zip(expected_pairs, extracted, strict=True):
-        assert isinstance(text, str)
-        assert expected.lower().split()[0] in text.lower()
+    extracted = ocr.extract_text([_create_test_image(text) for text in expected])
+    assert len(extracted) == len(expected)
+    for text, found in zip(expected, extracted, strict=True):
+        assert isinstance(found, str)
+        assert text.lower().split()[0] in found.lower()
 
 
-@pytest.mark.parametrize("impl_class,init_args,skip_pkg", OCR_IMPLS)
-def test_ocr_processing_stage_writes_txt(
-    impl_class, init_args, skip_pkg, temp_data_dir
-):
-    """OCRProcessingStage should dispatch batches through a ProcessPoolExecutor and
-    write one txt file per page, for every OCR engine type.
-
-    The worker-side engine is replaced with a fake so no real OCR model is loaded,
-    and the pool runs inline so the test does not depend on the multiprocessing
-    start method.
-    """
-    pytest.importorskip("cv2")
-
-    _, data_model = temp_data_dir
-
-    # Map impl_class to ocr_type string expected by OCRProcessingStage
-    impl_to_type = {
-        EasyOCRImpl: "easyocr",
-        PaddleOCRImpl: "paddleocr",
-        OLMOcrImpl: "olmocr",
-        OcrMyPDFImpl: "ocrmypdf",
-    }
-
-    stage = OCRProcessingStage(
-        data_model=data_model,
-        ocr_type=impl_to_type[impl_class],
-        batch_size=1,
-        max_workers=2,
-        **init_args,
+def test_extraction_renders_only_pages_that_need_ocr(tmp_path):
+    data_model = DataModel(tmp_path.as_posix())
+    # PIL writes image-only PDFs (no text layer), one page per image, at 72 dpi:
+    # a blank page, a scanned letter page and a 43 x 35 in drawing (which would
+    # be ~135 MP at 300 dpi).
+    blank = Image.new("RGB", (612, 792), color=(255, 255, 255))
+    drawing = Image.new("RGB", (43 * 72, 35 * 72), color=(255, 255, 255))
+    ImageDraw.Draw(drawing).rectangle((100, 100, 2000, 1500), fill=(0, 0, 0))
+    digest = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+    pdf_path = (tmp_path / f"{digest}.pdf").as_posix()
+    blank.save(
+        pdf_path, format="PDF", save_all=True, append_images=[_scanned_page(), drawing]
     )
 
-    # Create sample images on disk that cv2 can read. Two pages with batch_size=1
-    # means more than one batch, so page-to-text alignment is exercised too.
-    import cv2
+    _convert_single_pdf(data_model, pdf_path, render_ocr_pages=True)
 
-    digest = "abc123def456abc123def456abc123def45"
-    img_dir = os.path.join(data_model.image_directory, digest)
-    os.makedirs(img_dir, exist_ok=True)
-    for page_num in range(2):
-        img = _create_test_image(f"PIPELINE TEST {page_num}")
-        img_path = os.path.join(img_dir, f"{digest}_{page_num}.jpeg")
-        cv2.imwrite(img_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+    for page_num in range(3):
+        assert os.path.exists(data_model.img_page_path(digest, page_num))
+    assert not os.path.exists(data_model.ocr_img_page_path(digest, 0))
+    with Image.open(data_model.ocr_img_page_path(digest, 1)) as render:
+        assert render.mode == "L"
+        assert render.size == pytest.approx(
+            (612 * OCR_DPI / 72, 792 * OCR_DPI / 72), abs=1
+        )
+    with Image.open(data_model.ocr_img_page_path(digest, 2)) as render:
+        width, height = render.size
+    # Large-format pages are rendered at a lower dpi; pdfium rounds each side up.
+    assert 0.99 * MAX_OCR_PIXELS < width * height < 1.01 * MAX_OCR_PIXELS
+    assert abs(width / height - 43 / 35) < 0.01
 
-    _InlineProcessPoolExecutor.map_calls = 0
-    with (
-        patch(
-            "govscape.processing.ocr_processing_stage._build_ocr_engine",
-            return_value=_StaticTextOCR(),
-        ),
-        patch(
-            "govscape.processing.ocr_processing_stage.ProcessPoolExecutor",
-            _InlineProcessPoolExecutor,
-        ),
-    ):
-        stage.run()
 
-    assert _InlineProcessPoolExecutor.map_calls == 1
-    for page_num in range(2):
-        with open(data_model.txt_page_path(digest, page_num), encoding="utf-8") as f:
-            assert f.read() == _StaticTextOCR.TEXT
+def test_scanned_pdf_is_extracted_and_ocred(tmp_path):
+    pytest.importorskip("pytesseract")
+    if shutil.which("tesseract") is None:
+        pytest.skip("tesseract binary not installed")
+    data_model = DataModel(tmp_path.as_posix())
+    digest = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+    pdf_path = (tmp_path / f"{digest}.pdf").as_posix()
+    _scanned_page().save(pdf_path, format="PDF")
+    _convert_single_pdf(data_model, pdf_path, render_ocr_pages=True)
+
+    OCRProcessingStage(data_model, ocr_type="ocrmypdf", num_processes=1).run()
+
+    with open(data_model.txt_page_path(digest, 0), encoding="utf-8") as f:
+        assert "SCANNED REPORT TEXT" in f.read()
+    assert not os.path.exists(data_model.ocr_image_directory)
+
+
+def test_tesseract_is_stopped_at_its_time_limit(monkeypatch):
+    pytest.importorskip("pytesseract")
+    if shutil.which("tesseract") is None:
+        pytest.skip("tesseract binary not installed")
+    monkeypatch.setattr(OcrMyPDFImpl, "TIMEOUT_S", 0.01)
+    monkeypatch.setattr(OcrMyPDFImpl, "RETRY_TIMEOUT_S", 0.01)
+    page = _create_test_image("SLOW PAGE " * 20, (2400, 3000))
+    assert OcrMyPDFImpl(max_workers=1).extract_text([page]) == [None]

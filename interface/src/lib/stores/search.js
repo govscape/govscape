@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
-import { apiFetch, getImageBaseUrl } from '../utils/fetch';
+import { apiFetch } from '../utils/fetch';
+import { pageImageSource } from '../utils/pageImages';
 import { userTracker } from '../utils/userTracking.js';
 
 export const searchStore = writable({
@@ -17,6 +18,22 @@ export const searchStore = writable({
   totalPages: null,
   hybridWeights: { textual: 0.33, visual: 0.33, keyword: 0.34 },
 });
+
+// Hybrid search weights in a URL, as "textual,visual,keyword", e.g. "0.5,0.2,0.3",
+// so that changing them is a new search and a link reproduces them.
+const WEIGHT_KEYS = ['textual', 'visual', 'keyword'];
+
+export function formatHybridWeights(weights) {
+  return WEIGHT_KEYS.map(key => Number(weights?.[key] ?? 0).toFixed(2)).join(',');
+}
+
+export function parseHybridWeights(text) {
+  const values = (text || '').split(',').map(Number);
+  if (values.length !== WEIGHT_KEYS.length || values.some(v => !Number.isFinite(v) || v < 0)) {
+    return null;
+  }
+  return Object.fromEntries(WEIGHT_KEYS.map((key, i) => [key, values[i]]));
+}
 
 export const searchActions = {
   setQuery: (query) => {
@@ -115,12 +132,9 @@ export const searchActions = {
         body: JSON.stringify(body)
       });
 
-      const imageBase = getImageBaseUrl();
       const results = (responseData.results || []).map(result => ({
         ...result,
-        jpeg: result.jpeg && typeof result.jpeg === 'string'
-              ? `${imageBase}/${result.jpeg.split('/').slice(-2).join('/')}`
-              : null
+        imageSource: pageImageSource(result.image, result.jpeg)
       }));
 
       searchStore.update(store => ({

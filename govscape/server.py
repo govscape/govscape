@@ -12,17 +12,36 @@ from govscape.indexing.keyword import AbstractKeywordIndex
 from .api import init_api
 from .config import ServerConfig
 from .indexing import (
+    AbstractVectorIndex,
     FAISSIndex,
     HybridIndex,
     HybridKeywordMetadataIndex,
     HybridVectorMetadataIndex,
+    IVFPQDiskIndex,
     LanceDBKeywordIndex,
     LuceneKeywordIndex,
     SQLiteKeywordIndex,
     SQLiteMetadataIndex,
+    TantivyKeywordIndex,
     WhooshKeywordIndex,
 )
 from .query import Query, Response
+
+
+def page_image_range(packed: dict | None, page_num: int) -> dict | None:
+    """Where page page_num's image is in its pack, as {"pack", "start", "end"}
+    (an inclusive byte range), or None if the PDF's pages aren't packed (see
+    govscape/page_image_packs.py)."""
+    if not packed:
+        return None
+    offsets = packed["offsets"]
+    if page_num >= len(offsets) - 1:
+        return None
+    return {
+        "pack": packed["pack"],
+        "start": offsets[page_num],
+        "end": offsets[page_num + 1] - 1,
+    }
 
 
 # basic pipeline developed:
@@ -39,7 +58,6 @@ class Server:
         self.data_model = config.data_model
         self.vector_index_type = config.vector_index_type
         self.keyword_index_type = config.keyword_index_type
-        self.forward_index_type = config.forward_index_type
         self.k = config.k
         self.max_crawl_instances = config.max_crawl_instances
 
@@ -50,15 +68,14 @@ class Server:
         self.visual_model = config.visual_model
         self.visual_d = config.visual_d
 
+        self.text_index: AbstractVectorIndex
+        self.visual_index: AbstractVectorIndex
         if self.vector_index_type == "Memory":
-            self.text_index = FAISSIndex(
-                self.data_model.index_directory,
-                forward_index_type=self.forward_index_type,
-            )
-            self.visual_index = FAISSIndex(
-                self.data_model.index_img_pg_directory,
-                forward_index_type=self.forward_index_type,
-            )
+            self.text_index = FAISSIndex(self.data_model.index_directory)
+            self.visual_index = FAISSIndex(self.data_model.index_img_pg_directory)
+        elif self.vector_index_type == "Disk":
+            self.text_index = IVFPQDiskIndex(self.data_model.index_directory)
+            self.visual_index = IVFPQDiskIndex(self.data_model.index_img_pg_directory)
         else:
             raise ValueError(f"Unsupported vector index type: {self.vector_index_type}")
         self.text_index.load_index()
@@ -78,6 +95,10 @@ class Server:
             )
         elif self.keyword_index_type == "Lucene":
             self.keyword_index = LuceneKeywordIndex(
+                self.data_model.index_keyword_directory
+            )
+        elif self.keyword_index_type == "Tantivy":
+            self.keyword_index = TantivyKeywordIndex(
                 self.data_model.index_keyword_directory
             )
         else:
@@ -271,21 +292,18 @@ class Server:
             text_embedding = self.text_model.encode_text(query.q_text, is_query=True)
             visual_embedding = self.visual_model.encode_text(query.q_text)
             weights = getattr(query, "weights", None) or {}
-            # Normalize weights if provided
+            # Normalized, in the order of text_visual_keyword_hybrid_index's indices.
+            components = ["textual", "visual", "keyword"]
             try:
-                total = sum(
-                    float(weights.get(k, 0.0)) for k in ["textual", "visual", "keyword"]
-                )
+                total = sum(float(weights.get(k, 0.0)) for k in components)
             except Exception:
                 total = 0.0
 
-            if total and total > 0:
-                normalized = {
-                    k: float(weights.get(k, 0.0)) / total
-                    for k in ["textual", "visual", "keyword"]
-                }
-            else:
-                normalized = None
+            normalized = (
+                [float(weights.get(k, 0.0)) / total for k in components]
+                if total > 0
+                else None
+            )
 
             start = time.time()
             rows, pdf_metadata, state = self.text_visual_keyword_hybrid_index.search(
@@ -324,6 +342,7 @@ class Server:
         )
 
     def _build_search_results(self, rows, pdf_metadata):
+        page_images = self.metadata_index.page_images(list(pdf_metadata))
         search_results: list[dict] = []
         for distance, name, page_num in rows:
             metadata = pdf_metadata.get(name, None)
@@ -334,13 +353,20 @@ class Server:
                 has_more_crawls = len(all_records) > self.max_crawl_instances
                 limited_records = all_records[: self.max_crawl_instances]
                 newest = all_records[0]
-                jpeg_file = self.data_model.img_page_path(name, int(page_num))
+                image = page_image_range(page_images.get(name), int(page_num))
+                # Pages without an image range predate packs: one JPEG per page.
+                jpeg_file = (
+                    None
+                    if image
+                    else self.data_model.img_page_path(name, int(page_num))
+                )
                 search_results.append(
                     {
                         "pdf": name,
                         "page": page_num,
                         "distance": float(distance),
                         "jpeg": jpeg_file,
+                        "image": image,
                         "crawl_url": newest.get("crawl_url", ""),
                         "crawl_date": newest.get("crawl_date", ""),
                         "sub_domain": newest.get("sub_domain", ""),
@@ -360,8 +386,10 @@ class Server:
     def pdf_pages(self, pdf_id):
         """
         Get all page images and metadata for a PDF by pdf_id.
-        Returns dict with 'images', 'crawl_url', 'crawl_date', 'sub_domain'
-        (newest crawl), and 'crawl_instances' (all crawls, newest first).
+        Returns dict with 'page_image_ranges' (one page_image_range per page) if
+        the pages are packed, else 'images' (one JPEG path per page), 'crawl_url',
+        'crawl_date', 'sub_domain' (newest crawl), and 'crawl_instances' (all
+        crawls, newest first).
         """
         if not pdf_id:
             return {"error": "Missing 'pdf_id' parameter"}, 400
@@ -369,6 +397,7 @@ class Server:
         if pdf_id in self.blacklist:
             return {
                 "images": [],
+                "page_image_ranges": [],
                 "crawl_url": "",
                 "crawl_date": "",
                 "sub_domain": "",
@@ -391,7 +420,17 @@ class Server:
         sub_domain = newest.get("sub_domain", "")
         page_count = int(newest.get("page_count", 0))
 
-        images = [self.data_model.img_page_path(pdf_id, i) for i in range(page_count)]
+        packed = self.metadata_index.page_images([pdf_id]).get(pdf_id)
+        if packed:
+            images = []
+            page_image_ranges = [
+                page_image_range(packed, i) for i in range(len(packed["offsets"]) - 1)
+            ]
+        else:  # From before packs: one JPEG per page.
+            images = [
+                self.data_model.img_page_path(pdf_id, i) for i in range(page_count)
+            ]
+            page_image_ranges = []
 
         crawl_instances = [
             {
@@ -404,6 +443,7 @@ class Server:
 
         return {
             "images": images,
+            "page_image_ranges": page_image_ranges,
             "crawl_url": crawl_url,
             "crawl_date": crawl_date,
             "sub_domain": sub_domain,

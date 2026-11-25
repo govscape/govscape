@@ -5,7 +5,7 @@ PDFExtractionStage, then times each OCR engine.
 
 Example:
     poetry run python -m govscape.benchmarks.ocr_benchmark \
-        --num-pdfs 10 --engines easyocr paddleocr
+        --num-pdfs 10 --engines easyocr ocrmypdf
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from botocore.config import Config
 
@@ -33,11 +34,10 @@ from govscape.processing.pdf_extraction_stage import PDFExtractionStage
 DEFAULT_BUCKET = PDF_ARCHIVE_BUCKET
 DEFAULT_PREFIX = PDF_ARCHIVE_PDF_DIR
 DEFAULT_NUM_PDFS = 10
-DEFAULT_ENGINES = ["easyocr", "paddleocr", "olmocr", "ocrmypdf"]
+DEFAULT_ENGINES = ["easyocr", "olmocr", "ocrmypdf"]
 
 ENGINE_DEFAULT_KWARGS: dict[str, dict] = {
     "easyocr": {"languages": ["en"], "gpu": False},
-    "paddleocr": {"language": "en", "use_gpu": False},
     "olmocr": {"model_name": "default"},
     "ocrmypdf": {"language": "eng", "output_type": "txt"},
 }
@@ -46,7 +46,6 @@ ENGINE_DEFAULT_KWARGS: dict[str, dict] = {
 def _apply_gpu(kwargs: dict[str, dict], gpu: bool) -> dict[str, dict]:
     updated = {k: dict(v) for k, v in kwargs.items()}
     updated["easyocr"]["gpu"] = gpu
-    updated["paddleocr"]["use_gpu"] = gpu
     return updated
 
 
@@ -92,23 +91,34 @@ def download_pdfs(data_root: str, bucket: str, prefix: str, num_pdfs: int) -> li
 
 
 def extract_images(data_model: DataModel, pdf_files: list[str]) -> int:
-    """Extract page images from PDFs and return total image count."""
+    """Extract the pages that need OCR from PDFs and return how many there are."""
     stage = PDFExtractionStage(
         data_model=data_model,
         pdf_files=pdf_files,
         cpu_count=os.cpu_count() or 1,
+        render_ocr_pages=True,
     )
     stage.validate()
     stage.run()
+    # OCRProcessingStage deletes the renders it reads, so keep a copy that each
+    # engine's run starts from (see _restore_ocr_images).
+    renders = data_model.ocr_image_directory
+    if not os.path.isdir(renders):
+        return 0
+    shutil.copytree(renders, _pristine_ocr_images(data_model))
+    return sum(len(os.listdir(d.path)) for d in os.scandir(renders) if d.is_dir())
 
-    total = 0
-    if os.path.isdir(data_model.image_directory):
-        for digest_dir in os.scandir(data_model.image_directory):
-            if digest_dir.is_dir():
-                total += sum(
-                    1 for f in os.listdir(digest_dir.path) if f.endswith(".jpeg")
-                )
-    return total
+
+def _pristine_ocr_images(data_model: DataModel) -> str:
+    return data_model.ocr_image_directory + "_pristine"
+
+
+def _restore_ocr_images(data_model: DataModel) -> None:
+    shutil.rmtree(data_model.ocr_image_directory, ignore_errors=True)
+    if os.path.isdir(_pristine_ocr_images(data_model)):
+        shutil.copytree(
+            _pristine_ocr_images(data_model), data_model.ocr_image_directory
+        )
 
 
 def select_engines(requested: Sequence[str]) -> list[str]:
@@ -132,15 +142,14 @@ def benchmark_engine(
     total_pages: int,
     engine_kwargs: dict[str, dict] | None = None,
 ) -> BenchmarkResult:
-    engine_kwargs = (engine_kwargs or ENGINE_DEFAULT_KWARGS).get(engine, {})
+    kwargs: dict[str, Any] = (engine_kwargs or ENGINE_DEFAULT_KWARGS).get(engine, {})
     try:
-        stage = OCRProcessingStage(
-            data_model=data_model, ocr_type=engine, **engine_kwargs
-        )
+        stage = OCRProcessingStage(data_model=data_model, ocr_type=engine, **kwargs)
         stage.validate()
 
         if os.path.isdir(data_model.txt_directory):
             shutil.rmtree(data_model.txt_directory)
+        _restore_ocr_images(data_model)
 
         start = time.perf_counter()
         stage.run()
@@ -218,7 +227,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--gpu",
         action="store_true",
-        help="Enable GPU acceleration for EasyOCR and PaddleOCR.",
+        help="Enable GPU acceleration for EasyOCR.",
     )
     return parser.parse_args(argv)
 

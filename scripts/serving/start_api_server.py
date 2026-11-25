@@ -83,14 +83,8 @@ def _get_arg_parser():
     parser.add_argument(
         "-ki",
         "--keyword_index_type",
-        default="LanceDB",
+        default="Tantivy",
         help="The type of keyword index to use",
-    )
-    parser.add_argument(
-        "--forward_index_type",
-        default="LMDB",
-        choices=["SQLite", "LMDB"],
-        help="The type of forward index stored with each vector index",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--host", default="0.0.0.0", help="Host to run the server on")
@@ -134,7 +128,6 @@ def _build_app_from_args(args):
         keyword_index_type=args.keyword_index_type,
         k=args.top_k,
         max_crawl_instances=args.max_crawl_instances,
-        forward_index_type=args.forward_index_type,
     )
     return gs.Server(server_config)
 

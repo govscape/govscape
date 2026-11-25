@@ -96,6 +96,14 @@ class DummyMetadataIndex:
             for name in pdf_names
         }
 
+    def page_images(self, digests):
+        # Odd-numbered documents are packed; even ones predate packs.
+        return {
+            name: {"pack": "pack_abc.jpegs", "offsets": [100, 150, 230]}
+            for name in digests
+            if int(name.split("_")[-1].split(".")[0]) % 2
+        }
+
 
 def _build_server_fixture(tmp_path, monkeypatch, blacklist_text: str | None = None):
     data_dir = tmp_path / "data"
@@ -232,6 +240,7 @@ def test_pdf_pages_blacklisted_returns_empty_200(server_fixture_with_blacklist):
 
     assert result == {
         "images": [],
+        "page_image_ranges": [],
         "crawl_url": "",
         "crawl_date": "",
         "sub_domain": "",
@@ -246,3 +255,50 @@ def test_pdf_pages_non_blacklisted_unaffected(server_fixture_with_blacklist):
 
     assert isinstance(result, dict)
     assert "images" in result
+
+
+def test_search_results_give_packed_page_images_by_byte_range(server_fixture):
+    response = server_fixture.search(Query("test query", search_type="textual"))
+
+    for result in response.results:
+        packed = int(result["pdf"].split("_")[-1].split(".")[0]) % 2
+        page = int(result["page"])
+        if packed and page < 2:
+            start, end = [(100, 149), (150, 229)][page]
+            assert result["image"] == {
+                "pack": "pack_abc.jpegs",
+                "start": start,
+                "end": end,
+            }
+        else:
+            assert result["image"] is None
+        assert bool(result["jpeg"]) != bool(result["image"])
+
+
+def test_pdf_pages_give_each_packed_page_by_byte_range(server_fixture):
+    packed = server_fixture.pdf_pages("doc_1.pdf")
+    assert packed["page_image_ranges"] == [
+        {"pack": "pack_abc.jpegs", "start": 100, "end": 149},
+        {"pack": "pack_abc.jpegs", "start": 150, "end": 229},
+    ]
+    assert packed["images"] == []
+    unpacked = server_fixture.pdf_pages("doc_2.pdf")
+    assert unpacked["page_image_ranges"] == []
+    assert len(unpacked["images"]) == 2
+
+
+def test_hybrid_weights_search(server_fixture):
+    weights = {"textual": 0.33, "visual": 0.33, "keyword": 0.34}
+    response = server_fixture.search(
+        Query("test query", search_type="hybrid_weights", weights=weights)
+    )
+    assert len(response.results) == server_fixture.config.k
+
+    # All the weight on one index ranks the results as that index does.
+    keyword_only = server_fixture.search(
+        Query("test query", search_type="hybrid_weights", weights={"keyword": 1})
+    )
+    keyword = server_fixture.search(Query("test query", search_type="keyword"))
+    assert [r["pdf"] for r in keyword_only.results] == [
+        r["pdf"] for r in keyword.results
+    ]
