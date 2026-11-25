@@ -43,13 +43,6 @@ if __name__ == "__main__":
         choices=["FAISS"],
         help='Type of index to create (e.g., "FAISS")',
     )
-    parser.add_argument(
-        "--forward_index_type",
-        type=str,
-        choices=["SQLite", "LMDB"],
-        default="LMDB",
-        help="Type of forward index stored with the vector index",
-    )
     args = parser.parse_args()
     NUM_PAGES_TO_PROCESS = args.num_pages_to_process
     BATCH_SIZE = args.batch_size
@@ -158,9 +151,7 @@ if __name__ == "__main__":
     # Adding Embedding Files to the Index and Uploading to S3
     def process_embedding_files(embedding_files):
         time_index_start = time.time()
-        index = gs.FAISSIndex(
-            LOCAL_INDEX_DIR, forward_index_type=args.forward_index_type
-        )
+        index = gs.FAISSIndex(LOCAL_INDEX_DIR)
         index.load_index()
 
         names = []

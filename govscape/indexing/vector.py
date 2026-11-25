@@ -4,8 +4,11 @@ import json
 import logging
 import os
 import pickle as pkl
+import struct
 import sys
+import types
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from typing import cast
 
 import numpy as np
@@ -13,7 +16,7 @@ import numpy as np
 import pyarrow as pa
 
 from .base import AbstractIndex
-from .forward import build_forward_index
+from .kv_store import KVStore
 
 
 # Avoid annoying output from faiss during import
@@ -36,11 +39,23 @@ with suppress_output():
 
 
 class AbstractVectorIndex(AbstractIndex, ABC):
-    """What the server and the hybrid indexes need from a vector index: load it,
-    search it, and look up every page vector of given PDFs (for prefiltering)."""
+    """A vector index of page vectors, built with build_index(), add_batch() for
+    every batch, then save_index(), and served after load_index()."""
+
+    @abstractmethod
+    def build_index(self):
+        pass
+
+    @abstractmethod
+    def add_batch(self, embeddings, pdf_names, pdf_pages):
+        pass
 
     @abstractmethod
     def load_index(self):
+        pass
+
+    @abstractmethod
+    def save_index(self):
         pass
 
     @abstractmethod
@@ -64,27 +79,82 @@ class AbstractVectorIndex(AbstractIndex, ABC):
         """Return (vectors, digests, pages) for every page of the candidates."""
 
 
-class BuildableVectorIndex(AbstractVectorIndex):
-    """A vector index built with build_index(), then add_batch() for every batch
-    of page vectors, then save_index()."""
-
-    @abstractmethod
-    def build_index(self):
-        pass
-
-    @abstractmethod
-    def add_batch(self, embeddings, pdf_names, pdf_pages):
-        pass
-
-    @abstractmethod
-    def save_index(self):
-        pass
+# Each PDF's page vectors, by digest, for get_vectors_for_digests().
+PAGE_VECTORS_DB = "forward_index.lmdb"
+# A value: (pages, d) as uint32, the float32 vectors, then the page labels joined
+# by newlines.
+_PAGE_VECTORS_HEADER = struct.Struct("<II")
 
 
-class FAISSIndex(BuildableVectorIndex):
-    def __init__(self, index_directory, index_type="IVFPQ", forward_index_type="LMDB"):
+def _decode_page_vectors(value: bytes) -> tuple[list[str], np.ndarray]:
+    n, d = _PAGE_VECTORS_HEADER.unpack_from(value)
+    start = _PAGE_VECTORS_HEADER.size
+    vectors = np.frombuffer(value, np.float32, n * d, start).reshape(n, d)
+    return value[start + n * d * 4 :].decode().split("\n"), vectors
+
+
+def add_page_vectors(store: KVStore, embeddings, digests, pages) -> None:
+    """Add each page's vector to its PDF's, replacing any already stored for it."""
+    by_digest: dict[str, dict[str, np.ndarray]] = defaultdict(dict)
+    for embedding, digest, page in zip(
+        np.asarray(embeddings, dtype=np.float32).reshape(len(digests), -1),
+        digests,
+        pages,
+        strict=True,
+    ):
+        if digest:
+            by_digest[str(digest)][str(page)] = embedding
+    keys = [digest.encode() for digest in by_digest]
+    items = []
+    for key, existing, page_vectors in zip(
+        keys, store.get_many(keys), by_digest.values(), strict=True
+    ):
+        if existing is not None:
+            old_pages, old_vectors = _decode_page_vectors(existing)
+            page_vectors = dict(zip(old_pages, old_vectors, strict=True)) | page_vectors
+        vectors = np.vstack(list(page_vectors.values()))
+        items.append(
+            (
+                key,
+                _PAGE_VECTORS_HEADER.pack(*vectors.shape)
+                + vectors.tobytes()
+                + "\n".join(page_vectors).encode(),
+            )
+        )
+    store.put_many(items)
+
+
+def get_page_vectors(store: KVStore, candidate_digests):
+    """(vectors, digests, pages) for every page of the candidates."""
+    if not candidate_digests or not store.exists():
+        return np.empty((0, 0), dtype=np.float32), [], []
+    candidates = [str(digest) for digest in candidate_digests]
+    blocks, digests, pages = [], [], []
+    values = store.get_many(digest.encode() for digest in candidates)
+    for digest, value in zip(candidates, values, strict=True):
+        if value is not None:
+            digest_pages, vectors = _decode_page_vectors(value)
+            blocks.append(vectors)
+            digests += [digest] * len(digest_pages)
+            pages += digest_pages
+    if not blocks:
+        return np.empty((0, 0), dtype=np.float32), [], []
+    return np.vstack(blocks), digests, pages
+
+
+class _FAISSUnpickler(pkl.Unpickler):
+    def find_class(self, module, name):
+        # Indexes saved before page vectors moved to a KVStore pickled the
+        # forward index class it replaced; load_index() doesn't use it.
+        if module == "govscape.indexing.forward":
+            return types.SimpleNamespace
+        return super().find_class(module, name)
+
+
+class FAISSIndex(AbstractVectorIndex):
+    def __init__(self, index_directory, index_type="IVFPQ"):
         self.index_directory = index_directory
-        self.forward_index = build_forward_index(forward_index_type, index_directory)
+        self.page_vectors = KVStore(os.path.join(index_directory, PAGE_VECTORS_DB))
         self.faiss_index = None
         self.index_type = index_type
         self.d = None
@@ -144,7 +214,7 @@ class FAISSIndex(BuildableVectorIndex):
         self.faiss_index.add(embeddings)
         self.pdf_names.extend(pdf_names)
         self.pdf_pages.extend(pdf_pages)
-        self.forward_index.add_batch(embeddings, pdf_names, pdf_pages)
+        add_page_vectors(self.page_vectors, embeddings, pdf_names, pdf_pages)
 
     def build_index(self):
         return
@@ -154,17 +224,16 @@ class FAISSIndex(BuildableVectorIndex):
         index_path = os.path.join(self.index_directory, "faiss_index.pkl")
         with open(index_path, "wb") as handle:
             pkl.dump(self, handle)
-        self.forward_index.save_index()
+        self.page_vectors.sync()
         print(f"Index saved to {self.index_directory}/faiss_index.pkl")
         return
 
     def load_index(self):
-        self.forward_index.load_index()
         index_path = os.path.join(self.index_directory, "faiss_index.pkl")
         if not os.path.exists(index_path):
             return
         with open(index_path, "rb") as handle:
-            index = pkl.load(handle)
+            index = _FAISSUnpickler(handle).load()
         self.faiss_index = index.faiss_index
         self.train_batch = index.train_batch
         self.is_trained = index.is_trained
@@ -196,15 +265,13 @@ class FAISSIndex(BuildableVectorIndex):
         return self.faiss_index.ntotal
 
     def get_vectors_for_digests(self, candidate_digests):
-        return self.forward_index.get_vectors_for_digests(candidate_digests)
+        return get_page_vectors(self.page_vectors, candidate_digests)
 
 
-class LanceDBVectorIndex(BuildableVectorIndex):
-    def __init__(
-        self, index_directory, table_name="vector_index", forward_index_type="LMDB"
-    ):
+class LanceDBVectorIndex(AbstractVectorIndex):
+    def __init__(self, index_directory, table_name="vector_index"):
         self.index_directory = index_directory
-        self.forward_index = build_forward_index(forward_index_type, index_directory)
+        self.page_vectors = KVStore(os.path.join(index_directory, PAGE_VECTORS_DB))
         self.table_name = table_name
         self.db = None
         self.table = None
@@ -270,10 +337,10 @@ class LanceDBVectorIndex(BuildableVectorIndex):
         ]
         if rows:
             self.table.add(rows)
-        self.forward_index.add_batch(embeddings, pdf_names, pdf_pages)
+        add_page_vectors(self.page_vectors, embeddings, pdf_names, pdf_pages)
 
     def save_index(self):
-        self.forward_index.save_index()
+        self.page_vectors.sync()
         if self.table is None:
             self.load_index()
         if self.table is None:
@@ -288,7 +355,6 @@ class LanceDBVectorIndex(BuildableVectorIndex):
         self.table.optimize()
 
     def load_index(self):
-        self.forward_index.load_index()
         self._connect()
         try:
             self.table = self.db.open_table(self.table_name)
@@ -334,7 +400,7 @@ class LanceDBVectorIndex(BuildableVectorIndex):
         return self.table.count_rows()
 
     def get_vectors_for_digests(self, candidate_digests):
-        return self.forward_index.get_vectors_for_digests(candidate_digests)
+        return get_page_vectors(self.page_vectors, candidate_digests)
 
 
 IVFPQ_INDEX_FILE = "ivfpq.index"
@@ -343,6 +409,7 @@ IVFPQ_META_FILE = "meta.json"
 VECTORS_FILE = "vectors.f16"
 ROW_DIGESTS_FILE = "row_digests.u32"
 ROW_PAGES_FILE = "row_pages.u32"
+DIGEST_ROWS_DB = "digest_rows.lmdb"
 # A build's checkpoint, removed when the build finishes.
 STATE_FILE = "build_state.json"
 TRAINED_FILE = "build_trained.index"
@@ -351,7 +418,7 @@ DIGEST_LIST_FILE = "build_digests.txt"
 MIN_TRAIN_POINTS_PER_LIST = 39
 
 
-class IVFPQDiskIndex(BuildableVectorIndex):
+class IVFPQDiskIndex(AbstractVectorIndex):
     """A disk-based IVF-PQ index for archive-scale serving, built in a single pass
     over the data and served with almost everything memory-mapped from disk:
 
@@ -362,9 +429,8 @@ class IVFPQDiskIndex(BuildableVectorIndex):
       exactly and to return all of a PDF's page vectors for prefiltering.
     - row_digests.u32, row_pages.u32: each row's PDF (an index into digests.npy)
       and page number.
-    - digests.npy (PDF digests by id), digests_sorted.npy and
-      digests_sorted_ids.npy (to look a digest up), digest_rows.npy and
-      digest_row_offsets.npy (each PDF's rows): the PDF -> rows index.
+    - digests.npy: the PDF digests, by id.
+    - digest_rows.lmdb: each PDF's rows, by digest (a KVStore).
     - meta.json: dimensions, sizes and search settings.
 
     Building: the first train_size vectors passed to add_batch() are buffered to
@@ -548,19 +614,25 @@ class IVFPQDiskIndex(BuildableVectorIndex):
         for path in self._block_paths:
             os.remove(path)
 
-        # PDFs -> rows (see load_index).
         digests = np.array(list(self.digest_ids), dtype=np.bytes_)
         np.save(self._path("digests.npy"), digests)
-        order = np.argsort(digests).astype(np.uint32)
-        np.save(self._path("digests_sorted.npy"), digests[order])
-        np.save(self._path("digests_sorted_ids.npy"), order)
+        # PDFs -> rows: all rows, by PDF id, and where each PDF's begin.
         row_digests = np.fromfile(self._path(ROW_DIGESTS_FILE), dtype=np.uint32)
-        row_dtype = np.uint32 if self.ntotal < 2**32 else np.uint64
-        digest_rows = np.argsort(row_digests, kind="stable").astype(row_dtype)
-        offsets = np.zeros(len(digests) + 1, dtype=np.uint64)
+        rows = np.argsort(row_digests, kind="stable").astype(self._row_dtype)
+        offsets = np.zeros(len(digests) + 1, dtype=np.int64)
         np.cumsum(np.bincount(row_digests, minlength=len(digests)), out=offsets[1:])
-        np.save(self._path("digest_rows.npy"), digest_rows)
-        np.save(self._path("digest_row_offsets.npy"), offsets)
+        store = KVStore(self._path(DIGEST_ROWS_DB))
+        # Appended in key order, in transactions of a million PDFs.
+        order = np.argsort(digests)
+        for start in range(0, len(order), 1_000_000):
+            store.put_many(
+                (
+                    (bytes(digests[i]), rows[offsets[i] : offsets[i + 1]].tobytes())
+                    for i in order[start : start + 1_000_000]
+                ),
+                append=True,
+            )
+        store.close()
 
         meta = {
             "d": self.d,
@@ -576,6 +648,10 @@ class IVFPQDiskIndex(BuildableVectorIndex):
             if os.path.exists(self._path(name)):
                 os.remove(self._path(name))
         logging.info(f"IVF-PQ index written: {meta}")
+
+    @property
+    def _row_dtype(self):
+        return np.uint32 if self.ntotal < 2**32 else np.uint64
 
     def _train_and_add_pending(self) -> None:
         assert self.d is not None
@@ -665,6 +741,7 @@ class IVFPQDiskIndex(BuildableVectorIndex):
         with open(self._path(IVFPQ_META_FILE)) as f:
             self.meta = json.load(f)
         d, ntotal = self.meta["d"], self.meta["ntotal"]
+        self.d, self.ntotal = d, ntotal
         # ONDISK_SAME_DIR finds ivfpq.ivfdata next to ivfpq.index, wherever the
         # directory was moved; the lists are memory-mapped, not read in.
         self.index = faiss.read_index(
@@ -682,16 +759,9 @@ class IVFPQDiskIndex(BuildableVectorIndex):
         self.row_pages = np.memmap(
             self._path(ROW_PAGES_FILE), dtype=np.uint32, mode="r", shape=(ntotal,)
         )
-        # PDFs -> rows: a PDF's id by its digest (binary search over the sorted
-        # digests), then its rows, digest_rows[offsets[id]:offsets[id + 1]].
-        self.digests = self._load("digests")
-        self.digests_sorted = self._load("digests_sorted")
-        self.digests_sorted_ids = self._load("digests_sorted_ids")
-        self.digest_rows = self._load("digest_rows")
-        self.digest_row_offsets = self._load("digest_row_offsets")
-
-    def _load(self, name: str) -> np.ndarray:
-        return np.load(self._path(f"{name}.npy"), mmap_mode="r")
+        self.digests = np.load(self._path("digests.npy"), mmap_mode="r")
+        # Opened on first use, in each server worker.
+        self.digest_rows = KVStore(self._path(DIGEST_ROWS_DB))
 
     def total_entries(self):
         return self.meta["ntotal"]
@@ -716,18 +786,8 @@ class IVFPQDiskIndex(BuildableVectorIndex):
         return distances[best], digests, pages
 
     def get_vectors_for_digests(self, candidate_digests):
-        # Each PDF's id by binary search over the sorted digests, then its rows.
-        rows = []
-        for digest in candidate_digests:
-            key = str(digest).encode()
-            position = np.searchsorted(self.digests_sorted, key)
-            if (
-                position < len(self.digests_sorted)
-                and self.digests_sorted[position] == key
-            ):
-                digest_id = self.digests_sorted_ids[position]
-                start, end = self.digest_row_offsets[digest_id : digest_id + 2]
-                rows.append(np.asarray(self.digest_rows[start:end]))
+        values = self.digest_rows.get_many(str(d).encode() for d in candidate_digests)
+        rows = [np.frombuffer(v, self._row_dtype) for v in values if v is not None]
         if not rows:
             return np.empty((0, 0), dtype=np.float32), [], []
         all_rows = np.sort(np.concatenate(rows))

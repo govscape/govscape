@@ -31,7 +31,7 @@ import pandas as pd
 from govscape.config import DataModel
 from govscape.indexing.keyword import AbstractKeywordIndex
 from govscape.indexing.metadata import AbstractMetadataIndex
-from govscape.indexing.vector import BuildableVectorIndex
+from govscape.indexing.vector import AbstractVectorIndex
 from govscape.utils import extract_subdomain
 
 TEST_DATA_DIR = Path(__file__).resolve().parent.parent / "test_data"
@@ -151,10 +151,11 @@ def _iter_extracted_text(txt_dir: str) -> tuple[list[str], list[str], list[str]]
 
 
 def build_vector_index(
-    vector_index_cls: type[BuildableVectorIndex], embedding_dir: str, index_dir: str
-) -> BuildableVectorIndex:
-    """Build and save a vector index (and its forward index, used for
-    prefiltered hybrid search) from `.npy` embeddings under `embedding_dir`."""
+    vector_index_cls: Callable[[str], AbstractVectorIndex],
+    embedding_dir: str,
+    index_dir: str,
+) -> AbstractVectorIndex:
+    """Build and save a vector index from `.npy` embeddings under `embedding_dir`."""
     embeddings, digests, pages = _iter_npy_embeddings(embedding_dir)
     index = vector_index_cls(index_dir)
     index.build_index()

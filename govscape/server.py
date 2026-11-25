@@ -58,7 +58,6 @@ class Server:
         self.data_model = config.data_model
         self.vector_index_type = config.vector_index_type
         self.keyword_index_type = config.keyword_index_type
-        self.forward_index_type = config.forward_index_type
         self.k = config.k
         self.max_crawl_instances = config.max_crawl_instances
 
@@ -72,14 +71,8 @@ class Server:
         self.text_index: AbstractVectorIndex
         self.visual_index: AbstractVectorIndex
         if self.vector_index_type == "Memory":
-            self.text_index = FAISSIndex(
-                self.data_model.index_directory,
-                forward_index_type=self.forward_index_type,
-            )
-            self.visual_index = FAISSIndex(
-                self.data_model.index_img_pg_directory,
-                forward_index_type=self.forward_index_type,
-            )
+            self.text_index = FAISSIndex(self.data_model.index_directory)
+            self.visual_index = FAISSIndex(self.data_model.index_img_pg_directory)
         elif self.vector_index_type == "Disk":
             self.text_index = IVFPQDiskIndex(self.data_model.index_directory)
             self.visual_index = IVFPQDiskIndex(self.data_model.index_img_pg_directory)

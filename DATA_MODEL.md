@@ -16,10 +16,10 @@ holds everything derived from the PDFs:
 * {test,dev,prod}-serving/embeddings/{digest}/{digest}_{pg_no}.np
 * {test,dev,prod}-serving/embeddings_img_pg/{digest}/{digest}_{pg_no}.np
 * {test,dev,prod}-serving/index/faiss_index.pkl
-* {test,dev,prod}-serving/index/forward_index.lmdb/ (LMDB, default) or forward_index.db (SQLite)
+* {test,dev,prod}-serving/index/forward_index.lmdb/
 * {test,dev,prod}-serving/index_keyword/tantivy/ (Tantivy, default), fts_txt.db (SQLite) or {whoosh idx files}
 * {test,dev,prod}-serving/index_img_pg/faiss_index.pkl
-* {test,dev,prod}-serving/index_img_pg/forward_index.lmdb/ (LMDB, default) or forward_index.db (SQLite)
+* {test,dev,prod}-serving/index_img_pg/forward_index.lmdb/
 * {test,dev,prod}-serving/index_metadata/metadata.db
 * {test,dev,prod}-serving/metadata/{digest}/metadata.json
 * {test,dev,prod}-serving/performance/performance_{job_name}.json
@@ -51,7 +51,7 @@ The complete_cdx.parquet file has the following columns:
 * offset : The pdf's offset into the warc file
 * length : The number of bytes corresponding to the pdf's warc record.
 
-Each vector index directory holds a forward index mapping a PDF digest to the exact vectors of its pages. It is maintained by the vector index and used for prefiltered (metadata-filtered) search. Its format is chosen with `--forward_index_type`: LMDB (default) or SQLite. The same type must be used for index building and serving.
+Each in-memory (FAISS) vector index directory holds `forward_index.lmdb`, an LMDB store mapping a PDF digest to the exact vectors of its pages, used for prefiltered (metadata-filtered) search. Disk (IVF-PQ) indexes keep their vectors in `vectors.f16` instead, with `digest_rows.lmdb` mapping each PDF to its rows.
 
 The metadata.db database has a table with the columns:
 * url TEXT,

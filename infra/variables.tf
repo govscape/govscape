@@ -39,7 +39,7 @@ variable "serving_data_dir" {
 variable "server_args" {
   description = "Model and index arguments passed to scripts.serving.run_gunicorn"
   type        = string
-  default     = "--text_model BGE --visual_model CLIP --keyword_index_type Tantivy --vector_index_type Memory --forward_index_type LMDB"
+  default     = "--text_model BGE --visual_model CLIP --keyword_index_type Tantivy --vector_index_type Memory"
 }
 
 variable "gunicorn_workers" {

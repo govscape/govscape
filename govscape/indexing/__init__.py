@@ -1,11 +1,4 @@
 from .base import AbstractIndex
-from .forward import (
-    FORWARD_INDEX_TYPES,
-    ForwardIndex,
-    LMDBForwardIndex,
-    SQLiteForwardIndex,
-    build_forward_index,
-)
 from .hybrid import (
     STRATEGY_POSTFILTER,
     STRATEGY_PREFILTER,
@@ -22,6 +15,7 @@ from .keyword import (
     TantivyKeywordIndex,
     WhooshKeywordIndex,
 )
+from .kv_store import KVStore
 from .metadata import (
     AbstractMetadataIndex,
     DuckDBMetadataIndex,
@@ -29,14 +23,12 @@ from .metadata import (
 )
 from .vector import (
     AbstractVectorIndex,
-    BuildableVectorIndex,
     FAISSIndex,
     IVFPQDiskIndex,
     LanceDBVectorIndex,
 )
 
 __all__ = [
-    "FORWARD_INDEX_TYPES",
     "STRATEGY_POSTFILTER",
     "STRATEGY_PREFILTER",
     "AbstractHybridMetadataIndex",
@@ -44,22 +36,18 @@ __all__ = [
     "AbstractKeywordIndex",
     "AbstractMetadataIndex",
     "AbstractVectorIndex",
-    "BuildableVectorIndex",
     "DuckDBMetadataIndex",
     "FAISSIndex",
-    "ForwardIndex",
     "HybridIndex",
     "HybridKeywordMetadataIndex",
     "HybridVectorMetadataIndex",
     "IVFPQDiskIndex",
-    "LMDBForwardIndex",
+    "KVStore",
     "LanceDBKeywordIndex",
     "LanceDBVectorIndex",
     "LuceneKeywordIndex",
-    "SQLiteForwardIndex",
     "SQLiteKeywordIndex",
     "SQLiteMetadataIndex",
     "TantivyKeywordIndex",
     "WhooshKeywordIndex",
-    "build_forward_index",
 ]

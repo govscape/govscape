@@ -31,7 +31,7 @@ for embedding_type in txt img_pg; do
     rm -rf data/prod
     poetry run python scripts/indexing/generate_index_embedding.py --remote_data_dir "$data_dir" \
         --profile "$profile" --num_pages_to_process $max_files \
-        --embedding_type $embedding_type --forward_index_type LMDB
+        --embedding_type $embedding_type
 done
 
 rm -rf data/prod

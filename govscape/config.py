@@ -125,7 +125,6 @@ class ServerConfig:
         keyword_index_type,
         k=3,
         max_crawl_instances=500,
-        forward_index_type="LMDB",
     ):
         self.data_model = DataModel(data_dir)
         self.text_model = text_model
@@ -148,9 +147,6 @@ class ServerConfig:
             )
         self.keyword_index_type = keyword_index_type
 
-        if forward_index_type not in ["SQLite", "LMDB"]:
-            raise ValueError("forward_index_type must be either 'SQLite' or 'LMDB'")
-        self.forward_index_type = forward_index_type
         self.max_crawl_instances = max_crawl_instances
 
         # define k for top-k
